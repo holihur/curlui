@@ -15,14 +15,52 @@ import type {
   CaptureEntry,
   FuzzResult,
   PendingIntercept,
+  AuthStatus,
+  User,
+  Project,
 } from "./types";
 
 const BASE = "/api";
 
+// --- auth + project context ------------------------------------------------
+
+let authToken = typeof localStorage !== "undefined" ? localStorage.getItem("curlui.token") ?? "" : "";
+let projectId = typeof localStorage !== "undefined" ? localStorage.getItem("curlui.project") ?? "local" : "local";
+
+export function getProjectId() {
+  return projectId;
+}
+
+// setApiContext stores the session token + active project and mirrors the
+// project into a cookie so same-origin downloads (exports) are scoped too.
+export function setApiContext(next: { token?: string; project?: string }) {
+  if (next.token !== undefined) {
+    authToken = next.token;
+    if (typeof localStorage !== "undefined") {
+      if (authToken) localStorage.setItem("curlui.token", authToken);
+      else localStorage.removeItem("curlui.token");
+    }
+  }
+  if (next.project !== undefined && next.project) {
+    projectId = next.project;
+    if (typeof localStorage !== "undefined") localStorage.setItem("curlui.project", projectId);
+    if (typeof document !== "undefined") {
+      document.cookie = `curlui_project=${encodeURIComponent(projectId)}; path=/; max-age=31536000; samesite=lax`;
+    }
+  }
+}
+
 async function request<T>(path: string, init?: RequestInit): Promise<T> {
+  const headers: Record<string, string> = {
+    "Content-Type": "application/json",
+    "X-Project": projectId,
+    ...((init?.headers as Record<string, string>) ?? {}),
+  };
+  if (authToken) headers["Authorization"] = `Bearer ${authToken}`;
   const res = await fetch(BASE + path, {
-    headers: { "Content-Type": "application/json" },
+    credentials: "same-origin",
     ...init,
+    headers,
   });
   const text = await res.text();
   let data: unknown = null;
@@ -309,5 +347,63 @@ export const api = {
     variables?: Record<string, string>;
   }) {
     return request<FuzzResult>("/fuzz", { method: "POST", body: JSON.stringify(payload) });
+  },
+
+  // --- team / auth / projects ----------------------------------------------
+  authStatus() {
+    return request<AuthStatus>("/auth/status");
+  },
+  login(username: string, password: string) {
+    return request<{ token: string; user: User }>("/auth/login", {
+      method: "POST",
+      body: JSON.stringify({ username, password }),
+    });
+  },
+  bootstrap(username: string, password: string, name: string) {
+    return request<{ token: string; user: User }>("/auth/bootstrap", {
+      method: "POST",
+      body: JSON.stringify({ username, password, name }),
+    });
+  },
+  logout() {
+    return request<{ ok: boolean }>("/auth/logout", { method: "POST" });
+  },
+  listUsers() {
+    return request<{ users: User[] }>("/users");
+  },
+  createUser(payload: { username: string; password: string; name?: string; role?: string }) {
+    return request<User>("/users", { method: "POST", body: JSON.stringify(payload) });
+  },
+  updateUser(id: string, payload: { name?: string; role?: string; password?: string }) {
+    return request<User>(`/users/${id}`, { method: "PUT", body: JSON.stringify(payload) });
+  },
+  deleteUser(id: string) {
+    return request<{ ok: boolean }>(`/users/${id}`, { method: "DELETE" });
+  },
+  listProjects() {
+    return request<{ projects: Project[] }>("/projects");
+  },
+  createProject(name: string) {
+    return request<Project>("/projects", { method: "POST", body: JSON.stringify({ name }) });
+  },
+  renameProject(id: string, name: string) {
+    return request<{ ok: boolean }>(`/projects/${id}`, {
+      method: "PUT",
+      body: JSON.stringify({ name }),
+    });
+  },
+  deleteProject(id: string) {
+    return request<{ ok: boolean }>(`/projects/${id}`, { method: "DELETE" });
+  },
+  setMember(projectId: string, userId: string, role: string) {
+    return request<{ ok: boolean }>(`/projects/${projectId}/members`, {
+      method: "POST",
+      body: JSON.stringify({ userId, role }),
+    });
+  },
+  removeMember(projectId: string, userId: string) {
+    return request<{ ok: boolean }>(`/projects/${projectId}/members/${userId}`, {
+      method: "DELETE",
+    });
   },
 };

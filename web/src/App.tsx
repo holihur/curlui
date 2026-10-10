@@ -6,6 +6,7 @@ import { RequestTabs } from "@/components/RequestTabs";
 import { RequestEditor } from "@/components/RequestEditor";
 import { Toaster } from "@/components/Toaster";
 import { InterceptDialog } from "@/components/InterceptDialog";
+import { AuthScreen } from "@/components/LoginDialog";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 
@@ -15,6 +16,9 @@ export default function App() {
   const newTab = useStore((s) => s.newTab);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
+  const authEnabled = useStore((s) => s.authEnabled);
+  const authenticated = useStore((s) => s.authenticated);
+  const syncProject = useStore((s) => s.syncProject);
   const started = useRef(false);
 
   useEffect(() => {
@@ -31,6 +35,23 @@ export default function App() {
     window.addEventListener("hashchange", onHash);
     return () => window.removeEventListener("hashchange", onHash);
   }, [applyRoute]);
+
+  // Collaboration: poll the shared project version and refresh when a
+  // teammate changed the workspace.
+  useEffect(() => {
+    if (!authenticated) return;
+    const id = setInterval(() => void syncProject(), 6000);
+    return () => clearInterval(id);
+  }, [authenticated, syncProject]);
+
+  if (authEnabled && !authenticated) {
+    return (
+      <TooltipProvider delayDuration={250}>
+        <AuthScreen />
+        <Toaster />
+      </TooltipProvider>
+    );
+  }
 
   return (
     <TooltipProvider delayDuration={250}>

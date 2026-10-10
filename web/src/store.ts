@@ -1,5 +1,5 @@
 import { create } from "zustand";
-import { api } from "@/lib/api";
+import { api, setApiContext } from "@/lib/api";
 import {
   blankRequest,
   type ApiResponse,
@@ -8,7 +8,9 @@ import {
   type ExtractRule,
   type HistoryEntry,
   type KeyValue,
+  type Project,
   type RequestDef,
+  type User,
 } from "@/lib/types";
 import { uid } from "@/lib/utils";
 import { translate } from "@/lib/i18n";
@@ -47,6 +49,26 @@ type State = {
   // Responsive layout: the sidebar collapses to a drawer on small screens.
   sidebarOpen: boolean;
   setSidebarOpen: (v: boolean) => void;
+
+  // team / auth / projects
+  authEnabled: boolean;
+  authenticated: boolean;
+  user: User | null;
+  userCount: number;
+  projects: Project[];
+  projectId: string;
+  projectRole: string;
+  projectVersion: number;
+  loginOpen: boolean;
+  setLoginOpen: (v: boolean) => void;
+  loadAuth: () => Promise<void>;
+  login: (username: string, password: string) => Promise<void>;
+  bootstrap: (username: string, password: string, name: string) => Promise<void>;
+  logout: () => Promise<void>;
+  setProject: (id: string) => Promise<void>;
+  refreshProjects: () => Promise<void>;
+  createProject: (name: string) => Promise<void>;
+  syncProject: () => Promise<void>;
   // Per-collection-node test status (green/red indicator in the tree).
   testStatus: Record<string, TestStatus>;
   // Variables produced by hooks/parents, applied to subsequent sends.
@@ -267,7 +289,107 @@ export const useStore = create<State>((set, get) => ({
   testStatus: {},
   runtimeVars: {},
 
+  authEnabled: false,
+  authenticated: true,
+  user: null,
+  userCount: 0,
+  projects: [],
+  projectId: typeof localStorage !== "undefined" ? localStorage.getItem("curlui.project") ?? "local" : "local",
+  projectRole: "member",
+  projectVersion: 0,
+  loginOpen: false,
+
+  setLoginOpen(v) {
+    set({ loginOpen: v });
+  },
+
+  async loadAuth() {
+    try {
+      const st = await api.authStatus();
+      setApiContext({ project: st.project });
+      set({
+        authEnabled: st.authEnabled,
+        authenticated: st.authenticated,
+        user: st.user,
+        userCount: st.userCount,
+        projects: st.projects ?? [],
+        projectId: st.project,
+        projectRole: st.role,
+      });
+    } catch {
+      set({ authEnabled: true, authenticated: false, user: null });
+    }
+  },
+
+  async login(username, password) {
+    const r = await api.login(username, password);
+    setApiContext({ token: r.token });
+    await get().loadAuth();
+    await get().loadAll();
+  },
+
+  async bootstrap(username, password, name) {
+    const r = await api.bootstrap(username, password, name);
+    setApiContext({ token: r.token });
+    await get().loadAuth();
+    await get().loadAll();
+  },
+
+  async logout() {
+    try {
+      await api.logout();
+    } catch {
+      /* ignore */
+    }
+    setApiContext({ token: "" });
+    set({ authenticated: false, user: null, tabs: [], activeTabId: null });
+  },
+
+  async setProject(id) {
+    if (!id) return;
+    setApiContext({ project: id });
+    set({ projectId: id, collections: [], history: [], environments: [], tabs: [], activeTabId: null });
+    await get().loadAll();
+  },
+
+  async refreshProjects() {
+    try {
+      const { projects } = await api.listProjects();
+      set({ projects: projects ?? [] });
+    } catch {
+      /* ignore */
+    }
+  },
+
+  async createProject(name) {
+    const p = await api.createProject(name);
+    await get().refreshProjects();
+    await get().setProject(p.id);
+  },
+
+  // syncProject polls the project version and refreshes when a teammate
+  // changed the shared workspace.
+  async syncProject() {
+    try {
+      const { projects } = await api.listProjects();
+      const current = projects?.find((p) => p.id === get().projectId);
+      set({ projects: projects ?? [] });
+      if (current && (current.version ?? 0) !== get().projectVersion) {
+        set({ projectVersion: current.version ?? 0 });
+        await Promise.all([
+          get().refreshCollections(),
+          get().refreshHistory(),
+          get().refreshEnvironments(),
+        ]);
+      }
+    } catch {
+      /* ignore */
+    }
+  },
+
   async loadAll() {
+    await get().loadAuth();
+    if (get().authEnabled && !get().authenticated) return;
     await Promise.all([
       get().refreshCollections(),
       get().refreshHistory(),

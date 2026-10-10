@@ -80,6 +80,12 @@ internal/private endpoints, and you get precise per-phase network timings.
   Settings.
 - **Custom User-Agent** — configurable in Settings; applied to requests that
   don't set their own.
+- **Teams, projects & collaboration** — optional login (off by default, so a
+  single user keeps **every feature anonymously**). Turn on *Require login* in
+  Settings to create the first admin, then invite members. Each **project** is
+  an isolated workspace (collections, history, environments, traffic) stored in
+  PostgreSQL; members get a role (owner/admin/member/viewer) and clients poll the
+  project version so teammates see each other's changes.
 - **Export / import** — export a collection as JSON (round-trips back in) or as
   a sheet of cURL commands. **Export docs** renders a collection to **Markdown,
   HTML, Word or PDF** using the built-in template or your own (Go template
@@ -264,6 +270,15 @@ web/
 | Method   | Path                          | Purpose                          |
 | -------- | ----------------------------- | -------------------------------- |
 | `POST`   | `/api/send`                   | Execute a request                |
+| `GET`    | `/api/auth/status`            | Auth state, current user + projects |
+| `POST`   | `/api/auth/login`             | Sign in (sets a session cookie)  |
+| `POST`   | `/api/auth/logout`            | Sign out                         |
+| `POST`   | `/api/auth/bootstrap`         | Create the first admin account   |
+| `GET/POST` | `/api/users`                | List / create users (admin)      |
+| `PUT/DELETE` | `/api/users/{id}`         | Edit / remove a user (admin)     |
+| `GET/POST` | `/api/projects`             | List / create projects           |
+| `PUT/DELETE` | `/api/projects/{id}`      | Rename / delete a project        |
+| `POST/DELETE` | `/api/projects/{id}/members[/{userId}]` | Manage members     |
 | `GET`    | `/api/collections`            | Get the collection tree          |
 | `POST`   | `/api/collections`            | Create a folder or request       |
 | `PUT`    | `/api/collections/{id}`       | Update a node                    |

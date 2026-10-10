@@ -37,6 +37,7 @@ export function SettingsDialog({
   const [userAgent, setUserAgent] = useState("");
   const [mcpOn, setMcpOn] = useState(true);
   const [mcpWrite, setMcpWrite] = useState(false);
+  const [authOn, setAuthOn] = useState(false);
   const [info, setInfo] = useState<{ current: string; latest: string; hasUpdate: boolean; url: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -86,6 +87,7 @@ export function SettingsDialog({
         setUserAgent(s.userAgent ?? "");
         setMcpOn(s.mcpEnabled !== "0");
         setMcpWrite(s.mcpWrite === "1");
+        setAuthOn(s.authEnabled === "1");
       })
       .catch(() => {});
   }, [open]);
@@ -97,7 +99,9 @@ export function SettingsDialog({
         userAgent: userAgent.trim(),
         mcpEnabled: mcpOn ? "1" : "0",
         mcpWrite: mcpWrite ? "1" : "0",
+        authEnabled: authOn ? "1" : "0",
       });
+      await useStore.getState().loadAuth();
       toast({ title: t("settingsSaved"), variant: "success" });
       onOpenChange(false);
     } catch (err) {
@@ -140,6 +144,17 @@ export function SettingsDialog({
           />
           <p className="text-[11px] text-muted-foreground">{t("userAgentHint")}</p>
         </Field>
+
+        <div className="border-t pt-4">
+          <div className="mb-2 text-sm font-medium">{t("team")}</div>
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span className="flex-1">
+              {t("requireLogin")}
+              <span className="mt-0.5 block text-[11px] text-muted-foreground">{t("requireLoginHint")}</span>
+            </span>
+            <Switch checked={authOn} onCheckedChange={setAuthOn} />
+          </label>
+        </div>
 
         <div className="border-t pt-4">
           <div className="mb-2 text-sm font-medium">{t("updates")}</div>

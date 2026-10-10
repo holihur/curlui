@@ -67,7 +67,7 @@ func (s *Server) SetProxyCA(pem []byte) {
 
 // Execute runs a request and returns its response.
 func (s *Server) Execute(ctx context.Context, req models.RequestDef, envID string, vars map[string]string, parents []models.RequestDef, mock bool) models.Response {
-	resp, _ := s.runRequest(ctx, sendPayload{Request: req, EnvID: envID, Variables: vars, Parents: parents, Mock: mock})
+	resp, _ := s.runRequest(ctx, s.store, sendPayload{Request: req, EnvID: envID, Variables: vars, Parents: parents, Mock: mock})
 	return resp
 }
 
@@ -129,7 +129,7 @@ func New(st *store.Store, version string) *Server {
 	}
 	s.scheduler = scheduler.New(
 		func(ctx context.Context, req models.RequestDef, envID string, vars map[string]string, parents []models.RequestDef, mock bool) models.Response {
-			resp, _ := s.runRequest(ctx, sendPayload{Request: req, EnvID: envID, Variables: vars, Parents: parents, Mock: mock})
+			resp, _ := s.runRequest(ctx, st, sendPayload{Request: req, EnvID: envID, Variables: vars, Parents: parents, Mock: mock})
 			return resp
 		},
 		func(jobs []models.ScheduleJob) { _ = st.SaveSchedules(jobs) },
@@ -231,7 +231,23 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /mcp", s.handleMCP)
 	mux.HandleFunc("GET /api/mock/{id}/hits", s.mockHitsHandler)
 
-	return withCORS(withLogging(mux))
+	// Team, auth and projects
+	mux.HandleFunc("GET /api/auth/status", s.authStatus)
+	mux.HandleFunc("POST /api/auth/login", s.authLogin)
+	mux.HandleFunc("POST /api/auth/logout", s.authLogout)
+	mux.HandleFunc("POST /api/auth/bootstrap", s.authBootstrap)
+	mux.HandleFunc("GET /api/users", s.listUsers)
+	mux.HandleFunc("POST /api/users", s.createUser)
+	mux.HandleFunc("PUT /api/users/{id}", s.updateUser)
+	mux.HandleFunc("DELETE /api/users/{id}", s.deleteUser)
+	mux.HandleFunc("GET /api/projects", s.listProjects)
+	mux.HandleFunc("POST /api/projects", s.createProject)
+	mux.HandleFunc("PUT /api/projects/{id}", s.updateProject)
+	mux.HandleFunc("DELETE /api/projects/{id}", s.deleteProject)
+	mux.HandleFunc("POST /api/projects/{id}/members", s.setProjectMember)
+	mux.HandleFunc("DELETE /api/projects/{id}/members/{userId}", s.removeProjectMember)
+
+	return withCORS(withLogging(s.withAuth(mux)))
 }
 
 // --- middleware ------------------------------------------------------------
@@ -240,7 +256,7 @@ func withCORS(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		w.Header().Set("Access-Control-Allow-Origin", "*")
 		w.Header().Set("Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS")
-		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization")
+		w.Header().Set("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Project")
 		if r.Method == http.MethodOptions {
 			w.WriteHeader(http.StatusNoContent)
 			return
@@ -292,7 +308,7 @@ func decode(r *http.Request, v any) error {
 
 // --- handlers --------------------------------------------------------------
 
-func (s *Server) health(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now().Unix()})
 }
 
@@ -316,17 +332,17 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	resp, envSet := s.runRequest(r.Context(), payload)
+	resp, envSet := s.runRequest(r.Context(), s.db(r), payload)
 	writeJSON(w, http.StatusOK, sendResult{Response: resp, Variables: envSet})
 }
 
 // runRequest resolves variables, runs parent requests, executes the request and
 // records it in history. Shared by the send handler and the scheduler.
-func (s *Server) runRequest(ctx context.Context, payload sendPayload) (models.Response, variables.Set) {
+func (s *Server) runRequest(ctx context.Context, st *store.Store, payload sendPayload) (models.Response, variables.Set) {
 	// Resolve variables from the selected environment.
 	envSet := variables.Set{}
 	if payload.EnvID != "" {
-		for _, env := range s.store.Environments() {
+		for _, env := range st.Environments() {
 			if env.ID == payload.EnvID {
 				envSet = variables.FromEnvironment(&env)
 				break
@@ -358,7 +374,7 @@ func (s *Server) runRequest(ctx context.Context, payload sendPayload) (models.Re
 
 	resp := s.executor.Execute(ctx, payload.Request, envSet, payload.Mock)
 	if payload.Mock {
-		s.recordMockHit(payload.Request.ID, payload.Request.Method, payload.Request.URL, "editor")
+		s.recordMockHit(st, payload.Request.ID, payload.Request.Method, payload.Request.URL, "editor")
 	}
 
 	entry := models.HistoryEntry{
@@ -372,7 +388,7 @@ func (s *Server) runRequest(ctx context.Context, payload sendPayload) (models.Re
 		EnvID:      payload.EnvID,
 		CreatedAt:  time.Now().UnixMilli(),
 	}
-	if err := s.store.AddHistory(entry); err != nil {
+	if err := st.AddHistory(entry); err != nil {
 		log.Printf("history save failed: %v", err)
 	}
 
@@ -407,8 +423,8 @@ type createNodePayload struct {
 	Request  *models.RequestDef `json:"request"`
 }
 
-func (s *Server) listCollections(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"collections": s.store.Collections()})
+func (s *Server) listCollections(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"collections": s.db(r).Collections()})
 }
 
 func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
@@ -430,7 +446,7 @@ func (s *Server) createNode(w http.ResponseWriter, r *http.Request) {
 		req.ID = node.ID
 		node.Request = req
 	}
-	saved, err := s.store.AddNode(payload.ParentID, node)
+	saved, err := s.db(r).AddNode(payload.ParentID, node)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -451,7 +467,7 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	node, err := s.store.UpdateNode(id, &models.Node{Name: payload.Name, Type: payload.Type, Request: payload.Request})
+	node, err := s.db(r).UpdateNode(id, &models.Node{Name: payload.Name, Type: payload.Type, Request: payload.Request})
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "node not found")
 		return
@@ -460,7 +476,7 @@ func (s *Server) updateNode(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteNode(r.PathValue("id")); err != nil {
+	if err := s.db(r).DeleteNode(r.PathValue("id")); err != nil {
 		writeErr(w, http.StatusNotFound, "node not found")
 		return
 	}
@@ -477,7 +493,7 @@ func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	node, err := s.store.SetFolderConfig(r.PathValue("id"), payload.Variables, payload.SetupNodeID, payload.Extract)
+	node, err := s.db(r).SetFolderConfig(r.PathValue("id"), payload.Variables, payload.SetupNodeID, payload.Extract)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
@@ -494,7 +510,7 @@ func (s *Server) mockServer(w http.ResponseWriter, r *http.Request) {
 		http.NotFound(w, r)
 		return
 	}
-	node, ok := s.store.FindNode(id)
+	node, ok := s.db(r).FindNode(id)
 	if !ok || node.Request == nil {
 		http.Error(w, "mock not found", http.StatusNotFound)
 		return
@@ -526,10 +542,10 @@ func (s *Server) mockServer(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, mock.Body)
-	s.recordMockHit(id, r.Method, r.URL.Path, "server")
+	s.recordMockHit(s.db(r), id, r.Method, r.URL.Path, "server")
 }
 
-func (s *Server) recordMockHit(id, method, path, source string) {
+func (s *Server) recordMockHit(st *store.Store, id, method, path, source string) {
 	if id == "" {
 		return
 	}
@@ -543,7 +559,7 @@ func (s *Server) recordMockHit(id, method, path, source string) {
 		snap[k] = v
 	}
 	s.mu.Unlock()
-	_ = s.store.SaveMockHits(snap)
+	_ = st.SaveMockHits(snap)
 }
 
 func (s *Server) mockHitsHandler(w http.ResponseWriter, r *http.Request) {
@@ -574,7 +590,7 @@ func firstMockOf(mocks []models.MockResponse, name string) *models.MockResponse 
 }
 
 func (s *Server) duplicateNode(w http.ResponseWriter, r *http.Request) {
-	node, err := s.store.DuplicateNode(r.PathValue("id"))
+	node, err := s.db(r).DuplicateNode(r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, "node not found")
 		return
@@ -592,7 +608,7 @@ func (s *Server) moveNode(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.store.MoveNode(r.PathValue("id"), payload.ParentID, payload.SiblingID, payload.Position); err != nil {
+	if err := s.db(r).MoveNode(r.PathValue("id"), payload.ParentID, payload.SiblingID, payload.Position); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
@@ -601,12 +617,12 @@ func (s *Server) moveNode(w http.ResponseWriter, r *http.Request) {
 
 // --- history ---------------------------------------------------------------
 
-func (s *Server) listHistory(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"history": s.store.History()})
+func (s *Server) listHistory(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"history": s.db(r).History()})
 }
 
-func (s *Server) clearHistory(w http.ResponseWriter, _ *http.Request) {
-	if err := s.store.ClearHistory(); err != nil {
+func (s *Server) clearHistory(w http.ResponseWriter, r *http.Request) {
+	if err := s.db(r).ClearHistory(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -614,7 +630,7 @@ func (s *Server) clearHistory(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) deleteHistory(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteHistory(r.PathValue("id")); err != nil {
+	if err := s.db(r).DeleteHistory(r.PathValue("id")); err != nil {
 		writeErr(w, http.StatusNotFound, "entry not found")
 		return
 	}
@@ -623,8 +639,8 @@ func (s *Server) deleteHistory(w http.ResponseWriter, r *http.Request) {
 
 // --- environments ----------------------------------------------------------
 
-func (s *Server) listEnvironments(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"environments": s.store.Environments()})
+func (s *Server) listEnvironments(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"environments": s.db(r).Environments()})
 }
 
 func (s *Server) saveEnvironment(w http.ResponseWriter, r *http.Request) {
@@ -633,7 +649,7 @@ func (s *Server) saveEnvironment(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	saved, err := s.store.SaveEnvironment(env)
+	saved, err := s.db(r).SaveEnvironment(env)
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -642,7 +658,7 @@ func (s *Server) saveEnvironment(w http.ResponseWriter, r *http.Request) {
 }
 
 func (s *Server) deleteEnvironment(w http.ResponseWriter, r *http.Request) {
-	if err := s.store.DeleteEnvironment(r.PathValue("id")); err != nil {
+	if err := s.db(r).DeleteEnvironment(r.PathValue("id")); err != nil {
 		writeErr(w, http.StatusNotFound, "environment not found")
 		return
 	}
@@ -651,8 +667,8 @@ func (s *Server) deleteEnvironment(w http.ResponseWriter, r *http.Request) {
 
 // --- settings --------------------------------------------------------------
 
-func (s *Server) getSettings(w http.ResponseWriter, _ *http.Request) {
-	writeJSON(w, http.StatusOK, s.store.Settings())
+func (s *Server) getSettings(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, s.db(r).Settings())
 }
 
 func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
@@ -661,11 +677,11 @@ func (s *Server) saveSettings(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.store.SaveSettings(in); err != nil {
+	if err := s.db(r).SaveSettings(in); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, s.store.Settings())
+	writeJSON(w, http.StatusOK, s.db(r).Settings())
 }
 
 // --- curl import/export ----------------------------------------------------
@@ -736,7 +752,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusCreated, job)
 }
 
-func (s *Server) listSchedules(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"jobs": s.scheduler.List()})
 }
 
@@ -776,14 +792,14 @@ func (s *Server) exportNodes(w http.ResponseWriter, r *http.Request) {
 
 	var nodes []*models.Node
 	if id != "" {
-		n, ok := s.store.FindNode(id)
+		n, ok := s.db(r).FindNode(id)
 		if !ok {
 			writeErr(w, http.StatusNotFound, "node not found")
 			return
 		}
 		nodes = []*models.Node{n}
 	} else {
-		nodes = s.store.Collections()
+		nodes = s.db(r).Collections()
 	}
 
 	if format == "curl" {
@@ -812,13 +828,13 @@ func (s *Server) exportDoc(w http.ResponseWriter, r *http.Request) {
 	format := strings.ToLower(r.URL.Query().Get("format"))
 	tmpl := r.URL.Query().Get("template")
 	if tmpl == "" {
-		tmpl = s.store.Settings()["docTemplate"]
+		tmpl = s.db(r).Settings()["docTemplate"]
 	}
 
 	title := "API Documentation"
 	var nodes []*models.Node
 	if id != "" {
-		n, ok := s.store.FindNode(id)
+		n, ok := s.db(r).FindNode(id)
 		if !ok {
 			writeErr(w, http.StatusNotFound, "node not found")
 			return
@@ -826,7 +842,7 @@ func (s *Server) exportDoc(w http.ResponseWriter, r *http.Request) {
 		nodes = []*models.Node{n}
 		title = n.Name
 	} else {
-		nodes = s.store.Collections()
+		nodes = s.db(r).Collections()
 	}
 
 	model := doc.BuildModel(title, nodes)
@@ -857,7 +873,7 @@ func (s *Server) exportDoc(w http.ResponseWriter, r *http.Request) {
 	}
 	base := "curlui-docs"
 	if id != "" {
-		if n, ok := s.store.FindNode(id); ok {
+		if n, ok := s.db(r).FindNode(id); ok {
 			base = safeFilename(n.Name)
 		}
 	}
@@ -886,7 +902,7 @@ func writeCurlNode(w io.Writer, n *models.Node, prefix string) {
 
 // --- update ----------------------------------------------------------------
 
-func (s *Server) checkUpdate(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
 	rel, err := update.LatestRelease()
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
@@ -900,7 +916,7 @@ func (s *Server) checkUpdate(w http.ResponseWriter, _ *http.Request) {
 	})
 }
 
-func (s *Server) applyUpdate(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) applyUpdate(w http.ResponseWriter, r *http.Request) {
 	rel, err := update.LatestRelease()
 	if err != nil {
 		writeErr(w, http.StatusBadGateway, err.Error())
@@ -975,7 +991,7 @@ func (s *Server) runBatch(w http.ResponseWriter, r *http.Request) {
 
 	envSet := variables.Set{}
 	if payload.EnvID != "" {
-		for _, env := range s.store.Environments() {
+		for _, env := range s.db(r).Environments() {
 			if env.ID == payload.EnvID {
 				envSet = variables.FromEnvironment(&env)
 				break
@@ -1120,7 +1136,7 @@ func (s *Server) runFuzz(w http.ResponseWriter, r *http.Request) {
 
 	envSet := variables.Set{}
 	if payload.EnvID != "" {
-		for _, env := range s.store.Environments() {
+		for _, env := range s.db(r).Environments() {
 			if env.ID == payload.EnvID {
 				envSet = variables.FromEnvironment(&env)
 				break
@@ -1282,7 +1298,7 @@ func (s *Server) saveCaptures(w http.ResponseWriter, r *http.Request) {
 		set[id] = true
 	}
 	var chosen []models.CaptureEntry
-	for _, c := range s.store.Captures() {
+	for _, c := range s.db(r).Captures() {
 		if len(set) == 0 || set[c.ID] {
 			chosen = append(chosen, c)
 		}
@@ -1301,7 +1317,7 @@ func (s *Server) saveCaptures(w http.ResponseWriter, r *http.Request) {
 		node := &models.Node{ID: models.NewID(), Type: "request", Name: req.Name, Request: &req}
 		folder.Children = append(folder.Children, node)
 	}
-	saved, count, err := s.store.ImportNodes("", []*models.Node{folder})
+	saved, count, err := s.db(r).ImportNodes("", []*models.Node{folder})
 	if err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1315,14 +1331,14 @@ func (s *Server) saveCaptures(w http.ResponseWriter, r *http.Request) {
 
 // --- capture proxy ---------------------------------------------------------
 
-func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) listProxy(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	running, addr := s.proxyRunning, s.proxyAddr
 	s.mu.Unlock()
-	settings := s.store.Settings()
+	settings := s.db(r).Settings()
 	ttl := atoiSafe(settings["proxyTTL"])
 	if ttl > 0 {
-		_ = s.store.PurgeCaptures(time.Duration(ttl) * time.Second)
+		_ = s.db(r).PurgeCaptures(time.Duration(ttl) * time.Second)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
 		"running":             running,
@@ -1336,7 +1352,7 @@ func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
 		"breakResponseFilter": settings["proxyBreakResponseFilter"],
 		"mitm":                settings["proxyMITM"] != "0",
 		"mitmFilter":          settings["proxyMITMFilter"],
-		"entries":             s.store.Captures(),
+		"entries":             s.db(r).Captures(),
 	})
 }
 
@@ -1375,7 +1391,7 @@ func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 	if payload.TTLSeconds < 0 {
 		payload.TTLSeconds = 0
 	}
-	if err := s.store.SaveSettings(map[string]string{
+	if err := s.db(r).SaveSettings(map[string]string{
 		"proxyCapture":             capture,
 		"proxyTTL":                 strconv.Itoa(payload.TTLSeconds),
 		"proxyCaptureFilter":       payload.Filter,
@@ -1394,7 +1410,7 @@ func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 
 // --- breakpoints -----------------------------------------------------------
 
-func (s *Server) listIntercepts(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) listIntercepts(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	i := s.interceptor
 	s.mu.Unlock()
@@ -1450,7 +1466,7 @@ func atoiSafe(s string) int {
 // --- capture export --------------------------------------------------------
 
 func (s *Server) exportCaptures(w http.ResponseWriter, r *http.Request) {
-	entries := s.store.Captures()
+	entries := s.db(r).Captures()
 	if r.URL.Query().Get("format") == "curl" {
 		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
 		w.Header().Set("Content-Disposition", `attachment; filename="curlui-captures.sh"`)
@@ -1519,7 +1535,7 @@ func headerVal(h map[string][]string, name string) string {
 	return ""
 }
 
-func (s *Server) proxyCAHandler(w http.ResponseWriter, _ *http.Request) {
+func (s *Server) proxyCAHandler(w http.ResponseWriter, r *http.Request) {
 	s.mu.Lock()
 	pem := s.proxyCA
 	s.mu.Unlock()
@@ -1532,8 +1548,8 @@ func (s *Server) proxyCAHandler(w http.ResponseWriter, _ *http.Request) {
 	_, _ = w.Write(pem)
 }
 
-func (s *Server) clearProxy(w http.ResponseWriter, _ *http.Request) {
-	if err := s.store.ClearCaptures(); err != nil {
+func (s *Server) clearProxy(w http.ResponseWriter, r *http.Request) {
+	if err := s.db(r).ClearCaptures(); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
@@ -1541,7 +1557,7 @@ func (s *Server) clearProxy(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) replayCapture(w http.ResponseWriter, r *http.Request) {
-	entry, err := s.replayCaptureByID(r.Context(), r.PathValue("id"))
+	entry, err := s.replayCaptureByID(r.Context(), s.db(r), r.PathValue("id"))
 	if err != nil {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
@@ -1551,7 +1567,7 @@ func (s *Server) replayCapture(w http.ResponseWriter, r *http.Request) {
 
 // ReplayCapture re-sends a captured request (used by the MCP server).
 func (s *Server) ReplayCapture(ctx context.Context, id string) (models.CaptureEntry, error) {
-	return s.replayCaptureByID(ctx, id)
+	return s.replayCaptureByID(ctx, s.store, id)
 }
 
 // SaveSettings merges settings (used by the MCP proxy_config tool).
@@ -1579,9 +1595,9 @@ func (s *Server) ResolveIntercept(id string, res proxy.Resolution) bool {
 	return i.Resolve(id, res)
 }
 
-func (s *Server) replayCaptureByID(ctx context.Context, id string) (models.CaptureEntry, error) {
+func (s *Server) replayCaptureByID(ctx context.Context, st *store.Store, id string) (models.CaptureEntry, error) {
 	var found *models.CaptureEntry
-	for _, c := range s.store.Captures() {
+	for _, c := range st.Captures() {
 		if c.ID == id {
 			cp := c
 			found = &cp
@@ -1606,7 +1622,7 @@ func (s *Server) replayCaptureByID(ctx context.Context, id string) (models.Captu
 		Duration:        resp.Duration,
 		Error:           resp.Error,
 	}
-	_ = s.store.AddCapture(entry)
+	_ = st.AddCapture(entry)
 	return entry, nil
 }
 
@@ -1705,7 +1721,7 @@ func (s *Server) importCollections(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "no nodes to import")
 		return
 	}
-	saved, count, err := s.store.ImportNodes(payload.ParentID, payload.Nodes)
+	saved, count, err := s.db(r).ImportNodes(payload.ParentID, payload.Nodes)
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return

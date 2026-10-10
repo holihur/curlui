@@ -328,3 +328,31 @@ export type OpenAPIResult = {
   endpoints: number;
   collections: CollectionNode[];
 };
+
+export type User = {
+  id: string;
+  username: string;
+  name: string;
+  role: "admin" | "member" | "viewer" | string;
+  createdAt?: string;
+};
+
+export type Project = {
+  id: string;
+  name: string;
+  ownerId: string;
+  members: Record<string, string>;
+  createdAt?: string;
+  updatedAt?: string;
+  version?: number;
+};
+
+export type AuthStatus = {
+  authEnabled: boolean;
+  authenticated: boolean;
+  userCount: number;
+  user: User | null;
+  project: string;
+  role: string;
+  projects: Project[];
+};

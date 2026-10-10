@@ -6,7 +6,10 @@ import {
   FileText,
   FileUp,
   FolderInput,
+  FolderKanban,
   Globe,
+  LogIn,
+  LogOut,
   Menu,
   Moon,
   MoreHorizontal,
@@ -14,6 +17,7 @@ import {
   Settings as SettingsIcon,
   Sun,
   TerminalSquare,
+  Users,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
@@ -30,6 +34,9 @@ import { ImportCurlDialog } from "@/components/ImportCurlDialog";
 import { OpenAPIDialog } from "@/components/OpenAPIDialog";
 import { SettingsDialog } from "@/components/SettingsDialog";
 import { DocExportDialog } from "@/components/DocExportDialog";
+import { TeamDialog } from "@/components/TeamDialog";
+import { LoginDialog } from "@/components/LoginDialog";
+import { PromptDialog } from "@/components/PromptDialog";
 import { LOCALES, useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
@@ -52,7 +59,21 @@ export function TopBar() {
   const [openapiOpen, setOpenapiOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
+  const [teamOpen, setTeamOpen] = useState(false);
+  const [newProjectOpen, setNewProjectOpen] = useState(false);
   const collectionFileRef = useRef<HTMLInputElement>(null);
+
+  const projects = useStore((s) => s.projects);
+  const projectId = useStore((s) => s.projectId);
+  const setProject = useStore((s) => s.setProject);
+  const createProject = useStore((s) => s.createProject);
+  const user = useStore((s) => s.user);
+  const authEnabled = useStore((s) => s.authEnabled);
+  const authenticated = useStore((s) => s.authenticated);
+  const logout = useStore((s) => s.logout);
+  const setLoginOpen = useStore((s) => s.setLoginOpen);
+  const loginOpen = useStore((s) => s.loginOpen);
+  const currentProject = projects.find((p) => p.id === projectId);
 
   const importCollection = async (file: File) => {
     try {
@@ -119,6 +140,30 @@ export function TopBar() {
         </DropdownMenuContent>
       </DropdownMenu>
 
+      {/* Project switcher */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" className="max-w-[11rem] gap-1.5" title={t("switchProject")}>
+            <FolderKanban className="h-4 w-4" />
+            <span className="hidden truncate sm:inline">{currentProject?.name ?? projectId}</span>
+            <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start" className="w-56">
+          <DropdownMenuLabel>{t("projects")}</DropdownMenuLabel>
+          {projects.map((p) => (
+            <DropdownMenuItem key={p.id} onClick={() => void setProject(p.id)}>
+              {p.id === projectId ? <Check /> : <FolderKanban />}
+              <span className="truncate">{p.name}</span>
+            </DropdownMenuItem>
+          ))}
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setNewProjectOpen(true)}>
+            <Plus /> {t("newProject")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
+
       <div className="ml-auto flex min-w-0 items-center gap-2">
         <div className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
           <Zap className="h-3.5 w-3.5" />
@@ -167,6 +212,26 @@ export function TopBar() {
             <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
               <SettingsIcon /> {t("settings")}
             </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>{t("account")}</DropdownMenuLabel>
+            {user && (
+              <DropdownMenuItem disabled>
+                {user.name || user.username} · {user.role}
+              </DropdownMenuItem>
+            )}
+            <DropdownMenuItem onClick={() => setTeamOpen(true)}>
+              <Users /> {t("team")}
+            </DropdownMenuItem>
+            {authEnabled && authenticated && (
+              <DropdownMenuItem onClick={() => void logout()}>
+                <LogOut /> {t("logout")}
+              </DropdownMenuItem>
+            )}
+            {authEnabled && !authenticated && (
+              <DropdownMenuItem onClick={() => setLoginOpen(true)}>
+                <LogIn /> {t("login")}
+              </DropdownMenuItem>
+            )}
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
@@ -175,6 +240,18 @@ export function TopBar() {
       <OpenAPIDialog open={openapiOpen} onOpenChange={setOpenapiOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
       <DocExportDialog open={docOpen} onOpenChange={setDocOpen} node={null} />
+      <TeamDialog open={teamOpen} onOpenChange={setTeamOpen} />
+      <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} />
+      <PromptDialog
+        open={newProjectOpen}
+        onOpenChange={setNewProjectOpen}
+        title={t("newProject")}
+        placeholder={t("projectName")}
+        submitLabel={t("save")}
+        onSubmit={(v) => {
+          if (v.trim()) void createProject(v.trim());
+        }}
+      />
       <input
         ref={collectionFileRef}
         type="file"

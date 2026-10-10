@@ -902,6 +902,9 @@ func pbkdf2SHA256(password, salt []byte, iter, keyLen int) []byte {
 func (s *Store) Collections() []*models.Node {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.data.Collections == nil {
+		return []*models.Node{}
+	}
 	return s.data.Collections
 }
 
@@ -1239,6 +1242,9 @@ func (s *Store) DeleteHistory(id string) error {
 func (s *Store) Environments() []models.Environment {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.data.Environments == nil {
+		return []models.Environment{}
+	}
 	return s.data.Environments
 }
 
@@ -1301,6 +1307,9 @@ func (s *Store) SaveSchedules(jobs []models.ScheduleJob) error {
 func (s *Store) Captures() []models.CaptureEntry {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
+	if s.data.Captures == nil {
+		return []models.CaptureEntry{}
+	}
 	out := make([]models.CaptureEntry, len(s.data.Captures))
 	copy(out, s.data.Captures)
 	return out
