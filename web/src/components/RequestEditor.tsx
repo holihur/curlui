@@ -14,6 +14,7 @@ import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import { KeyValueEditor } from "@/components/KeyValueEditor";
 import { CodeEditor } from "@/components/CodeEditor";
+import { AutomationEditor } from "@/components/AutomationEditor";
 import { ResponsePanel } from "@/components/ResponsePanel";
 import { CodeDialog } from "@/components/CodeDialog";
 import { cn } from "@/lib/utils";
@@ -41,6 +42,7 @@ export function RequestEditor() {
   const updateActiveRequest = useStore((s) => s.updateActiveRequest);
   const send = useStore((s) => s.send);
   const saveActiveTab = useStore((s) => s.saveActiveTab);
+  const status = useStore((s) => (tab?.sourceId ? s.testStatus[tab.sourceId] : undefined));
 
   const [codeOpen, setCodeOpen] = useState(false);
   const [configHeight, setConfigHeight] = useState(300);
@@ -162,7 +164,7 @@ export function RequestEditor() {
         style={{ height: configHeight }}
       >
         <Tabs defaultValue="params" className="flex min-h-0 flex-1 flex-col">
-          <div className="shrink-0 border-b px-2 pt-1.5">
+          <div className="shrink-0 overflow-x-auto border-b px-2 pt-1.5">
             <TabsList className="h-8 bg-transparent p-0">
               <TabTrigger value="params">
                 {t("params")}
@@ -174,6 +176,17 @@ export function RequestEditor() {
                 {activeHeaders > 0 && <Count n={activeHeaders} />}
               </TabTrigger>
               <TabTrigger value="body">{t("body")}</TabTrigger>
+              <TabTrigger value="automation">
+                {t("automation")}
+                {status && (
+                  <span
+                    className={cn(
+                      "h-1.5 w-1.5 rounded-full",
+                      status === "pass" ? "bg-emerald-400" : "bg-red-400",
+                    )}
+                  />
+                )}
+              </TabTrigger>
               <TabTrigger value="options">{t("options")}</TabTrigger>
             </TabsList>
           </div>
@@ -189,6 +202,9 @@ export function RequestEditor() {
             </TabsContent>
             <TabsContent value="body" className="m-0 h-full">
               <BodyEditor req={req} onChange={updateActiveRequest} />
+            </TabsContent>
+            <TabsContent value="automation" className="m-0 h-full">
+              <AutomationEditor req={req} onChange={updateActiveRequest} />
             </TabsContent>
             <TabsContent value="options" className="m-0">
               <OptionsEditor req={req} onChange={updateActiveRequest} />

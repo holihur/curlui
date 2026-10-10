@@ -188,6 +188,43 @@ the selected **Environment** at send time. Dynamic helpers:
 
 `{{$timestamp}}` · `{{$isoTimestamp}}` · `{{$uuid}}` · `{{$randomInt}}`
 
+## Automation (hooks, assertions, chaining)
+
+Open the **Automation** tab in the request editor.
+
+**Hooks** run as child processes. The context is JSON on **stdin**; the result is
+JSON on **stdout**, so a hook can be any language.
+
+*Pre-request* stdin / stdout:
+
+```jsonc
+// stdin
+{"phase":"pre","request":{ … },"variables":{"baseUrl":"…"}}
+// stdout (all fields optional)
+{"variables":{"token":"abc"},"request":{"method":"GET"},
+ "abort":false,"log":"…"}
+```
+
+*Post-response* stdin / stdout:
+
+```jsonc
+// stdin
+{"phase":"post","request":{ … },"response":{"status":200,"body":"…"},"variables":{}}
+// stdout
+{"variables":{"id":1},"tests":[{"name":"status 200","passed":true}]}
+```
+
+`request` is **deep-merged**, so a hook only has to emit the fields it changes.
+
+**Assertions** validate `status` / `time` / `header` / `body` / `jsonpath` with
+operators `eq ne contains matches gt gte lt lte exists`. When they pass, the
+indicator next to the request in the sidebar turns **green** (red on failure).
+
+**Chaining**: a request can declare **Dependencies** (parent requests). Parents
+run first; their **Extract** rules pull values out of their JSON responses with a
+JSON path (e.g. `$.data.token`) into variables that descendants reference as
+`{{token}}`.
+
 ## Notes
 
 - `form-data` **file** fields and the **binary** body type reference paths on the

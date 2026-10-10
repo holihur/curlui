@@ -34,10 +34,24 @@ async function request<T>(path: string, init?: RequestInit): Promise<T> {
 }
 
 export const api = {
-  send(req: RequestDef, envId: string | null) {
-    return request<{ response: ApiResponse; historyId: string }>("/send", {
+  send(
+    req: RequestDef,
+    envId: string | null,
+    variables?: Record<string, string>,
+    parents?: RequestDef[],
+  ) {
+    return request<{
+      response: ApiResponse;
+      historyId: string;
+      variables?: Record<string, string>;
+    }>("/send", {
       method: "POST",
-      body: JSON.stringify({ request: req, envId: envId ?? "" }),
+      body: JSON.stringify({
+        request: req,
+        envId: envId ?? "",
+        variables: variables ?? {},
+        parents: parents ?? [],
+      }),
     });
   },
 

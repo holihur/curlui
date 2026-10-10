@@ -1,5 +1,5 @@
 import { useMemo, useState } from "react";
-import { Check, Copy, Download, FileWarning, Inbox } from "lucide-react";
+import { Check, CheckCircle2, Copy, Download, FileWarning, Inbox, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn, copyText, formatBytes, formatMs, prettyJSON, statusColor } from "@/lib/utils";
@@ -53,6 +53,25 @@ function ResponseStatusBar({ res }: { res: ApiResponse }) {
       <span className="text-muted-foreground">{formatMs(res.duration)}</span>
       <span className="text-muted-foreground">{formatBytes(res.size)}</span>
       {res.isBinary && <span className="text-warning">{t("binaryTag")}</span>}
+      {(res.assertions?.length ?? 0) + (res.hooks?.flatMap((h) => h.tests ?? []).length ?? 0) > 0 &&
+        (() => {
+          const all = [
+            ...(res.assertions ?? []),
+            ...(res.hooks ?? []).flatMap((h) => h.tests ?? []),
+          ];
+          const passed = all.filter((x) => x.passed).length;
+          const failed = all.length - passed;
+          return (
+            <span
+              className={cn(
+                "rounded px-1.5 py-0.5 text-[10px] font-medium",
+                failed > 0 ? "bg-red-500/15 text-red-400" : "bg-emerald-500/15 text-emerald-400",
+              )}
+            >
+              {passed}/{all.length} 
+            </span>
+          );
+        })()}
       <div className="ml-auto flex items-center gap-1">
         <Button
           variant="ghost"
@@ -99,6 +118,14 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
     [res.request.body],
   );
 
+  const assertionResults = res.assertions ?? [];
+  const hooks = res.hooks ?? [];
+  const hookTests = hooks.flatMap((h) => h.tests ?? []);
+  const allTests = [...assertionResults, ...hookTests];
+  const hasTests = allTests.length > 0 || hooks.length > 0;
+  const passCount = allTests.filter((x) => x.passed).length;
+  const failCount = allTests.length - passCount;
+
   return (
     <Tabs defaultValue="body" className="flex min-h-0 flex-1 flex-col">
       <div className="flex shrink-0 items-center justify-between border-b bg-card px-2 pt-1">
@@ -118,6 +145,24 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
               )}
             </TabsTrigger>
           ))}
+          {hasTests && (
+            <TabsTrigger
+              value="tests"
+              className="rounded-none border-b-2 border-transparent !bg-transparent px-3 py-2 text-xs data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {t("testsResults")}
+              {allTests.length > 0 && (
+                <span
+                  className={cn(
+                    "ml-1 text-[10px]",
+                    failCount > 0 ? "text-red-400" : "text-emerald-400",
+                  )}
+                >
+                  {failCount > 0 ? failCount : passCount}
+                </span>
+              )}
+            </TabsTrigger>
+          )}
         </TabsList>
 
         {pretty && (
@@ -179,6 +224,10 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
           <TimingView res={res} />
         </TabsContent>
 
+        <TabsContent value="tests" className="m-0 h-full overflow-auto p-3">
+          <TestsView res={res} />
+        </TabsContent>
+
         <TabsContent value="request" className="m-0 h-full overflow-auto p-3">
           <div className="mb-2 font-mono text-xs text-muted-foreground">
             <span className="text-foreground">{res.request.method}</span> {res.request.url}
@@ -219,6 +268,74 @@ function BinaryView({ res }: { res: ApiResponse }) {
 
 function Empty({ text }: { text: string }) {
   return <div className="p-6 text-center text-xs text-muted-foreground">{text}</div>;
+}
+
+function TestsView({ res }: { res: ApiResponse }) {
+  const { t } = useI18n();
+  const assertions = res.assertions ?? [];
+  const hooks = res.hooks ?? [];
+  if (assertions.length === 0 && hooks.length === 0) {
+    return <Empty text={t("noTests")} />;
+  }
+  return (
+    <div className="space-y-4">
+      {assertions.length > 0 && (
+        <div>
+          <div className="mb-1.5 text-xs font-semibold text-muted-foreground">{t("assertions")}</div>
+          <div className="space-y-1">
+            {assertions.map((a) => (
+              <div key={a.id} className="flex items-start gap-2 text-xs">
+                {a.passed ? (
+                  <CheckCircle2 className="mt-0.5 h-3.5 w-3.5 shrink-0 text-emerald-400" />
+                ) : (
+                  <XCircle className="mt-0.5 h-3.5 w-3.5 shrink-0 text-red-400" />
+                )}
+                <span className={a.passed ? "text-muted-foreground" : "text-red-400"}>
+                  {a.message}
+                </span>
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
+
+      {hooks.map((h, i) => (
+        <div key={i} className="rounded-md border">
+          <div className="flex items-center gap-2 border-b px-3 py-1.5 text-xs">
+            <span className="font-semibold uppercase text-muted-foreground">{h.phase}</span>
+            <span className="min-w-0 flex-1 truncate font-mono text-muted-foreground">
+              {h.command}
+            </span>
+            <span className={cn("font-mono", h.exitCode === 0 ? "text-emerald-400" : "text-red-400")}>
+              exit {h.exitCode}
+            </span>
+            <span className="text-muted-foreground">{h.duration} ms</span>
+          </div>
+          {(h.tests ?? []).length > 0 && (
+            <div className="space-y-1 border-b px-3 py-2">
+              {(h.tests ?? []).map((test, j) => (
+                <div key={j} className="flex items-center gap-2 text-xs">
+                  {test.passed ? (
+                    <CheckCircle2 className="h-3.5 w-3.5 text-emerald-400" />
+                  ) : (
+                    <XCircle className="h-3.5 w-3.5 text-red-400" />
+                  )}
+                  <span className={test.passed ? "text-muted-foreground" : "text-red-400"}>
+                    {test.name}
+                  </span>
+                </div>
+              ))}
+            </div>
+          )}
+          {(h.log || h.stdout || h.stderr || h.error) && (
+            <pre className="max-h-48 overflow-auto whitespace-pre-wrap break-words px-3 py-2 font-mono text-[11px] text-muted-foreground">
+              {[h.error, h.log, h.stdout, h.stderr].filter(Boolean).join("\n") || t("hookNoOutput")}
+            </pre>
+          )}
+        </div>
+      ))}
+    </div>
+  );
 }
 
 function KeyValueTable({ rows, head }: { rows: (string | number)[][]; head?: string[] }) {

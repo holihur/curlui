@@ -45,6 +45,60 @@ export type RequestOptions = {
   maxRedirects?: number;
 };
 
+export type Hook = {
+  enabled: boolean;
+  command: string;
+  timeout?: number;
+  env?: KeyValue[];
+};
+
+export type Scripts = {
+  pre: Hook;
+  post: Hook;
+};
+
+export type ExtractRule = {
+  name: string;
+  path: string;
+  enabled: boolean;
+};
+
+export type AssertionSource = "status" | "time" | "header" | "body" | "jsonpath";
+
+export type Assertion = {
+  id: string;
+  enabled: boolean;
+  source: AssertionSource;
+  key: string;
+  operator: string;
+  value: string;
+};
+
+export type AssertionResult = {
+  id: string;
+  passed: boolean;
+  message: string;
+};
+
+export type HookTest = {
+  name: string;
+  passed: boolean;
+};
+
+export type HookResult = {
+  phase: "pre" | "post";
+  command: string;
+  ran: boolean;
+  exitCode: number;
+  stdout?: string;
+  stderr?: string;
+  error?: string;
+  log?: string;
+  tests?: HookTest[];
+  variables?: Record<string, string>;
+  duration: number;
+};
+
 export type RequestDef = {
   id: string;
   name: string;
@@ -55,6 +109,10 @@ export type RequestDef = {
   body: Body;
   auth: Auth;
   options: RequestOptions;
+  scripts: Scripts;
+  dependsOn: string[];
+  extract: ExtractRule[];
+  assertions: Assertion[];
 };
 
 export type Environment = {
@@ -121,6 +179,8 @@ export type ApiResponse = {
   duration: number;
   timing: Timing;
   request: SentRequest;
+  hooks?: HookResult[];
+  assertions?: AssertionResult[];
   error?: string;
 };
 
@@ -134,6 +194,13 @@ export const blankRequest = (): RequestDef => ({
   body: { type: "none", raw: "", form: [] },
   auth: { type: "none", addTo: "header" },
   options: { timeout: 30000, followRedirects: true, verifyTLS: true, maxRedirects: 10 },
+  scripts: {
+    pre: { enabled: false, command: "", timeout: 10000 },
+    post: { enabled: false, command: "", timeout: 10000 },
+  },
+  dependsOn: [],
+  extract: [],
+  assertions: [],
 });
 
 export const emptyKV = (): KeyValue => ({

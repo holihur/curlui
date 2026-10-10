@@ -12,6 +12,7 @@ export function RequestTabs() {
   const closeTab = useStore((s) => s.closeTab);
   const newTab = useStore((s) => s.newTab);
   const renameTab = useStore((s) => s.renameTab);
+  const testStatus = useStore((s) => s.testStatus);
   const { t } = useI18n();
   const [renaming, setRenaming] = useState<{ id: string; name: string } | null>(null);
 
@@ -42,6 +43,14 @@ export function RequestTabs() {
                 )}
               />
               <span className="min-w-0 flex-1 truncate">{t.name}</span>
+              {t.sourceId && testStatus[t.sourceId] && (
+                <span
+                  className={cn(
+                    "h-1.5 w-1.5 shrink-0 rounded-full",
+                    testStatus[t.sourceId] === "pass" ? "bg-emerald-400" : "bg-red-400",
+                  )}
+                />
+              )}
               {t.sending && <span className="h-1.5 w-1.5 animate-pulse rounded-full bg-primary" />}
               <button
                 onClick={(e) => {

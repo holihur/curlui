@@ -179,6 +179,7 @@ type TreeNodeProps = {
 function TreeNode(props: TreeNodeProps) {
   const { node, depth, filter, isOpen, toggle, selectedFolderId, onSelectFolder, onOpenRequest, onMenu } = props;
   const { t } = useI18n();
+  const status = useStore((s) => s.testStatus[node.id]);
   const matches =
     !filter ||
     node.name.toLowerCase().includes(filter) ||
@@ -232,6 +233,16 @@ function TreeNode(props: TreeNodeProps) {
         )}
 
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
+
+        {!isFolder && status && (
+          <span
+            title={status === "pass" ? t("statusPassed") : t("statusFailed")}
+            className={cn(
+              "h-1.5 w-1.5 shrink-0 rounded-full",
+              status === "pass" ? "bg-emerald-400" : "bg-red-400",
+            )}
+          />
+        )}
 
         {!isFolder && node.request && (
           <span className={cn("shrink-0 text-[10px] font-semibold", `method-${node.request.method}`)}>

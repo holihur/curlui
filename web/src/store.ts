@@ -28,6 +28,8 @@ export type Toast = {
   variant?: "default" | "success" | "error";
 };
 
+export type TestStatus = "pass" | "fail";
+
 type State = {
   collections: CollectionNode[];
   history: HistoryEntry[];
@@ -38,6 +40,10 @@ type State = {
   tabs: Tab[];
   activeTabId: string | null;
   toasts: Toast[];
+  // Per-collection-node test status (green/red indicator in the tree).
+  testStatus: Record<string, TestStatus>;
+  // Variables produced by hooks/parents, applied to subsequent sends.
+  runtimeVars: Record<string, string>;
 
   // data loading
   loadAll: () => Promise<void>;
@@ -109,7 +115,46 @@ function normalizeRequest(r: RequestDef): RequestDef {
     body: { ...base.body, ...(r.body ?? {}), form: r.body?.form ?? [] },
     auth: { ...base.auth, ...(r.auth ?? {}) },
     options: { ...base.options, ...(r.options ?? {}) },
+    scripts: {
+      pre: { ...base.scripts.pre, ...(r.scripts?.pre ?? {}) },
+      post: { ...base.scripts.post, ...(r.scripts?.post ?? {}) },
+    },
+    dependsOn: r.dependsOn ?? [],
+    extract: r.extract ?? [],
+    assertions: r.assertions ?? [],
   };
+}
+
+// collectParents resolves dependency node IDs into an ordered list of parent
+// requests (each parent's own dependencies first).
+function collectParents(
+  nodes: CollectionNode[],
+  ids: string[],
+  visited: Set<string> = new Set(),
+): RequestDef[] {
+  const out: RequestDef[] = [];
+  for (const id of ids) {
+    if (visited.has(id)) continue;
+    visited.add(id);
+    const node = findNode(nodes, id);
+    if (!node || node.type !== "request" || !node.request) continue;
+    const req = normalizeRequest(node.request);
+    out.push(...collectParents(nodes, req.dependsOn ?? [], visited));
+    out.push({ ...req, name: node.name });
+  }
+  return out;
+}
+
+// computeStatus derives the green/red indicator from assertions and hook tests.
+function computeStatus(res: ApiResponse): TestStatus | undefined {
+  const assertions = res.assertions ?? [];
+  const hookTests = (res.hooks ?? []).flatMap((h) => h.tests ?? []);
+  const all = [...assertions, ...hookTests];
+  const hookError = (res.hooks ?? []).some((h) => !!h.error);
+  if (all.length === 0) {
+    return res.error || hookError ? "fail" : undefined;
+  }
+  return all.every((t) => t.passed) && !res.error && !hookError ? "pass" : "fail";
 }
 
 export const useStore = create<State>((set, get) => ({
@@ -121,6 +166,8 @@ export const useStore = create<State>((set, get) => ({
   tabs: [],
   activeTabId: null,
   toasts: [],
+  testStatus: {},
+  runtimeVars: {},
 
   async loadAll() {
     await Promise.all([
@@ -250,12 +297,28 @@ export const useStore = create<State>((set, get) => ({
       tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: true, error: undefined } : t)),
     }));
     try {
-      const { response } = await api.send(tab.request, activeEnvId);
+      const parents = collectParents(get().collections, tab.request.dependsOn ?? []);
+      const { response } = await api.send(
+        tab.request,
+        activeEnvId,
+        get().runtimeVars,
+        parents,
+      );
+      const status = computeStatus(response);
       set((s) => ({
         tabs: s.tabs.map((t) =>
           t.id === tab.id ? { ...t, sending: false, response, error: response.error } : t,
         ),
+        testStatus:
+          status && tab.sourceId
+            ? { ...s.testStatus, [tab.sourceId]: status }
+            : s.testStatus,
       }));
+      const hookVars: Record<string, string> = {};
+      for (const hook of response.hooks ?? []) Object.assign(hookVars, hook.variables ?? {});
+      if (Object.keys(hookVars).length) {
+        set((s) => ({ runtimeVars: { ...s.runtimeVars, ...hookVars } }));
+      }
       get().refreshHistory();
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
