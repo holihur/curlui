@@ -44,6 +44,13 @@ internal/private endpoints, and you get precise per-phase network timings.
   paths; extract response values into `{{variables}}` for child requests.
 - **Request chaining** — a request can declare parent requests; their responses
   are executed first and referenced by descendants.
+- **Mock responses** — define canned responses per request; send one with
+  *Send as mock*, or let any client hit the built-in mock server at
+  `/mock/{requestId}`.
+- **Server or Browser execution** — per-request choice; browser mode uses the
+  browser's `fetch()` (CORS applies).
+- **Scheduler** — send after a delay, at a time, or on a repeating interval
+  (optionally a fixed number of times); manage and watch jobs in the Schedules tab.
 - **Duplicate** requests/folders and **copy as cURL** from the tree.
 - **Options** — timeout, follow redirects, TLS verification toggle, custom proxy.
 - **Response viewer** — pretty/raw body, headers, cookies, timing waterfall and
@@ -180,6 +187,13 @@ web/
 | `POST`   | `/api/curl/generate`          | Generate a cURL command          |
 | `POST`   | `/api/openapi/parse`          | Parse a Swagger/OpenAPI spec (URL or content) |
 | `POST`   | `/api/collections/import`     | Bulk-import a parsed tree        |
+| `POST`   | `/api/schedule`               | Create a delayed/periodic job    |
+| `GET`    | `/api/schedule`               | List jobs                        |
+| `POST`   | `/api/schedule/{id}/run`      | Run a job now                    |
+| `POST`   | `/api/schedule/{id}/cancel`   | Stop future runs                 |
+| `DELETE` | `/api/schedule/{id}`          | Delete a job                     |
+| `GET`    | `/api/schedule/{id}/results`  | Recent run results               |
+| any      | `/mock/{requestId}`           | Mock server for a saved request  |
 
 Example:
 

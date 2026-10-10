@@ -334,6 +334,14 @@ func reid(n *models.Node, count *int) *models.Node {
 	return n
 }
 
+// FindNode returns a node by id.
+func (s *Store) FindNode(id string) (*models.Node, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	n := findNode(s.data.Collections, id)
+	return n, n != nil
+}
+
 // SetFolderConfig updates a folder's hierarchy settings: its variables, the
 // setup request used to produce inherited values, and the extraction rules
 // applied to that setup request's response.

@@ -12,6 +12,7 @@ import {
 } from "@/lib/types";
 import { uid } from "@/lib/utils";
 import { translate } from "@/lib/i18n";
+import { browserSend } from "@/lib/browserClient";
 
 export type Tab = {
   id: string;
@@ -69,7 +70,7 @@ type State = {
   markSaved: (id: string, sourceId: string, name: string) => void;
 
   // executing
-  send: () => Promise<void>;
+  send: (opts?: { mock?: boolean }) => Promise<void>;
 
   // collections
   createFolder: (name: string, parentId?: string) => Promise<void>;
@@ -129,6 +130,7 @@ function normalizeRequest(r: RequestDef): RequestDef {
     dependsOn: r.dependsOn ?? [],
     extract: r.extract ?? [],
     assertions: r.assertions ?? [],
+    mocks: r.mocks ?? [],
   };
 }
 
@@ -350,8 +352,8 @@ export const useStore = create<State>((set, get) => ({
     }));
   },
 
-  async send() {
-    const { tabs, activeTabId, activeEnvId } = get();
+  async send(opts) {
+    const { tabs, activeTabId, activeEnvId, environments } = get();
     const tab = tabs.find((t) => t.id === activeTabId);
     if (!tab) return;
     if (!tab.request.url.trim()) {
@@ -362,9 +364,40 @@ export const useStore = create<State>((set, get) => ({
       tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: true, error: undefined } : t)),
     }));
     try {
+      if (tab.request.options.sendVia === "browser") {
+        // Send straight from the browser (resolves variables client-side).
+        const chain = buildChain(get().collections, tab.sourceId ?? "", tab.request);
+        const env = environments.find((e) => e.id === activeEnvId);
+        const envVars: Record<string, string> = {};
+        for (const v of env?.variables ?? []) if (v.enabled && v.key) envVars[v.key] = v.value;
+        const response = await browserSend(tab.request, {
+          ...envVars,
+          ...chain.folderVars,
+          ...get().runtimeVars,
+        });
+        const status = response.error ? "fail" : undefined;
+        set((s) => ({
+          tabs: s.tabs.map((t) =>
+            t.id === tab.id ? { ...t, sending: false, response, error: response.error } : t,
+          ),
+          testStatus:
+            status && tab.sourceId
+              ? { ...s.testStatus, [tab.sourceId]: status }
+              : s.testStatus,
+        }));
+        get().refreshHistory();
+        return;
+      }
+
       const chain = buildChain(get().collections, tab.sourceId ?? "", tab.request);
       const variables = { ...chain.folderVars, ...get().runtimeVars };
-      const { response } = await api.send(tab.request, activeEnvId, variables, chain.parents);
+      const { response } = await api.send(
+        tab.request,
+        activeEnvId,
+        variables,
+        chain.parents,
+        opts?.mock ?? false,
+      );
       const status = computeStatus(response);
       set((s) => ({
         tabs: s.tabs.map((t) =>

@@ -1,5 +1,5 @@
 import { useMemo, useState, type ReactNode } from "react";
-import { Check, GitBranch, ListChecks, Play, Plus, Trash2 } from "lucide-react";
+import { Check, FlaskConical, GitBranch, ListChecks, Play, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -11,18 +11,20 @@ import {
   SelectValue,
 } from "@/components/ui/select";
 import { CodeEditor } from "@/components/CodeEditor";
-import { cn } from "@/lib/utils";
+import { KeyValueEditor } from "@/components/KeyValueEditor";
+import { cn, copyText } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { buildChain, useActiveTab, useStore } from "@/store";
 import type { Assertion, AssertionSource, CollectionNode, Hook, RequestDef } from "@/lib/types";
 
-type Section = "pre" | "post" | "assertions" | "deps";
+type Section = "pre" | "post" | "assertions" | "deps" | "mock";
 
 const SECTIONS: { key: Section; label: MessageKey; icon: typeof Play }[] = [
   { key: "pre", label: "preRequest", icon: Play },
   { key: "post", label: "postResponse", icon: Check },
   { key: "assertions", label: "assertions", icon: ListChecks },
   { key: "deps", label: "dependencies", icon: GitBranch },
+  { key: "mock", label: "mock", icon: FlaskConical },
 ];
 
 const SOURCES: { value: AssertionSource; label: MessageKey }[] = [
@@ -102,7 +104,123 @@ export function AutomationEditor({
           />
         )}
         {section === "deps" && <DependenciesEditor req={req} onChange={onChange} />}
+        {section === "mock" && <MockEditor req={req} onChange={onChange} />}
       </div>
+    </div>
+  );
+}
+
+function MockEditor({
+  req,
+  onChange,
+}: {
+  req: RequestDef;
+  onChange: (patch: Partial<RequestDef>) => void;
+}) {
+  const { t } = useI18n();
+  const [copied, setCopied] = useState(false);
+  const mockUrl = `${location.origin}/mock/${req.id}`;
+
+  const update = (id: string, patch: Partial<RequestDef["mocks"][number]>) =>
+    onChange({ mocks: req.mocks.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
+  const remove = (id: string) => onChange({ mocks: req.mocks.filter((m) => m.id !== id) });
+  const add = () =>
+    onChange({
+      mocks: [
+        ...req.mocks,
+        {
+          id: Math.random().toString(36).slice(2),
+          name: "Example",
+          enabled: true,
+          status: 200,
+          headers: [{ id: Math.random().toString(36).slice(2), key: "Content-Type", value: "application/json", enabled: true }],
+          body: '{\n  "ok": true\n}',
+          delayMs: 0,
+        },
+      ],
+    });
+
+  return (
+    <div className="space-y-3 p-3">
+      {req.id && (
+        <div className="flex items-center gap-2 rounded-md border bg-muted/30 px-3 py-2">
+          <span className="text-xs text-muted-foreground">{t("mockUrl")}</span>
+          <code className="min-w-0 flex-1 truncate font-mono text-xs text-primary">{mockUrl}</code>
+          <Button
+            variant="ghost"
+            size="xs"
+            onClick={async () => {
+              if (await copyText(mockUrl)) {
+                setCopied(true);
+                setTimeout(() => setCopied(false), 1200);
+              }
+            }}
+          >
+            {copied ? t("copied") : t("copyMockUrl")}
+          </Button>
+        </div>
+      )}
+
+      {req.mocks.length === 0 && (
+        <div className="rounded-lg border border-dashed p-4 text-center text-xs text-muted-foreground">
+          {t("mockResponses")}
+        </div>
+      )}
+
+      {req.mocks.map((m) => (
+        <div key={m.id} className={cn("rounded-lg border", !m.enabled && "opacity-60")}>
+          <div className="flex items-center gap-2 border-b p-2">
+            <button
+              onClick={() => update(m.id, { enabled: !m.enabled })}
+              className={cn(
+                "flex h-4 w-4 shrink-0 items-center justify-center rounded-[4px] border",
+                m.enabled ? "border-primary bg-primary text-primary-foreground" : "border-input",
+              )}
+            >
+              {m.enabled && <Check className="h-3 w-3" />}
+            </button>
+            <Input
+              value={m.name}
+              onChange={(e) => update(m.id, { name: e.target.value })}
+              placeholder={t("mockName")}
+              className="h-7 w-40 text-xs"
+            />
+            <Input
+              type="number"
+              value={m.status}
+              onChange={(e) => update(m.id, { status: Number(e.target.value) || 0 })}
+              placeholder={t("mockStatus")}
+              className="h-7 w-20 text-xs"
+            />
+            <Input
+              type="number"
+              value={m.delayMs}
+              onChange={(e) => update(m.id, { delayMs: Number(e.target.value) || 0 })}
+              placeholder={t("mockDelay")}
+              className="h-7 w-28 text-xs"
+            />
+            <button
+              onClick={() => remove(m.id)}
+              className="ml-auto flex h-7 w-7 items-center justify-center rounded text-muted-foreground hover:text-destructive"
+            >
+              <Trash2 className="h-3.5 w-3.5" />
+            </button>
+          </div>
+          <div className="border-b">
+            <KeyValueEditor items={m.headers} onChange={(headers) => update(m.id, { headers })} />
+          </div>
+          <CodeEditor
+            value={m.body}
+            onChange={(body) => update(m.id, { body })}
+            language="json"
+            className="h-40"
+          />
+        </div>
+      ))}
+
+      <Button variant="ghost" size="sm" className="gap-1.5 text-muted-foreground" onClick={add}>
+        <Plus className="h-3.5 w-3.5" /> {t("addMock")}
+      </Button>
     </div>
   );
 }

@@ -7,6 +7,8 @@ import type {
   KeyValue,
   OpenAPIResult,
   RequestDef,
+  ScheduleJob,
+  ScheduleResult,
 } from "./types";
 
 const BASE = "/api";
@@ -41,6 +43,7 @@ export const api = {
     envId: string | null,
     variables?: Record<string, string>,
     parents?: RequestDef[],
+    mock = false,
   ) {
     return request<{
       response: ApiResponse;
@@ -53,6 +56,7 @@ export const api = {
         envId: envId ?? "",
         variables: variables ?? {},
         parents: parents ?? [],
+        mock,
       }),
     });
   },
@@ -164,5 +168,36 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ parentId, nodes }),
     });
+  },
+
+  // Scheduler (delayed / periodic sends)
+  createSchedule(payload: {
+    name?: string;
+    request: RequestDef;
+    envId?: string;
+    variables?: Record<string, string>;
+    parents?: RequestDef[];
+    mock?: boolean;
+    delayMs?: number;
+    startAt?: number;
+    intervalMs?: number;
+    count?: number;
+  }) {
+    return request<ScheduleJob>("/schedule", { method: "POST", body: JSON.stringify(payload) });
+  },
+  listSchedules() {
+    return request<{ jobs: ScheduleJob[] }>("/schedule");
+  },
+  deleteSchedule(id: string) {
+    return request<{ ok: boolean }>(`/schedule/${id}`, { method: "DELETE" });
+  },
+  runSchedule(id: string) {
+    return request<{ ok: boolean }>(`/schedule/${id}/run`, { method: "POST" });
+  },
+  cancelSchedule(id: string) {
+    return request<{ ok: boolean }>(`/schedule/${id}/cancel`, { method: "POST" });
+  },
+  scheduleResults(id: string) {
+    return request<{ results: ScheduleResult[] }>(`/schedule/${id}/results`);
   },
 };

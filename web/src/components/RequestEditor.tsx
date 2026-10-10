@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertCircle, Code2, Loader2, Save, Send, Wand2 } from "lucide-react";
+import { AlertCircle, Clock, Code2, FlaskConical, Loader2, Save, Send, Wand2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -15,6 +15,7 @@ import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip
 import { KeyValueEditor } from "@/components/KeyValueEditor";
 import { CodeEditor } from "@/components/CodeEditor";
 import { AutomationEditor } from "@/components/AutomationEditor";
+import { ScheduleDialog } from "@/components/ScheduleDialog";
 import { ResponsePanel } from "@/components/ResponsePanel";
 import { CodeDialog } from "@/components/CodeDialog";
 import { cn } from "@/lib/utils";
@@ -45,6 +46,7 @@ export function RequestEditor() {
   const status = useStore((s) => (tab?.sourceId ? s.testStatus[tab.sourceId] : undefined));
 
   const [codeOpen, setCodeOpen] = useState(false);
+  const [scheduleOpen, setScheduleOpen] = useState(false);
   const [configHeight, setConfigHeight] = useState(300);
   const dragging = useRef(false);
   const configRef = useRef<HTMLDivElement>(null);
@@ -130,6 +132,30 @@ export function RequestEditor() {
           {tab.sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
           {t("send")}
         </Button>
+
+        {req.options.sendVia === "browser" && (
+          <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-400">
+            {t("browserBadge")}
+          </span>
+        )}
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => void send({ mock: true })}>
+              <FlaskConical className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("sendAsMock")}</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setScheduleOpen(true)}>
+              <Clock className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("scheduleSend")}</TooltipContent>
+        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -228,6 +254,7 @@ export function RequestEditor() {
       <ResponsePanel tab={tab} />
 
       <CodeDialog open={codeOpen} onOpenChange={setCodeOpen} request={req} />
+      <ScheduleDialog open={scheduleOpen} onOpenChange={setScheduleOpen} request={req} />
     </div>
   );
 }
@@ -448,6 +475,29 @@ function OptionsEditor({
 
   return (
     <div className="max-w-xl space-y-4 p-4">
+      <Field label={t("sendVia")}>
+        <div className="flex gap-1">
+          {(["server", "browser"] as const).map((v) => {
+            const active = (req.options.sendVia ?? "server") === v;
+            return (
+              <button
+                key={v}
+                onClick={() => setOpts({ sendVia: v })}
+                className={cn(
+                  "flex-1 rounded-md border px-3 py-1.5 text-xs font-medium transition-colors",
+                  active
+                    ? "border-primary bg-primary/15 text-primary"
+                    : "text-muted-foreground hover:bg-accent",
+                )}
+              >
+                {v === "server" ? t("viaServer") : t("viaBrowser")}
+              </button>
+            );
+          })}
+        </div>
+        <p className="text-[11px] text-muted-foreground">{t("sendViaHint")}</p>
+      </Field>
+
       <div className="grid grid-cols-2 gap-4">
         <Field label={t("timeoutMs")}>
           <Input

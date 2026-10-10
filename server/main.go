@@ -48,6 +48,8 @@ func main() {
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiServer.Handler())
+	// Public mock server (same handler, mounted at the root).
+	mux.Handle("/mock/", apiServer.Handler())
 
 	if fsys, ok := webui.FS(); ok {
 		log.Printf("serving embedded frontend")

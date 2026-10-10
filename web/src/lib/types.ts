@@ -43,6 +43,40 @@ export type RequestOptions = {
   verifyTLS: boolean;
   proxy?: string;
   maxRedirects?: number;
+  sendVia?: "server" | "browser";
+};
+
+export type MockResponse = {
+  id: string;
+  name: string;
+  enabled: boolean;
+  status: number;
+  headers: KeyValue[];
+  body: string;
+  delayMs: number;
+};
+
+export type ScheduleJob = {
+  id: string;
+  name: string;
+  request: RequestDef;
+  envId?: string;
+  runs: number;
+  lastStatus: number;
+  lastError?: string;
+  lastRun?: number;
+  nextRun?: number;
+  active: boolean;
+  intervalMs?: number;
+  count?: number;
+  createdAt: number;
+};
+
+export type ScheduleResult = {
+  at: number;
+  status: number;
+  duration: number;
+  error?: string;
 };
 
 export type Hook = {
@@ -113,6 +147,7 @@ export type RequestDef = {
   dependsOn: string[];
   extract: ExtractRule[];
   assertions: Assertion[];
+  mocks: MockResponse[];
 };
 
 export type Environment = {
@@ -196,7 +231,7 @@ export const blankRequest = (): RequestDef => ({
   headers: [],
   body: { type: "none", raw: "", form: [] },
   auth: { type: "none", addTo: "header" },
-  options: { timeout: 30000, followRedirects: true, verifyTLS: true, maxRedirects: 10 },
+  options: { timeout: 30000, followRedirects: true, verifyTLS: true, maxRedirects: 10, sendVia: "server" },
   scripts: {
     pre: { enabled: false, command: "", timeout: 10000 },
     post: { enabled: false, command: "", timeout: 10000 },
@@ -204,6 +239,7 @@ export const blankRequest = (): RequestDef => ({
   dependsOn: [],
   extract: [],
   assertions: [],
+  mocks: [],
 });
 
 export const emptyKV = (): KeyValue => ({

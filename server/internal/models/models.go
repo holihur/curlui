@@ -58,6 +58,19 @@ type Options struct {
 	VerifyTLS       bool   `json:"verifyTLS"`       // default true
 	Proxy           string `json:"proxy,omitempty"`
 	MaxRedirects    int    `json:"maxRedirects,omitempty"`
+	// SendVia is "server" (Go, default) or "browser" (fetch from the UI).
+	SendVia string `json:"sendVia,omitempty"`
+}
+
+// MockResponse is a canned response returned instead of hitting the network.
+type MockResponse struct {
+	ID      string     `json:"id"`
+	Name    string     `json:"name"`
+	Enabled bool       `json:"enabled"`
+	Status  int        `json:"status"`
+	Headers []KeyValue `json:"headers"`
+	Body    string     `json:"body"`
+	DelayMs int        `json:"delayMs"`
 }
 
 // RequestDef is a saved/edited HTTP request.
@@ -77,8 +90,9 @@ type RequestDef struct {
 	DependsOn []string `json:"dependsOn,omitempty"`
 	// Extract pulls values out of this request's response into named
 	// variables, available to child requests as {{name}}.
-	Extract    []ExtractRule `json:"extract,omitempty"`
-	Assertions []Assertion   `json:"assertions,omitempty"`
+	Extract    []ExtractRule  `json:"extract,omitempty"`
+	Assertions []Assertion    `json:"assertions,omitempty"`
+	Mocks      []MockResponse `json:"mocks,omitempty"`
 }
 
 // Assertion is a single response check.

@@ -37,8 +37,9 @@ type Executor struct {
 }
 
 // Execute runs the request definition. Variables are resolved internally so
-// that pre-request hooks can add or override them first.
-func (e *Executor) Execute(ctx context.Context, def models.RequestDef, vars variables.Set) models.Response {
+// that pre-request hooks can add or override them first. When mock is true a
+// configured mock response is returned instead of hitting the network.
+func (e *Executor) Execute(ctx context.Context, def models.RequestDef, vars variables.Set, mock bool) models.Response {
 	def.WithDefaults()
 	if vars == nil {
 		vars = variables.Set{}
@@ -79,6 +80,10 @@ func (e *Executor) Execute(ctx context.Context, def models.RequestDef, vars vari
 
 	// Resolve {{variables}} after the pre-request hook has run.
 	def = vars.ResolveRequest(def)
+
+	if mock {
+		return e.runMock(ctx, def, vars)
+	}
 
 	// Build the final URL with query params.
 	finalURL, err := buildURL(def)
@@ -235,6 +240,70 @@ func (e *Executor) Execute(ctx context.Context, def models.RequestDef, vars vari
 		if output.Error != "" && resp.Error == "" {
 			resp.Error = output.Error
 		}
+	}
+	return resp
+}
+
+// firstMock returns the enabled mock matching name (or the first enabled one).
+func firstMock(mocks []models.MockResponse, name string) *models.MockResponse {
+	var first *models.MockResponse
+	for i := range mocks {
+		if !mocks[i].Enabled {
+			continue
+		}
+		if name != "" && mocks[i].Name == name {
+			return &mocks[i]
+		}
+		if first == nil {
+			first = &mocks[i]
+		}
+	}
+	return first
+}
+
+// runMock builds a response from a configured mock.
+func (e *Executor) runMock(ctx context.Context, def models.RequestDef, vars variables.Set) models.Response {
+	resp := models.Response{
+		Headers: map[string][]string{},
+		Request: models.SentRequest{Method: def.Method, URL: "(mock) " + def.URL, Headers: map[string][]string{}},
+	}
+	mock := firstMock(def.Mocks, "")
+	if mock == nil {
+		resp.Error = "no mock response configured for this request"
+		return resp
+	}
+	if mock.DelayMs > 0 {
+		select {
+		case <-time.After(time.Duration(mock.DelayMs) * time.Millisecond):
+		case <-ctx.Done():
+			resp.Error = "mock delay cancelled"
+			return resp
+		}
+	}
+	status := mock.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	resp.Status = status
+	resp.StatusText = http.StatusText(status)
+	for _, h := range mock.Headers {
+		if h.Enabled && h.Key != "" {
+			k := http.CanonicalHeaderKey(h.Key)
+			resp.Headers[k] = append(resp.Headers[k], vars.Resolve(h.Value))
+		}
+	}
+	body := vars.Resolve(mock.Body)
+	resp.Body = body
+	resp.Size = len(body)
+	if ct := resp.Headers["Content-Type"]; len(ct) > 0 {
+		resp.ContentType = ct[0]
+	} else {
+		resp.ContentType = "application/json"
+	}
+	resp.Duration = int64(mock.DelayMs)
+	resp.Timing = models.Timing{FirstByte: int64(mock.DelayMs), Total: int64(mock.DelayMs)}
+	if len(def.Assertions) > 0 {
+		resp.Assertions = assert.Evaluate(&resp, def.Assertions)
 	}
 	return resp
 }

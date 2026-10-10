@@ -1,8 +1,10 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
+	"io"
 	"log"
 	"net/http"
 	"strconv"
@@ -13,22 +15,26 @@ import (
 	"curlui/server/internal/jsonpath"
 	"curlui/server/internal/models"
 	"curlui/server/internal/openapi"
+	"curlui/server/internal/scheduler"
 	"curlui/server/internal/store"
 	"curlui/server/internal/variables"
 )
 
 // Server wires the HTTP handlers to a store and executor.
 type Server struct {
-	store    *store.Store
-	executor *curlpkg.Executor
+	store     *store.Store
+	executor  *curlpkg.Executor
+	scheduler *scheduler.Scheduler
 }
 
 // New returns a new API server.
 func New(st *store.Store) *Server {
-	return &Server{
-		store:    st,
-		executor: &curlpkg.Executor{AllowPrivate: true},
-	}
+	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}}
+	s.scheduler = scheduler.New(func(ctx context.Context, req models.RequestDef, envID string, vars map[string]string, parents []models.RequestDef, mock bool) models.Response {
+		resp, _ := s.runRequest(ctx, sendPayload{Request: req, EnvID: envID, Variables: vars, Parents: parents, Mock: mock})
+		return resp
+	})
+	return s
 }
 
 // Handler returns the fully configured http.Handler.
@@ -62,6 +68,16 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("POST /api/openapi/parse", s.parseOpenAPI)
 	mux.HandleFunc("POST /api/collections/import", s.importCollections)
+
+	mux.HandleFunc("POST /api/schedule", s.createSchedule)
+	mux.HandleFunc("GET /api/schedule", s.listSchedules)
+	mux.HandleFunc("DELETE /api/schedule/{id}", s.deleteSchedule)
+	mux.HandleFunc("POST /api/schedule/{id}/run", s.runSchedule)
+	mux.HandleFunc("POST /api/schedule/{id}/cancel", s.cancelSchedule)
+	mux.HandleFunc("GET /api/schedule/{id}/results", s.scheduleResults)
+
+	// Public mock server: GET/POST/… /mock/{nodeId}
+	mux.HandleFunc("/mock/", s.mockServer)
 
 	return withCORS(withLogging(mux))
 }
@@ -133,6 +149,7 @@ type sendPayload struct {
 	EnvID     string              `json:"envId"`
 	Variables map[string]string   `json:"variables"`
 	Parents   []models.RequestDef `json:"parents"`
+	Mock      bool                `json:"mock"`
 }
 
 type sendResult struct {
@@ -147,7 +164,13 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+	resp, envSet := s.runRequest(r.Context(), payload)
+	writeJSON(w, http.StatusOK, sendResult{Response: resp, Variables: envSet})
+}
 
+// runRequest resolves variables, runs parent requests, executes the request and
+// records it in history. Shared by the send handler and the scheduler.
+func (s *Server) runRequest(ctx context.Context, payload sendPayload) (models.Response, variables.Set) {
 	// Resolve variables from the selected environment.
 	envSet := variables.Set{}
 	if payload.EnvID != "" {
@@ -165,7 +188,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 	// Run parent (ancestor) requests first so their responses can be
 	// referenced by this request. Values are extracted into variables.
 	for _, parent := range payload.Parents {
-		parentResp := s.executor.Execute(r.Context(), parent, envSet)
+		parentResp := s.executor.Execute(ctx, parent, envSet, false)
 		for _, rule := range parent.Extract {
 			if !rule.Enabled || rule.Name == "" {
 				continue
@@ -181,7 +204,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 
-	resp := s.executor.Execute(r.Context(), payload.Request, envSet)
+	resp := s.executor.Execute(ctx, payload.Request, envSet, payload.Mock)
 
 	entry := models.HistoryEntry{
 		ID:         models.NewID(),
@@ -198,7 +221,7 @@ func (s *Server) send(w http.ResponseWriter, r *http.Request) {
 		log.Printf("history save failed: %v", err)
 	}
 
-	writeJSON(w, http.StatusOK, sendResult{Response: resp, HistoryID: entry.ID, Variables: envSet})
+	return resp, envSet
 }
 
 func stringifyValue(v any) string {
@@ -305,6 +328,65 @@ func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, node)
+}
+
+// mockServer serves a saved request's mock response to any HTTP client.
+//
+//	GET/POST/... /mock/{nodeId}?example={mockName}
+func (s *Server) mockServer(w http.ResponseWriter, r *http.Request) {
+	id := strings.Trim(strings.TrimPrefix(r.URL.Path, "/mock/"), "/")
+	if id == "" {
+		http.NotFound(w, r)
+		return
+	}
+	node, ok := s.store.FindNode(id)
+	if !ok || node.Request == nil {
+		http.Error(w, "mock not found", http.StatusNotFound)
+		return
+	}
+	mock := firstMockOf(node.Request.Mocks, r.URL.Query().Get("example"))
+	if mock == nil {
+		http.Error(w, "no enabled mock for this request", http.StatusNotFound)
+		return
+	}
+	if mock.DelayMs > 0 {
+		select {
+		case <-time.After(time.Duration(mock.DelayMs) * time.Millisecond):
+		case <-r.Context().Done():
+			return
+		}
+	}
+	for _, h := range mock.Headers {
+		if h.Enabled && h.Key != "" {
+			w.Header().Add(h.Key, h.Value)
+		}
+	}
+	if w.Header().Get("Content-Type") == "" {
+		w.Header().Set("Content-Type", "application/json")
+	}
+	w.Header().Set("X-Mock", "curlui")
+	status := mock.Status
+	if status == 0 {
+		status = http.StatusOK
+	}
+	w.WriteHeader(status)
+	_, _ = io.WriteString(w, mock.Body)
+}
+
+func firstMockOf(mocks []models.MockResponse, name string) *models.MockResponse {
+	var first *models.MockResponse
+	for i := range mocks {
+		if !mocks[i].Enabled {
+			continue
+		}
+		if name != "" && mocks[i].Name == name {
+			return &mocks[i]
+		}
+		if first == nil {
+			first = &mocks[i]
+		}
+	}
+	return first
 }
 
 func (s *Server) duplicateNode(w http.ResponseWriter, r *http.Request) {
@@ -431,6 +513,75 @@ func (s *Server) generateCurl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"command": curlpkg.Generate(req)})
+}
+
+// --- scheduler -------------------------------------------------------------
+
+func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Name       string              `json:"name"`
+		Request    models.RequestDef   `json:"request"`
+		EnvID      string              `json:"envId"`
+		Variables  map[string]string   `json:"variables"`
+		Parents    []models.RequestDef `json:"parents"`
+		Mock       bool                `json:"mock"`
+		StartAt    int64               `json:"startAt"`
+		DelayMs    int64               `json:"delayMs"`
+		IntervalMs int64               `json:"intervalMs"`
+		Count      int                 `json:"count"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	startAt := payload.StartAt
+	if startAt <= 0 && payload.DelayMs > 0 {
+		startAt = time.Now().UnixMilli() + payload.DelayMs
+	}
+	job := s.scheduler.Add(scheduler.Job{
+		Name:       payload.Name,
+		Request:    payload.Request,
+		EnvID:      payload.EnvID,
+		Variables:  payload.Variables,
+		Parents:    payload.Parents,
+		Mock:       payload.Mock,
+		StartAt:    startAt,
+		IntervalMs: payload.IntervalMs,
+		Total:      payload.Count,
+	})
+	writeJSON(w, http.StatusCreated, job)
+}
+
+func (s *Server) listSchedules(w http.ResponseWriter, _ *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"jobs": s.scheduler.List()})
+}
+
+func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
+	if !s.scheduler.Remove(r.PathValue("id")) {
+		writeErr(w, http.StatusNotFound, "job not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request) {
+	if !s.scheduler.RunNow(r.PathValue("id")) {
+		writeErr(w, http.StatusNotFound, "job not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) cancelSchedule(w http.ResponseWriter, r *http.Request) {
+	if !s.scheduler.Cancel(r.PathValue("id")) {
+		writeErr(w, http.StatusNotFound, "job not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) scheduleResults(w http.ResponseWriter, r *http.Request) {
+	writeJSON(w, http.StatusOK, map[string]any{"results": s.scheduler.Results(r.PathValue("id"))})
 }
 
 // --- OpenAPI / Swagger import ---------------------------------------------
