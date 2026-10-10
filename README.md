@@ -232,6 +232,10 @@ and has the setup request run first, so a child API can reference a parent's
 return value without wiring it up manually. Variable precedence is:
 environment → ancestor folder variables → parent/setup extractions → hooks.
 
+**Drag & drop**: reorder or re-parent any node in the sidebar — drop onto a
+folder to nest it, between rows to reorder, or on empty space to move it to the
+root. Ordering and nesting are saved to the store.
+
 ## Notes
 
 - `form-data` **file** fields and the **binary** body type reference paths on the

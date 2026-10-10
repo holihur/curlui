@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useState, type DragEvent } from "react";
 import {
   ChevronRight,
   Copy,
@@ -31,6 +31,9 @@ import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { FolderSettingsDialog, MoveDialog } from "@/components/FolderSettingsDialog";
 
+type DropPosition = "before" | "after" | "inside";
+type DropTarget = { id: string; position: DropPosition };
+
 export function CollectionsPanel() {
   const collections = useStore((s) => s.collections);
   const selectedFolderId = useStore((s) => s.selectedFolderId);
@@ -39,22 +42,25 @@ export function CollectionsPanel() {
   const createRequest = useStore((s) => s.createRequest);
   const renameNode = useStore((s) => s.renameNode);
   const deleteNode = useStore((s) => s.deleteNode);
-  const openNode = useStore((s) => s.openNode);
+  const moveNode = useStore((s) => s.moveNode);
   const duplicateNode = useStore((s) => s.duplicateNode);
+  const openNode = useStore((s) => s.openNode);
   const toast = useStore((s) => s.toast);
   const { t } = useI18n();
 
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const [filter, setFilter] = useState("");
+  const [folderSettings, setFolderSettings] = useState<CollectionNode | null>(null);
+  const [moveTarget, setMoveTarget] = useState<CollectionNode | null>(null);
+  const [dragId, setDragId] = useState<string | null>(null);
+  const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
+
   const [dialog, setDialog] = useState<
     | { kind: "folder"; parentId: string }
     | { kind: "request"; parentId: string }
     | { kind: "rename"; node: CollectionNode }
     | null
   >(null);
-
-  const [filter, setFilter] = useState("");
-  const [folderSettings, setFolderSettings] = useState<CollectionNode | null>(null);
-  const [moveTarget, setMoveTarget] = useState<CollectionNode | null>(null);
 
   const isOpen = (id: string) => expanded[id] ?? true;
 
@@ -64,12 +70,19 @@ export function CollectionsPanel() {
     const node = findNode(useStore.getState().collections, id);
     if (node) openNode(node);
     if (parentId) setExpanded((e) => ({ ...e, [parentId]: true }));
-    else openNodeFallback(id);
   };
 
-  const openNodeFallback = (id: string) => {
-    const node = findNode(useStore.getState().collections, id);
-    if (node) openNode(node);
+  const performDrop = (target: CollectionNode, parentId: string, position: DropPosition) => {
+    const src = dragId;
+    setDragId(null);
+    setDropTarget(null);
+    if (!src || src === target.id) return;
+    if (position === "inside") {
+      void moveNode(src, target.id, "", "after");
+      setExpanded((e) => ({ ...e, [target.id]: true }));
+    } else {
+      void moveNode(src, parentId, target.id, position);
+    }
   };
 
   return (
@@ -101,7 +114,18 @@ export function CollectionsPanel() {
         </Button>
       </div>
 
-      <div className="min-h-0 flex-1 overflow-y-auto p-1">
+      <div
+        className="min-h-0 flex-1 overflow-y-auto p-1"
+        onDragOver={(e) => e.preventDefault()}
+        onDrop={(e) => {
+          // Dropping on empty space moves the node to the root.
+          e.preventDefault();
+          if (!dragId) return;
+          void moveNode(dragId, "", "", "after");
+          setDragId(null);
+          setDropTarget(null);
+        }}
+      >
         {collections.length === 0 && (
           <div className="px-3 py-8 text-center text-xs text-muted-foreground">
             {t("collectionsEmpty")}
@@ -112,12 +136,22 @@ export function CollectionsPanel() {
             key={node.id}
             node={node}
             depth={0}
+            parentId=""
             filter={filter.trim().toLowerCase()}
             isOpen={isOpen}
             toggle={(id) => setExpanded((e) => ({ ...e, [id]: !isOpen(id) }))}
             selectedFolderId={selectedFolderId}
             onSelectFolder={(id) => selectFolder(id)}
             onOpenRequest={(n) => openNode(n)}
+            dragId={dragId}
+            dropTarget={dropTarget}
+            onDragStart={setDragId}
+            onDragOver={setDropTarget}
+            onDragEnd={() => {
+              setDragId(null);
+              setDropTarget(null);
+            }}
+            onDropNode={performDrop}
             onMenu={(kind, n) => {
               if (kind === "rename") setDialog({ kind: "rename", node: n });
               if (kind === "delete") {
@@ -155,7 +189,8 @@ export function CollectionsPanel() {
         onSubmit={(v) => v && newRequestAndOpen(dialog?.kind === "request" ? dialog.parentId : "", v)}
       />
       <PromptDialog
-        open={dialog?.kind === "rename"}        onOpenChange={(o) => !o && setDialog(null)}
+        open={dialog?.kind === "rename"}
+        onOpenChange={(o) => !o && setDialog(null)}
         title={t("rename")}
         defaultValue={dialog?.kind === "rename" ? dialog.node.name : ""}
         submitLabel={t("rename")}
@@ -181,12 +216,19 @@ export function CollectionsPanel() {
 type TreeNodeProps = {
   node: CollectionNode;
   depth: number;
+  parentId: string;
   filter: string;
   isOpen: (id: string) => boolean;
   toggle: (id: string) => void;
   selectedFolderId: string | null;
   onSelectFolder: (id: string) => void;
   onOpenRequest: (node: CollectionNode) => void;
+  dragId: string | null;
+  dropTarget: DropTarget | null;
+  onDragStart: (id: string) => void;
+  onDragOver: (target: DropTarget | null) => void;
+  onDragEnd: () => void;
+  onDropNode: (target: CollectionNode, parentId: string, position: DropPosition) => void;
   onMenu: (
     kind:
       | "rename"
@@ -202,28 +244,85 @@ type TreeNodeProps = {
 };
 
 function TreeNode(props: TreeNodeProps) {
-  const { node, depth, filter, isOpen, toggle, selectedFolderId, onSelectFolder, onOpenRequest, onMenu } = props;
+  const {
+    node,
+    depth,
+    parentId,
+    filter,
+    isOpen,
+    toggle,
+    selectedFolderId,
+    onSelectFolder,
+    onOpenRequest,
+    dragId,
+    dropTarget,
+    onDragStart,
+    onDragOver,
+    onDragEnd,
+    onDropNode,
+    onMenu,
+  } = props;
   const { t } = useI18n();
   const status = useStore((s) => s.testStatus[node.id]);
+
   const matches =
     !filter ||
     node.name.toLowerCase().includes(filter) ||
     (node.request?.url.toLowerCase().includes(filter) ?? false);
-  const subtreeMatches =
-    matches ||
-    (node.children ?? []).some((c) => JSON.stringify(c).toLowerCase().includes(filter));
-
+  const subtreeMatches = matches || JSON.stringify(node).toLowerCase().includes(filter);
   if (filter && !subtreeMatches) return null;
 
-  const padding = { paddingLeft: `${depth * 14 + 6}px` };
   const isFolder = node.type === "folder";
+  const padding = { paddingLeft: `${depth * 14 + 6}px` };
+  const isDragging = dragId === node.id;
+  const isDropTarget = dropTarget?.id === node.id;
+  // Disallow dropping a node into its own subtree.
+  const canDrop = dragId && dragId !== node.id && !containsNode(node, dragId);
+
+  const computePosition = (e: DragEvent): DropPosition => {
+    const rect = e.currentTarget.getBoundingClientRect();
+    const ratio = (e.clientY - rect.top) / rect.height;
+    if (isFolder) {
+      if (ratio < 0.28) return "before";
+      if (ratio > 0.72) return "after";
+      return "inside";
+    }
+    return ratio < 0.5 ? "before" : "after";
+  };
 
   return (
     <div>
       <div
+        draggable
+        onDragStart={(e) => {
+          e.stopPropagation();
+          e.dataTransfer.effectAllowed = "move";
+          e.dataTransfer.setData("text/plain", node.id);
+          onDragStart(node.id);
+        }}
+        onDragEnd={onDragEnd}
+        onDragOver={(e) => {
+          if (!canDrop) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onDragOver({ id: node.id, position: computePosition(e) });
+        }}
+        onDragLeave={(e) => {
+          if (dropTarget?.id === node.id) onDragOver(null);
+        }}
+        onDrop={(e) => {
+          if (!canDrop) return;
+          e.preventDefault();
+          e.stopPropagation();
+          onDropNode(node, parentId, computePosition(e));
+        }}
         className={cn(
-          "group flex cursor-pointer items-center gap-1 rounded-md py-1 pr-1 text-sm hover:bg-sidebar-accent/70",
+          "tree-row group flex items-center gap-1 rounded-md py-1 pr-1 text-sm hover:bg-sidebar-accent/70",
           isFolder && selectedFolderId === node.id && "bg-sidebar-accent",
+          isDragging && "dragging",
+          isDropTarget && dropTarget?.position === "inside" && "drop-inside",
+          isDropTarget && dropTarget?.position === "before" && "drop-before",
+          isDropTarget && dropTarget?.position === "after" && "drop-after",
         )}
         style={padding}
         onClick={() => {
@@ -237,7 +336,10 @@ function TreeNode(props: TreeNodeProps) {
       >
         {isFolder ? (
           <ChevronRight
-            className={cn("h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform", isOpen(node.id) && "rotate-90")}
+            className={cn(
+              "h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform",
+              isOpen(node.id) && "rotate-90",
+            )}
             onClick={(e) => {
               e.stopPropagation();
               toggle(node.id);
@@ -258,6 +360,10 @@ function TreeNode(props: TreeNodeProps) {
         )}
 
         <span className="min-w-0 flex-1 truncate">{node.name}</span>
+
+        {isFolder && (node.setupNodeId || (node.variables?.length ?? 0) > 0) && (
+          <FolderCog className="h-3 w-3 shrink-0 text-muted-foreground" />
+        )}
 
         {!isFolder && status && (
           <span
@@ -323,10 +429,18 @@ function TreeNode(props: TreeNodeProps) {
       {isFolder && isOpen(node.id) && (node.children ?? []).length > 0 && (
         <div>
           {(node.children ?? []).map((child) => (
-            <TreeNode key={child.id} {...props} node={child} depth={depth + 1} />
+            <TreeNode key={child.id} {...props} node={child} depth={depth + 1} parentId={node.id} />
           ))}
         </div>
       )}
     </div>
   );
+}
+
+function containsNode(node: CollectionNode, id: string): boolean {
+  if (node.id === id) return true;
+  for (const c of node.children ?? []) {
+    if (containsNode(c, id)) return true;
+  }
+  return false;
 }

@@ -318,13 +318,15 @@ func (s *Server) duplicateNode(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) moveNode(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		ParentID string `json:"parentId"`
+		ParentID  string `json:"parentId"`
+		SiblingID string `json:"siblingId"`
+		Position  string `json:"position"`
 	}
 	if err := decode(r, &payload); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	if err := s.store.MoveNode(r.PathValue("id"), payload.ParentID); err != nil {
+	if err := s.store.MoveNode(r.PathValue("id"), payload.ParentID, payload.SiblingID, payload.Position); err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}

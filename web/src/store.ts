@@ -77,7 +77,7 @@ type State = {
   saveActiveTab: (name?: string) => Promise<void>;
   renameNode: (id: string, name: string) => Promise<void>;
   deleteNode: (id: string) => Promise<void>;
-  moveNode: (id: string, parentId: string) => Promise<void>;
+  moveNode: (id: string, parentId: string, siblingId?: string, position?: "before" | "after") => Promise<void>;
   duplicateNode: (id: string) => Promise<void>;
   updateFolder: (
     id: string,
@@ -442,9 +442,9 @@ export const useStore = create<State>((set, get) => ({
     }
   },
 
-  async moveNode(id, parentId) {
+  async moveNode(id, parentId, siblingId, position) {
     try {
-      await api.moveNode(id, parentId);
+      await api.moveNode(id, parentId, siblingId ?? "", position ?? "after");
       await get().refreshCollections();
     } catch (err) {
       get().toast({ title: translate("moveFailed"), description: String(err), variant: "error" });

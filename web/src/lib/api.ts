@@ -90,10 +90,10 @@ export const api = {
   deleteNode(id: string) {
     return request<{ ok: boolean }>(`/collections/${id}`, { method: "DELETE" });
   },
-  moveNode(id: string, parentId: string) {
+  moveNode(id: string, parentId: string, siblingId = "", position = "after") {
     return request<{ ok: boolean }>(`/collections/${id}/move`, {
       method: "POST",
-      body: JSON.stringify({ parentId }),
+      body: JSON.stringify({ parentId, siblingId, position }),
     });
   },
   duplicateNode(id: string) {

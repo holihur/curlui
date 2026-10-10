@@ -137,29 +137,59 @@ func (s *Store) DeleteNode(id string) error {
 	return s.persist()
 }
 
-// MoveNode re-parents a node.
-func (s *Store) MoveNode(id, newParentID string) error {
+// MoveNode re-parents a node. When siblingID is set the node is inserted
+// relative to that sibling (position "before" or "after"); otherwise it is
+// appended to the target parent.
+func (s *Store) MoveNode(id, newParentID, siblingID, position string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	n := findNode(s.data.Collections, id)
 	if n == nil {
 		return ErrNotFound
 	}
-	// Prevent moving a folder into its own subtree.
 	if newParentID != "" && isDescendant(n, newParentID) {
 		return errors.New("cannot move a folder into itself")
 	}
+	if siblingID == id {
+		return nil
+	}
 	deleteNode(&s.data.Collections, id)
+
 	if newParentID == "" {
-		s.data.Collections = append(s.data.Collections, n)
+		s.data.Collections = insertRelative(s.data.Collections, siblingID, position, n)
 	} else {
 		parent := findNode(s.data.Collections, newParentID)
 		if parent == nil || parent.Type != "folder" {
 			return ErrNotFound
 		}
-		parent.Children = append(parent.Children, n)
+		parent.Children = insertRelative(parent.Children, siblingID, position, n)
 	}
 	return s.persist()
+}
+
+// insertRelative inserts node before/after sibling, or appends when the sibling
+// is absent.
+func insertRelative(list []*models.Node, siblingID, position string, node *models.Node) []*models.Node {
+	idx := len(list)
+	if siblingID != "" {
+		if i := indexOf(list, siblingID); i >= 0 {
+			idx = i
+			if position != "before" {
+				idx = i + 1
+			}
+		}
+	}
+	if idx < 0 {
+		idx = 0
+	}
+	if idx > len(list) {
+		idx = len(list)
+	}
+	out := make([]*models.Node, 0, len(list)+1)
+	out = append(out, list[:idx]...)
+	out = append(out, node)
+	out = append(out, list[idx:]...)
+	return out
 }
 
 // DuplicateNode deep-copies a node (and its subtree) as a sibling, with a
