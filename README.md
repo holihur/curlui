@@ -60,6 +60,30 @@ internal/private endpoints, and you get precise per-phase network timings.
 | State     | Zustand                                                     |
 | Storage   | JSON file (`data/store.json`), atomic writes                 |
 
+## Install (one line)
+
+**macOS / Linux**
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/holihur/curlui/main/install.sh | sh
+```
+
+**Windows (PowerShell)**
+
+```powershell
+irm https://raw.githubusercontent.com/holihur/curlui/main/install.ps1 | iex
+```
+
+Both detect your OS/CPU, download the matching **single-file** binary from the
+latest Release and put it on your `PATH`. Pin a version with
+`CURLUI_VERSION=v1.3.0` or choose the directory with `CURLUI_INSTALL_DIR=$HOME/bin`.
+
+Then just run:
+
+```bash
+curlui -addr :8080        # open http://localhost:8080
+```
+
 ## Download & run (single binary)
 
 Every tagged release ships pre-built, **self-contained** binaries — the web UI

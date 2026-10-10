@@ -8,6 +8,7 @@ import {
   FolderInput,
   FolderOpen,
   FolderPlus,
+  Link2,
   MoreVertical,
   Pencil,
   Plus,
@@ -31,7 +32,7 @@ import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { FolderSettingsDialog, MoveDialog } from "@/components/FolderSettingsDialog";
 
-type DropPosition = "before" | "after" | "inside";
+type DropPosition = "before" | "after" | "inside" | "dependency";
 type DropTarget = { id: string; position: DropPosition };
 
 export function CollectionsPanel() {
@@ -43,6 +44,7 @@ export function CollectionsPanel() {
   const renameNode = useStore((s) => s.renameNode);
   const deleteNode = useStore((s) => s.deleteNode);
   const moveNode = useStore((s) => s.moveNode);
+  const addDependency = useStore((s) => s.addDependency);
   const duplicateNode = useStore((s) => s.duplicateNode);
   const openNode = useStore((s) => s.openNode);
   const toast = useStore((s) => s.toast);
@@ -77,6 +79,10 @@ export function CollectionsPanel() {
     setDragId(null);
     setDropTarget(null);
     if (!src || src === target.id) return;
+    if (position === "dependency") {
+      void addDependency(src, target.id);
+      return;
+    }
     if (position === "inside") {
       void moveNode(src, target.id, "", "after");
       setExpanded((e) => ({ ...e, [target.id]: true }));
@@ -84,6 +90,8 @@ export function CollectionsPanel() {
       void moveNode(src, parentId, target.id, position);
     }
   };
+
+  const dragType = dragId ? (findNode(collections, dragId)?.type ?? null) : null;
 
   return (
     <div className="flex h-full flex-col">
@@ -144,6 +152,7 @@ export function CollectionsPanel() {
             onSelectFolder={(id) => selectFolder(id)}
             onOpenRequest={(n) => openNode(n)}
             dragId={dragId}
+            dragType={dragType}
             dropTarget={dropTarget}
             onDragStart={setDragId}
             onDragOver={setDropTarget}
@@ -224,6 +233,7 @@ type TreeNodeProps = {
   onSelectFolder: (id: string) => void;
   onOpenRequest: (node: CollectionNode) => void;
   dragId: string | null;
+  dragType: "folder" | "request" | null;
   dropTarget: DropTarget | null;
   onDragStart: (id: string) => void;
   onDragOver: (target: DropTarget | null) => void;
@@ -255,6 +265,7 @@ function TreeNode(props: TreeNodeProps) {
     onSelectFolder,
     onOpenRequest,
     dragId,
+    dragType,
     dropTarget,
     onDragStart,
     onDragOver,
@@ -286,6 +297,11 @@ function TreeNode(props: TreeNodeProps) {
       if (ratio < 0.28) return "before";
       if (ratio > 0.72) return "after";
       return "inside";
+    }
+    if (dragType === "request") {
+      if (ratio < 0.33) return "before";
+      if (ratio > 0.66) return "after";
+      return "dependency";
     }
     return ratio < 0.5 ? "before" : "after";
   };
@@ -323,6 +339,7 @@ function TreeNode(props: TreeNodeProps) {
           isDropTarget && dropTarget?.position === "inside" && "drop-inside",
           isDropTarget && dropTarget?.position === "before" && "drop-before",
           isDropTarget && dropTarget?.position === "after" && "drop-after",
+          isDropTarget && dropTarget?.position === "dependency" && "drop-depend",
         )}
         style={padding}
         onClick={() => {
@@ -363,6 +380,12 @@ function TreeNode(props: TreeNodeProps) {
 
         {isFolder && (node.setupNodeId || (node.variables?.length ?? 0) > 0) && (
           <FolderCog className="h-3 w-3 shrink-0 text-muted-foreground" />
+        )}
+
+        {!isFolder && (node.request?.dependsOn?.length ?? 0) > 0 && (
+          <span title={`${t("hasDependency")} (${node.request?.dependsOn?.length})`}>
+            <Link2 className="h-3 w-3 shrink-0 text-sky-400" />
+          </span>
         )}
 
         {!isFolder && status && (

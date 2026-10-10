@@ -83,6 +83,7 @@ type State = {
     id: string,
     payload: { variables: KeyValue[]; setupNodeId: string; extract: ExtractRule[] },
   ) => Promise<void>;
+  addDependency: (nodeId: string, parentNodeId: string) => Promise<void>;
   selectFolder: (id: string | null) => void;
 
   // history
@@ -140,6 +141,23 @@ function nodePath(nodes: CollectionNode[], id: string): CollectionNode[] {
     if (sub.length) return [n, ...sub];
   }
   return [];
+}
+
+// dependsOnClosure returns every node id that the given request depends on,
+// transitively (used for cycle detection).
+function dependsOnClosure(
+  collections: CollectionNode[],
+  id: string,
+  seen: Set<string> = new Set(),
+): Set<string> {
+  const node = findNode(collections, id);
+  if (!node || node.type !== "request" || !node.request) return seen;
+  for (const dep of node.request.dependsOn ?? []) {
+    if (seen.has(dep)) continue;
+    seen.add(dep);
+    dependsOnClosure(collections, dep, seen);
+  }
+  return seen;
 }
 
 export type Chain = { parents: RequestDef[]; folderVars: Record<string, string> };
@@ -469,6 +487,33 @@ export const useStore = create<State>((set, get) => ({
     } catch (err) {
       get().toast({ title: translate("saveFailed"), description: String(err), variant: "error" });
     }
+  },
+
+  async addDependency(nodeId, parentNodeId) {
+    const { collections } = get();
+    const node = findNode(collections, nodeId);
+    const parent = findNode(collections, parentNodeId);
+    if (!node || node.type !== "request" || !node.request) return;
+    if (!parent || parent.type !== "request") return;
+    if (dependsOnClosure(collections, parentNodeId).has(nodeId)) {
+      get().toast({ title: translate("dependencyCycle"), variant: "error" });
+      return;
+    }
+    const current = node.request.dependsOn ?? [];
+    if (!current.includes(parentNodeId)) {
+      const request = {
+        ...normalizeRequest(node.request),
+        dependsOn: [...current, parentNodeId],
+      };
+      try {
+        await api.updateNode(nodeId, { request });
+        await get().refreshCollections();
+      } catch (err) {
+        get().toast({ title: translate("saveFailed"), description: String(err), variant: "error" });
+        return;
+      }
+    }
+    get().toast({ title: translate("dependencyAdded"), variant: "success" });
   },
 
   selectFolder(id) {
