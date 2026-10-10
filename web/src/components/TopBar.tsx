@@ -62,6 +62,7 @@ export function TopBar() {
   const [teamOpen, setTeamOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const collectionFileRef = useRef<HTMLInputElement>(null);
+  const postmanFileRef = useRef<HTMLInputElement>(null);
 
   const projects = useStore((s) => s.projects);
   const projectId = useStore((s) => s.projectId);
@@ -81,6 +82,20 @@ export function TopBar() {
       const nodes = Array.isArray(parsed) ? parsed : parsed.collections;
       if (!Array.isArray(nodes) || nodes.length === 0) throw new Error("no collections found");
       const { count } = await api.importCollections(selectedFolderId ?? "", nodes);
+      await refreshCollections();
+      toast({ title: `${t("imported")}: ${count}`, variant: "success" });
+    } catch (err) {
+      toast({
+        title: t("importFailed"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    }
+  };
+
+  const importPostmanFile = async (file: File) => {
+    try {
+      const { count } = await api.importPostman(await file.text(), selectedFolderId ?? "");
       await refreshCollections();
       toast({ title: `${t("imported")}: ${count}`, variant: "success" });
     } catch (err) {
@@ -136,6 +151,9 @@ export function TopBar() {
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => collectionFileRef.current?.click()}>
             <FolderInput /> {t("importCollection")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => postmanFileRef.current?.click()}>
+            <FileJson2 /> {t("importPostman")}
           </DropdownMenuItem>
         </DropdownMenuContent>
       </DropdownMenu>
@@ -260,6 +278,17 @@ export function TopBar() {
         onChange={(e) => {
           const f = e.target.files?.[0];
           if (f) void importCollection(f);
+          e.target.value = "";
+        }}
+      />
+      <input
+        ref={postmanFileRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void importPostmanFile(f);
           e.target.value = "";
         }}
       />

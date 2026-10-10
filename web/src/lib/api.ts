@@ -199,6 +199,12 @@ export const api = {
       body: JSON.stringify(req),
     });
   },
+  importPostman(content: string, parentId = "") {
+    return request<{ count: number; collections: CollectionNode[] }>("/import/postman", {
+      method: "POST",
+      body: JSON.stringify({ content, parentId }),
+    });
+  },
 
   // OpenAPI / Swagger import
   parseOpenAPI(payload: { url?: string; content?: string; headers?: Record<string, string> }) {

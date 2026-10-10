@@ -19,6 +19,7 @@ import (
 	"curlui/server/internal/mcp"
 	"curlui/server/internal/models"
 	"curlui/server/internal/openapi"
+	"curlui/server/internal/postman"
 	"curlui/server/internal/proxy"
 	"curlui/server/internal/scheduler"
 	"curlui/server/internal/store"
@@ -198,6 +199,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("POST /api/curl/parse", s.parseCurl)
 	mux.HandleFunc("POST /api/curl/generate", s.generateCurl)
+	mux.HandleFunc("POST /api/import/postman", s.importPostman)
 
 	mux.HandleFunc("POST /api/openapi/parse", s.parseOpenAPI)
 	mux.HandleFunc("POST /api/collections/import", s.importCollections)
@@ -719,6 +721,33 @@ func (s *Server) generateCurl(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]string{"command": curlpkg.Generate(req)})
 }
 
+// importPostman imports a Postman Collection v2.1 document.
+func (s *Server) importPostman(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		ParentID string `json:"parentId"`
+		Content  string `json:"content"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(payload.Content) == "" {
+		writeErr(w, http.StatusBadRequest, "collection content is empty")
+		return
+	}
+	nodes, err := postman.Parse([]byte(payload.Content))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	saved, count, err := s.db(r).ImportNodes(payload.ParentID, nodes)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"collections": saved, "count": count})
+}
+
 // --- scheduler -------------------------------------------------------------
 
 func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
@@ -812,6 +841,22 @@ func (s *Server) exportNodes(w http.ResponseWriter, r *http.Request) {
 		for _, n := range nodes {
 			writeCurlNode(w, n, "")
 		}
+		return
+	}
+
+	if format == "postman" {
+		name := "curlui export"
+		if len(nodes) == 1 {
+			name = nodes[0].Name
+		}
+		data, err := postman.Export(name, nodes)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
+		w.Header().Set("Content-Type", "application/json; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="postman-collection.json"`)
+		_, _ = w.Write(data)
 		return
 	}
 

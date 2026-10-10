@@ -186,6 +186,7 @@ export function CollectionsPanel() {
               }
               if (kind === "export-json") downloadURL(`/api/export?id=${encodeURIComponent(n.id)}&format=curlui`);
               if (kind === "export-curl") downloadURL(`/api/export?id=${encodeURIComponent(n.id)}&format=curl`);
+              if (kind === "export-postman") downloadURL(`/api/export?id=${encodeURIComponent(n.id)}&format=postman`);
               if (kind === "export-docs") {
                 setDocNode(n);
                 setDocOpen(true);
@@ -273,6 +274,7 @@ type TreeNodeProps = {
       | "copy-curl"
       | "export-json"
       | "export-curl"
+      | "export-postman"
       | "export-docs"
       | "folder-settings"
       | "run-concurrent"
@@ -488,6 +490,9 @@ function TreeNode(props: TreeNodeProps) {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onMenu("export-curl", node)}>
               <Download /> {t("exportCurl")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onMenu("export-postman", node)}>
+              <Download /> {t("exportPostman")}
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onMenu("export-docs", node)}>
               <FileText /> {t("exportDocs")}

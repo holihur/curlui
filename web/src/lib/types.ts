@@ -63,6 +63,9 @@ export type RequestOptions = {
   proxy?: string;
   maxRedirects?: number;
   sendVia?: "server" | "browser";
+  useCookieJar?: boolean;
+  clientCert?: string;
+  clientKey?: string;
 };
 
 export type MockResponse = {

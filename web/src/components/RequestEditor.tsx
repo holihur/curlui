@@ -802,6 +802,35 @@ function OptionsEditor({
         </div>
         <Switch checked={req.options.verifyTLS} onCheckedChange={(v) => setOpts({ verifyTLS: v })} />
       </div>
+
+      <div className="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div className="text-sm font-medium">{t("cookieJar")}</div>
+          <div className="text-xs text-muted-foreground">{t("cookieJarDesc")}</div>
+        </div>
+        <Switch
+          checked={req.options.useCookieJar ?? false}
+          onCheckedChange={(v) => setOpts({ useCookieJar: v })}
+        />
+      </div>
+
+      <Field label={t("clientCert")}>
+        <p className="text-[11px] text-muted-foreground">{t("clientCertDesc")}</p>
+        <Textarea
+          value={req.options.clientCert ?? ""}
+          placeholder="-----BEGIN CERTIFICATE-----"
+          onChange={(e) => setOpts({ clientCert: e.target.value })}
+          className="min-h-[80px] font-mono text-[11px]"
+          spellCheck={false}
+        />
+        <Textarea
+          value={req.options.clientKey ?? ""}
+          placeholder="-----BEGIN PRIVATE KEY-----"
+          onChange={(e) => setOpts({ clientKey: e.target.value })}
+          className="mt-2 min-h-[80px] font-mono text-[11px]"
+          spellCheck={false}
+        />
+      </Field>
     </div>
   );
 }

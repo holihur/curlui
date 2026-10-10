@@ -1,5 +1,5 @@
-import { useMemo, useState } from "react";
-import { Check, CheckCircle2, Copy, Download, FileWarning, Inbox, XCircle } from "lucide-react";
+import { useMemo, useState, type ReactNode } from "react";
+import { Check, CheckCircle2, Copy, Download, FileWarning, Inbox, Search, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn, copyText, formatBytes, formatMs, prettyJSON, statusColor } from "@/lib/utils";
@@ -77,6 +77,16 @@ function ResponseStatusBar({ res }: { res: ApiResponse }) {
           variant="ghost"
           size="xs"
           className="gap-1 text-muted-foreground"
+          title={t("saveResponse")}
+          onClick={() => saveResponse(res)}
+        >
+          <Download className="h-3.5 w-3.5" />
+          {t("saveResponse")}
+        </Button>
+        <Button
+          variant="ghost"
+          size="xs"
+          className="gap-1 text-muted-foreground"
           onClick={async () => {
             const ok = await copyText(res.body);
             if (ok) {
@@ -104,6 +114,7 @@ const RESPONSE_TABS: { value: string; label: MessageKey }[] = [
 function ResponseTabs({ res }: { res: ApiResponse }) {
   const { t } = useI18n();
   const [view, setView] = useState<"pretty" | "raw">("pretty");
+  const [query, setQuery] = useState("");
   const headerCount = Object.keys(res.headers ?? {}).length;
   const cookieCount = res.cookies?.length ?? 0;
 
@@ -113,6 +124,18 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
   }, [res]);
 
   const shown = view === "pretty" && pretty ? pretty : res.body;
+  const matchCount = useMemo(() => {
+    const q = query.trim().toLowerCase();
+    if (!q) return 0;
+    const hay = shown.toLowerCase();
+    let n = 0;
+    let i = hay.indexOf(q);
+    while (i >= 0) {
+      n++;
+      i = hay.indexOf(q, i + q.length);
+    }
+    return n;
+  }, [query, shown]);
   const requestBodyPretty = useMemo(
     () => (res.request.body ? prettyJSON(res.request.body) : null),
     [res.request.body],
@@ -165,16 +188,32 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
           )}
         </TabsList>
 
-        {pretty && (
-          <div className="flex items-center gap-1 pr-1">
-            <Button variant={view === "pretty" ? "secondary" : "ghost"} size="xs" onClick={() => setView("pretty")}>
-              {t("pretty")}
-            </Button>
-            <Button variant={view === "raw" ? "secondary" : "ghost"} size="xs" onClick={() => setView("raw")}>
-              {t("raw")}
-            </Button>
+        <div className="flex items-center gap-1 pr-1">
+          <div className="relative">
+            <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
+            <input
+              value={query}
+              onChange={(e) => setQuery(e.target.value)}
+              placeholder={t("searchBody")}
+              className="h-6 w-28 rounded border bg-background pl-6 pr-1 text-[11px] outline-none focus:w-40"
+            />
           </div>
-        )}
+          {query && (
+            <span className={cn("text-[10px]", matchCount ? "text-muted-foreground" : "text-destructive")}>
+              {matchCount}
+            </span>
+          )}
+          {pretty && (
+            <>
+              <Button variant={view === "pretty" ? "secondary" : "ghost"} size="xs" onClick={() => setView("pretty")}>
+                {t("pretty")}
+              </Button>
+              <Button variant={view === "raw" ? "secondary" : "ghost"} size="xs" onClick={() => setView("raw")}>
+                {t("raw")}
+              </Button>
+            </>
+          )}
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-hidden">
@@ -189,7 +228,9 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
           ) : (
             <pre className="m-0 h-full overflow-auto whitespace-pre-wrap break-words bg-background p-3 font-mono text-xs leading-relaxed">
               {shown ? (
-                pretty ? (
+                query.trim() ? (
+                  <HighlightedBody text={shown} query={query.trim()} />
+                ) : pretty ? (
                   highlightJSON(shown)
                 ) : (
                   shown
@@ -418,4 +459,63 @@ function TimingView({ res }: { res: ApiResponse }) {
       </div>
     </div>
   );
+}
+
+function responseFilename(res: ApiResponse) {
+  try {
+    const u = new URL(res.request.url);
+    const base = u.pathname.split("/").filter(Boolean).pop() || "response";
+    if (base.includes(".")) return base;
+    const ct = (res.contentType || "").toLowerCase();
+    const ext = ct.includes("json")
+      ? "json"
+      : ct.includes("html")
+        ? "html"
+        : ct.includes("xml")
+          ? "xml"
+          : ct.includes("text")
+            ? "txt"
+            : "bin";
+    return `${base}.${ext}`;
+  } catch {
+    return "response.txt";
+  }
+}
+
+// saveResponse downloads the response body as a file (binary-aware).
+function saveResponse(res: ApiResponse) {
+  const data = res.isBinary && res.bodyBase64 ? atob(res.bodyBase64) : res.body;
+  const blob = new Blob([data], { type: res.contentType || "application/octet-stream" });
+  const href = URL.createObjectURL(blob);
+  const a = document.createElement("a");
+  a.href = href;
+  a.download = responseFilename(res);
+  document.body.appendChild(a);
+  a.click();
+  a.remove();
+  URL.revokeObjectURL(href);
+}
+
+// HighlightedBody renders text with every occurrence of query wrapped in <mark>.
+function HighlightedBody({ text, query }: { text: string; query: string }) {
+  const q = query.toLowerCase();
+  const hay = text.toLowerCase();
+  const parts: ReactNode[] = [];
+  let i = 0;
+  let key = 0;
+  let n = 0;
+  while (n < 5000) {
+    const idx = hay.indexOf(q, i);
+    if (idx < 0) break;
+    if (idx > i) parts.push(text.slice(i, idx));
+    parts.push(
+      <mark key={key++} className="rounded bg-yellow-300/50 text-inherit">
+        {text.slice(idx, idx + q.length)}
+      </mark>,
+    );
+    i = idx + q.length;
+    n++;
+  }
+  parts.push(text.slice(i));
+  return <>{parts}</>;
 }

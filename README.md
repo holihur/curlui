@@ -91,8 +91,11 @@ the refreshed images back).
   an isolated workspace (collections, history, environments, traffic) stored in
   PostgreSQL; members get a role (owner/admin/member/viewer) and clients poll the
   project version so teammates see each other's changes.
-- **Export / import** — export a collection as JSON (round-trips back in) or as
-  a sheet of cURL commands. **Export docs** renders a collection to **Markdown,
+- **Export / import** — export a collection as JSON (round-trips back in), as a
+  sheet of cURL commands, or as a **Postman Collection v2.1**; import existing
+  **Postman collections** (folders, requests, headers, bodies, auth, query
+  params and collection variables are mapped). **Export docs** renders a
+  collection to **Markdown,
   HTML, Word or PDF** using the built-in template or your own (Go template
   syntax over the collection).
 - **Self-update** — Settings → Updates checks GitHub Releases and can replace
@@ -275,6 +278,7 @@ web/
 | Method   | Path                          | Purpose                          |
 | -------- | ----------------------------- | -------------------------------- |
 | `POST`   | `/api/send`                   | Execute a request                |
+| `POST`   | `/api/import/postman`         | Import a Postman Collection v2.1 |
 | `GET`    | `/api/auth/status`            | Auth state, current user + projects |
 | `POST`   | `/api/auth/login`             | Sign in (sets a session cookie)  |
 | `POST`   | `/api/auth/logout`            | Sign out                         |
