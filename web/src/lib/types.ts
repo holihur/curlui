@@ -127,6 +127,9 @@ export type CollectionNode = {
   name: string;
   request?: RequestDef;
   children?: CollectionNode[];
+  variables?: KeyValue[];
+  setupNodeId?: string;
+  extract?: ExtractRule[];
 };
 
 export type HistoryEntry = {

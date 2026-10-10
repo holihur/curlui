@@ -304,6 +304,31 @@ func reid(n *models.Node, count *int) *models.Node {
 	return n
 }
 
+// SetFolderConfig updates a folder's hierarchy settings: its variables, the
+// setup request used to produce inherited values, and the extraction rules
+// applied to that setup request's response.
+func (s *Store) SetFolderConfig(id string, variables []models.KeyValue, setupNodeID string, extract []models.ExtractRule) (*models.Node, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	n := findNode(s.data.Collections, id)
+	if n == nil {
+		return nil, ErrNotFound
+	}
+	if n.Type != "folder" {
+		return nil, errors.New("node is not a folder")
+	}
+	if setupNodeID != "" {
+		target := findNode(s.data.Collections, setupNodeID)
+		if target == nil || target.Type != "request" {
+			return nil, errors.New("setup request not found")
+		}
+	}
+	n.Variables = variables
+	n.SetupNodeID = setupNodeID
+	n.Extract = extract
+	return n, s.persist()
+}
+
 // --- History ---------------------------------------------------------------
 
 // History returns entries newest-first.

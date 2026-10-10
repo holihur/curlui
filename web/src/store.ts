@@ -5,7 +5,9 @@ import {
   type ApiResponse,
   type CollectionNode,
   type Environment,
+  type ExtractRule,
   type HistoryEntry,
+  type KeyValue,
   type RequestDef,
 } from "@/lib/types";
 import { uid } from "@/lib/utils";
@@ -77,6 +79,10 @@ type State = {
   deleteNode: (id: string) => Promise<void>;
   moveNode: (id: string, parentId: string) => Promise<void>;
   duplicateNode: (id: string) => Promise<void>;
+  updateFolder: (
+    id: string,
+    payload: { variables: KeyValue[]; setupNodeId: string; extract: ExtractRule[] },
+  ) => Promise<void>;
   selectFolder: (id: string | null) => void;
 
   // history
@@ -125,24 +131,65 @@ function normalizeRequest(r: RequestDef): RequestDef {
   };
 }
 
-// collectParents resolves dependency node IDs into an ordered list of parent
-// requests (each parent's own dependencies first).
-function collectParents(
-  nodes: CollectionNode[],
-  ids: string[],
-  visited: Set<string> = new Set(),
-): RequestDef[] {
-  const out: RequestDef[] = [];
-  for (const id of ids) {
-    if (visited.has(id)) continue;
-    visited.add(id);
-    const node = findNode(nodes, id);
-    if (!node || node.type !== "request" || !node.request) continue;
-    const req = normalizeRequest(node.request);
-    out.push(...collectParents(nodes, req.dependsOn ?? [], visited));
-    out.push({ ...req, name: node.name });
+// nodePath returns the chain of nodes from the root down to (and including)
+// the node with the given id.
+function nodePath(nodes: CollectionNode[], id: string): CollectionNode[] {
+  for (const n of nodes) {
+    if (n.id === id) return [n];
+    const sub = nodePath(n.children ?? [], id);
+    if (sub.length) return [n, ...sub];
   }
-  return out;
+  return [];
+}
+
+export type Chain = { parents: RequestDef[]; folderVars: Record<string, string> };
+
+// buildChain resolves the full execution hierarchy for a request: ancestor
+// folder variables, ancestor folder setup requests, and explicit dependsOn
+// parents (each parent's own dependencies first).
+export function buildChain(
+  collections: CollectionNode[],
+  targetNodeId: string,
+  req: RequestDef,
+): Chain {
+  const parents: RequestDef[] = [];
+  const folderVars: Record<string, string> = {};
+  const visited = new Set<string>();
+
+  const addParents = (ids: string[]) => {
+    for (const id of ids) {
+      if (visited.has(id)) continue;
+      visited.add(id);
+      const node = findNode(collections, id);
+      if (!node || node.type !== "request" || !node.request) continue;
+      const parentReq = normalizeRequest(node.request);
+      addParents(parentReq.dependsOn ?? []);
+      parents.push({ ...parentReq, name: node.name });
+    }
+  };
+
+  if (targetNodeId) {
+    const path = nodePath(collections, targetNodeId);
+    for (const folder of path.filter((n) => n.type === "folder")) {
+      for (const v of folder.variables ?? []) {
+        if (v.enabled && v.key) folderVars[v.key] = v.value;
+      }
+      if (!folder.setupNodeId || visited.has(folder.setupNodeId)) continue;
+      const setup = findNode(collections, folder.setupNodeId);
+      if (!setup || setup.type !== "request" || !setup.request) continue;
+      visited.add(setup.id);
+      const setupReq = normalizeRequest(setup.request);
+      addParents(setupReq.dependsOn ?? []);
+      parents.push({
+        ...setupReq,
+        name: `${folder.name} · ${setup.name}`,
+        extract: [...(setupReq.extract ?? []), ...(folder.extract ?? [])],
+      });
+    }
+  }
+
+  addParents(req.dependsOn ?? []);
+  return { parents, folderVars };
 }
 
 // computeStatus derives the green/red indicator from assertions and hook tests.
@@ -297,13 +344,9 @@ export const useStore = create<State>((set, get) => ({
       tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: true, error: undefined } : t)),
     }));
     try {
-      const parents = collectParents(get().collections, tab.request.dependsOn ?? []);
-      const { response } = await api.send(
-        tab.request,
-        activeEnvId,
-        get().runtimeVars,
-        parents,
-      );
+      const chain = buildChain(get().collections, tab.sourceId ?? "", tab.request);
+      const variables = { ...chain.folderVars, ...get().runtimeVars };
+      const { response } = await api.send(tab.request, activeEnvId, variables, chain.parents);
       const status = computeStatus(response);
       set((s) => ({
         tabs: s.tabs.map((t) =>
@@ -415,6 +458,16 @@ export const useStore = create<State>((set, get) => ({
       get().toast({ title: translate("duplicated"), variant: "success" });
     } catch (err) {
       get().toast({ title: translate("deleteFailed"), description: String(err), variant: "error" });
+    }
+  },
+
+  async updateFolder(id, payload) {
+    try {
+      await api.updateFolder(id, payload);
+      await get().refreshCollections();
+      get().toast({ title: translate("folderSaved"), variant: "success" });
+    } catch (err) {
+      get().toast({ title: translate("saveFailed"), description: String(err), variant: "error" });
     }
   },
 

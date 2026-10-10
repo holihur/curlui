@@ -2,7 +2,9 @@ import type {
   ApiResponse,
   CollectionNode,
   Environment,
+  ExtractRule,
   HistoryEntry,
+  KeyValue,
   OpenAPIResult,
   RequestDef,
 } from "./types";
@@ -72,6 +74,15 @@ export const api = {
   },
   updateNode(id: string, payload: { name?: string; request?: RequestDef }) {
     return request<CollectionNode>(`/collections/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(payload),
+    });
+  },
+  updateFolder(
+    id: string,
+    payload: { variables: KeyValue[]; setupNodeId: string; extract: ExtractRule[] },
+  ) {
+    return request<CollectionNode>(`/collections/${id}/folder`, {
       method: "PUT",
       body: JSON.stringify(payload),
     });

@@ -225,6 +225,13 @@ run first; their **Extract** rules pull values out of their JSON responses with 
 JSON path (e.g. `$.data.token`) into variables that descendants reference as
 `{{token}}`.
 
+**Folder hierarchy**: a folder can define **variables** and a **setup request**
+with **Extract** rules (right-click a folder → *Folder settings*). Every request
+inside the folder — and its subfolders — automatically inherits those variables
+and has the setup request run first, so a child API can reference a parent's
+return value without wiring it up manually. Variable precedence is:
+environment → ancestor folder variables → parent/setup extractions → hooks.
+
 ## Notes
 
 - `form-data` **file** fields and the **binary** body type reference paths on the

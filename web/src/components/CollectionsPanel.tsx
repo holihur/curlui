@@ -4,6 +4,8 @@ import {
   Copy,
   FileCode2,
   Folder,
+  FolderCog,
+  FolderInput,
   FolderOpen,
   FolderPlus,
   MoreVertical,
@@ -27,6 +29,7 @@ import { findNode, useStore } from "@/store";
 import type { CollectionNode } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
+import { FolderSettingsDialog, MoveDialog } from "@/components/FolderSettingsDialog";
 
 export function CollectionsPanel() {
   const collections = useStore((s) => s.collections);
@@ -50,6 +53,8 @@ export function CollectionsPanel() {
   >(null);
 
   const [filter, setFilter] = useState("");
+  const [folderSettings, setFolderSettings] = useState<CollectionNode | null>(null);
+  const [moveTarget, setMoveTarget] = useState<CollectionNode | null>(null);
 
   const isOpen = (id: string) => expanded[id] ?? true;
 
@@ -119,6 +124,8 @@ export function CollectionsPanel() {
                 if (confirm(t("deleteNodeConfirm", { name: n.name }))) void deleteNode(n.id);
               }
               if (kind === "duplicate") void duplicateNode(n.id);
+              if (kind === "folder-settings") setFolderSettings(n);
+              if (kind === "move") setMoveTarget(n);
               if (kind === "copy-curl" && n.request) {
                 void api.generateCurl(n.request).then(async ({ command }) => {
                   if (await copyText(command)) toast({ title: t("copiedToClipboard"), variant: "success" });
@@ -148,14 +155,24 @@ export function CollectionsPanel() {
         onSubmit={(v) => v && newRequestAndOpen(dialog?.kind === "request" ? dialog.parentId : "", v)}
       />
       <PromptDialog
-        open={dialog?.kind === "rename"}
-        onOpenChange={(o) => !o && setDialog(null)}
+        open={dialog?.kind === "rename"}        onOpenChange={(o) => !o && setDialog(null)}
         title={t("rename")}
         defaultValue={dialog?.kind === "rename" ? dialog.node.name : ""}
         submitLabel={t("rename")}
         onSubmit={(v) => {
           if (dialog?.kind === "rename" && v) void renameNode(dialog.node.id, v);
         }}
+      />
+
+      <FolderSettingsDialog
+        open={folderSettings !== null}
+        onOpenChange={(o) => !o && setFolderSettings(null)}
+        folder={folderSettings}
+      />
+      <MoveDialog
+        open={moveTarget !== null}
+        onOpenChange={(o) => !o && setMoveTarget(null)}
+        node={moveTarget}
       />
     </div>
   );
@@ -171,7 +188,15 @@ type TreeNodeProps = {
   onSelectFolder: (id: string) => void;
   onOpenRequest: (node: CollectionNode) => void;
   onMenu: (
-    kind: "rename" | "delete" | "new-request" | "new-folder" | "duplicate" | "copy-curl",
+    kind:
+      | "rename"
+      | "delete"
+      | "new-request"
+      | "new-folder"
+      | "duplicate"
+      | "copy-curl"
+      | "folder-settings"
+      | "move",
     node: CollectionNode,
   ) => void;
 };
@@ -268,6 +293,9 @@ function TreeNode(props: TreeNodeProps) {
                 <DropdownMenuItem onClick={() => onMenu("new-folder", node)}>
                   <FolderPlus /> {t("newFolder")}
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onMenu("folder-settings", node)}>
+                  <FolderCog /> {t("folderSettings")}
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
               </>
             )}
@@ -282,6 +310,9 @@ function TreeNode(props: TreeNodeProps) {
                 <Terminal /> {t("copyAsCurl")}
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem onClick={() => onMenu("move", node)}>
+              <FolderInput /> {t("moveTo")}
+            </DropdownMenuItem>
             <DropdownMenuItem className="text-destructive" onClick={() => onMenu("delete", node)}>
               <Trash2 /> {t("delete")}
             </DropdownMenuItem>

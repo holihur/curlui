@@ -146,13 +146,20 @@ type Environment struct {
 	Variables []KeyValue `json:"variables"`
 }
 
-// Node is an item in the collections tree.
+// Node is an item in the collections tree. Folders may carry their own
+// variables and an optional "setup" request whose extracted response values
+// are inherited by every descendant request.
 type Node struct {
 	ID       string      `json:"id"`
 	Type     string      `json:"type"` // folder | request
 	Name     string      `json:"name"`
 	Request  *RequestDef `json:"request,omitempty"`
 	Children []*Node     `json:"children,omitempty"`
+
+	// Folder-only fields (hierarchy).
+	Variables   []KeyValue    `json:"variables,omitempty"`
+	SetupNodeID string        `json:"setupNodeId,omitempty"`
+	Extract     []ExtractRule `json:"extract,omitempty"`
 }
 
 // HistoryEntry records an executed request.

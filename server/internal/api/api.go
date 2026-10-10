@@ -41,6 +41,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/collections", s.listCollections)
 	mux.HandleFunc("POST /api/collections", s.createNode)
 	mux.HandleFunc("PUT /api/collections/{id}", s.updateNode)
+	mux.HandleFunc("PUT /api/collections/{id}/folder", s.updateFolder)
 	mux.HandleFunc("DELETE /api/collections/{id}", s.deleteNode)
 	mux.HandleFunc("POST /api/collections/{id}/move", s.moveNode)
 	mux.HandleFunc("POST /api/collections/{id}/duplicate", s.duplicateNode)
@@ -286,6 +287,24 @@ func (s *Server) deleteNode(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) updateFolder(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Variables   []models.KeyValue    `json:"variables"`
+		SetupNodeID string               `json:"setupNodeId"`
+		Extract     []models.ExtractRule `json:"extract"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	node, err := s.store.SetFolderConfig(r.PathValue("id"), payload.Variables, payload.SetupNodeID, payload.Extract)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, node)
 }
 
 func (s *Server) duplicateNode(w http.ResponseWriter, r *http.Request) {

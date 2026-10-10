@@ -1,4 +1,4 @@
-import { useState, type ReactNode } from "react";
+import { useMemo, useState, type ReactNode } from "react";
 import { Check, GitBranch, ListChecks, Play, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -13,7 +13,7 @@ import {
 import { CodeEditor } from "@/components/CodeEditor";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
-import { useStore } from "@/store";
+import { buildChain, useActiveTab, useStore } from "@/store";
 import type { Assertion, AssertionSource, CollectionNode, Hook, RequestDef } from "@/lib/types";
 
 type Section = "pre" | "post" | "assertions" | "deps";
@@ -300,7 +300,13 @@ function DependenciesEditor({
 }) {
   const { t } = useI18n();
   const collections = useStore((s) => s.collections);
+  const activeTab = useActiveTab();
   const all = flattenRequests(collections);
+  const chain = useMemo(
+    () => buildChain(collections, activeTab?.sourceId ?? "", req),
+    [collections, activeTab?.sourceId, req],
+  );
+  const inherited = Object.entries(chain.folderVars);
   const selected = req.dependsOn ?? [];
   const available = all.filter((r) => r.id !== req.id && !selected.includes(r.id));
 
@@ -318,6 +324,47 @@ function DependenciesEditor({
   return (
     <div className="space-y-5 p-3">
       <p className="text-xs text-muted-foreground">{t("chainHint")}</p>
+
+      <div>
+        <div className="mb-2 text-xs font-medium text-muted-foreground">{t("inheritedVariables")}</div>
+        <p className="mb-2 text-xs text-muted-foreground">{t("inheritedVariablesHint")}</p>
+        {inherited.length === 0 ? (
+          <div className="rounded-lg border border-dashed p-3 text-center text-xs text-muted-foreground">
+            {t("noInherited")}
+          </div>
+        ) : (
+          <div className="flex flex-wrap gap-1.5">
+            {inherited.map(([k, v]) => (
+              <span key={k} className="rounded border px-2 py-0.5 font-mono text-[11px]">
+                <span className="text-primary">{k}</span>
+                <span className="text-muted-foreground">=</span>
+                {v}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {chain.parents.length > 0 && (
+        <div>
+          <div className="mb-2 text-xs font-medium text-muted-foreground">
+            {t("dependencies")} · {t("preRequest")}
+          </div>
+          <div className="space-y-1">
+            {chain.parents.map((p, i) => (
+              <div key={i} className="flex items-center gap-2 rounded-md border px-2 py-1 text-xs">
+                <span className={cn("text-[10px] font-semibold", `method-${p.method}`)}>{p.method}</span>
+                <span className="min-w-0 flex-1 truncate">{p.name}</span>
+                {(p.extract ?? []).length > 0 && (
+                  <span className="text-[10px] text-muted-foreground">
+                    {(p.extract ?? []).length} extract
+                  </span>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       <div>
         <div className="mb-2 text-xs font-medium text-muted-foreground">{t("dependencies")}</div>
