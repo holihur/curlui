@@ -59,6 +59,8 @@ internal/private endpoints, and you get precise per-phase network timings.
 - **Scheduler** — send after a delay, at a time, or on a repeating interval
   (optionally a fixed number of times); manage and watch jobs in the Schedules tab.
 - **Duplicate** requests/folders and **copy as cURL** from the tree.
+- **Responsive UI** — works on desktop, tablet and phone; the sidebar collapses
+  to a drawer with auto-close when you pick a request.
 - **Options** — timeout, follow redirects, TLS verification toggle, custom proxy.
 - **Response viewer** — pretty/raw body, headers, cookies, timing waterfall and
   the exact request that was sent. Binary responses can be downloaded.
@@ -78,6 +80,12 @@ internal/private endpoints, and you get precise per-phase network timings.
 ![Light theme](docs/screenshots/hero-light.png)
 
 </details>
+
+### Responsive (desktop · tablet · phone)
+
+| Phone | Phone (drawer) | Tablet |
+| --- | --- | --- |
+| ![Phone](docs/screenshots/mobile.png) | ![Phone drawer](docs/screenshots/mobile-drawer.png) | ![Tablet](docs/screenshots/tablet.png) |
 
 ## Tech stack
 

@@ -1,7 +1,8 @@
 import { useState } from "react";
 import { Clock, FolderTree, Settings2, Timer } from "lucide-react";
 import { cn } from "@/lib/utils";
-import { useI18n, type MessageKey } from "@/lib/i18n";import { CollectionsPanel } from "@/components/CollectionsPanel";
+import { useI18n, type MessageKey } from "@/lib/i18n";
+import { useStore } from "@/store";import { CollectionsPanel } from "@/components/CollectionsPanel";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { EnvPanel } from "@/components/EnvPanel";
 import { SchedulePanel } from "@/components/SchedulePanel";
@@ -18,8 +19,15 @@ const TABS: { key: TabKey; label: MessageKey; icon: typeof FolderTree }[] = [
 export function Sidebar() {
   const { t } = useI18n();
   const [tab, setTab] = useState<TabKey>("collections");
+  const open = useStore((s) => s.sidebarOpen);
   return (
-    <aside className="flex w-[320px] shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground">
+    <aside
+      className={cn(
+        "absolute inset-y-0 left-0 z-30 flex w-[86vw] max-w-[320px] shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground transition-transform duration-200",
+        "md:static md:w-[320px] md:max-w-none md:translate-x-0",
+        open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+      )}
+    >
       <div className="grid shrink-0 grid-cols-4 items-center gap-1 border-b p-1.5">
         {TABS.map((item) => (
           <button

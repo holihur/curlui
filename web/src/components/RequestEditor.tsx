@@ -103,7 +103,7 @@ export function RequestEditor() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* URL bar */}
-      <div className="flex items-center gap-2 border-b p-2.5">
+      <div className="flex flex-wrap items-center gap-2 border-b p-2 sm:p-2.5">
         <Select value={req.method} onValueChange={(v) => updateActiveRequest({ method: v })}>
           <SelectTrigger className={cn("h-9 w-[110px] shrink-0 font-semibold", `method-${req.method}`)}>
             <SelectValue />
@@ -124,7 +124,7 @@ export function RequestEditor() {
             if (e.key === "Enter") void send();
           }}
           placeholder={t("urlPlaceholder")}
-          className="h-9 flex-1 font-mono text-sm"
+          className="h-9 min-w-[140px] flex-1 font-mono text-sm"
           spellCheck={false}
         />
 

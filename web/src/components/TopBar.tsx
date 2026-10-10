@@ -3,6 +3,7 @@ import { useEffect, useState } from "react";import {
   FileJson2,
   FileUp,
   Globe,
+  Menu,
   Moon,
   Plus,
   Sun,
@@ -31,40 +32,52 @@ export function TopBar() {
   const activeEnvId = useStore((s) => s.activeEnvId);
   const setActiveEnv = useStore((s) => s.setActiveEnv);
   const newTab = useStore((s) => s.newTab);
+  const sidebarOpen = useStore((s) => s.sidebarOpen);
+  const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const [importOpen, setImportOpen] = useState(false);
   const [openapiOpen, setOpenapiOpen] = useState(false);
 
   return (
-    <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-card px-3">
-      <div className="flex select-none items-center gap-2 pr-2">
+    <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-card px-2 sm:px-3">
+      <Button
+        variant="ghost"
+        size="icon"
+        className="h-8 w-8 shrink-0 md:hidden"
+        onClick={() => setSidebarOpen(!sidebarOpen)}
+        title="Menu"
+      >
+        <Menu className="h-4 w-4" />
+      </Button>
+
+      <div className="flex select-none items-center gap-2 pr-1 sm:pr-2">
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <TerminalSquare className="h-4 w-4" />
         </div>
-        <span className="text-sm font-semibold tracking-tight">curlui</span>
+        <span className="hidden text-sm font-semibold tracking-tight sm:inline">curlui</span>
       </div>
 
-      <div className="h-6 w-px bg-border" />
+      <div className="hidden h-6 w-px bg-border sm:block" />
 
       <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => newTab()}>
         <Plus className="h-4 w-4" />
-        {t("new")}
+        <span className="hidden sm:inline">{t("new")}</span>
       </Button>
       <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setImportOpen(true)}>
         <FileUp className="h-4 w-4" />
-        {t("importCurl")}
+        <span className="hidden sm:inline">{t("importCurl")}</span>
       </Button>
       <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setOpenapiOpen(true)}>
         <FileJson2 className="h-4 w-4" />
-        {t("importOpenapi")}
+        <span className="hidden lg:inline">{t("importOpenapi")}</span>
       </Button>
 
-      <div className="ml-auto flex items-center gap-2">
+      <div className="ml-auto flex min-w-0 items-center gap-2">
         <div className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
           <Zap className="h-3.5 w-3.5" />
           {t("environment")}
         </div>
         <Select value={activeEnvId ?? NONE} onValueChange={(v) => setActiveEnv(v === NONE ? null : v)}>
-          <SelectTrigger className="h-8 w-48 text-xs">
+          <SelectTrigger className="h-8 w-28 text-xs sm:w-40 lg:w-48">
             <SelectValue placeholder={t("noEnvironment")} />
           </SelectTrigger>
           <SelectContent>

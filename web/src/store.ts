@@ -44,6 +44,9 @@ type State = {
   tabs: Tab[];
   activeTabId: string | null;
   toasts: Toast[];
+  // Responsive layout: the sidebar collapses to a drawer on small screens.
+  sidebarOpen: boolean;
+  setSidebarOpen: (v: boolean) => void;
   // Per-collection-node test status (green/red indicator in the tree).
   testStatus: Record<string, TestStatus>;
   // Variables produced by hooks/parents, applied to subsequent sends.
@@ -234,6 +237,7 @@ export const useStore = create<State>((set, get) => ({
   tabs: [],
   activeTabId: null,
   toasts: [],
+  sidebarOpen: typeof window !== "undefined" ? window.innerWidth >= 768 : true,
   testStatus: {},
   runtimeVars: {},
 
@@ -293,6 +297,7 @@ export const useStore = create<State>((set, get) => ({
 
   openNode(node) {
     if (node.type !== "request" || !node.request) return;
+    if (typeof window !== "undefined" && window.innerWidth < 768) set({ sidebarOpen: false });
     const existing = get().tabs.find((t) => t.sourceId === node.id);
     if (existing) {
       set({ activeTabId: existing.id });
@@ -303,6 +308,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   openHistory(entry) {
+    if (typeof window !== "undefined" && window.innerWidth < 768) set({ sidebarOpen: false });
     get().newTab(
       normalizeRequest({
         ...entry.request,
@@ -329,6 +335,10 @@ export const useStore = create<State>((set, get) => ({
 
   setActiveTab(id) {
     set({ activeTabId: id });
+  },
+
+  setSidebarOpen(v) {
+    set({ sidebarOpen: v });
   },
 
   renameTab(id, name) {
