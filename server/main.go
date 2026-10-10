@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"curlui/server/internal/api"
+	"curlui/server/internal/mcp"
+	"curlui/server/internal/mitm"
 	"curlui/server/internal/models"
 	"curlui/server/internal/proxy"
 	"curlui/server/internal/store"
@@ -35,7 +37,9 @@ func main() {
 	staticDir := flag.String("static", envOr("CURLUI_STATIC", "web/dist"), "directory with the built frontend (fallback when not embedded)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	service := flag.String("service", "", "manage a system service: install | uninstall | status | print")
-	proxyAddr := flag.String("proxy", envOr("CURLUI_PROXY", ""), "run an HTTP capture proxy on this address (e.g. :8081); empty disables")
+	proxyAddr := flag.String("proxy", envOr("CURLUI_PROXY", ""), "run an HTTP capture proxy on this address (e.g. :8899); empty disables")
+	proxyMITM := flag.Bool("proxy-mitm", envOr("CURLUI_PROXY_MITM", "1") != "0", "intercept HTTPS through the capture proxy (clients must trust the CA)")
+	mcpMode := flag.Bool("mcp", false, "run an MCP (Model Context Protocol) server over stdio and exit")
 	flag.Parse()
 
 	if *showVersion {
@@ -55,10 +59,26 @@ func main() {
 
 	apiServer := api.New(st, version)
 
+	if *mcpMode {
+		if err := mcp.Serve(os.Stdin, os.Stdout, version, apiServer); err != nil {
+			log.Fatalf("mcp server: %v", err)
+		}
+		return
+	}
+
 	if *proxyAddr != "" {
-		p := proxy.New(*proxyAddr, func(c models.CaptureEntry) { _ = st.AddCapture(c) })
+		var ca *mitm.CA
+		if *proxyMITM {
+			if c, err := mitm.LoadOrCreate(filepath.Dir(absOr(*dataPath))); err != nil {
+				log.Printf("HTTPS interception disabled: %v", err)
+			} else {
+				ca = c
+				apiServer.SetProxyCA(c.CertPEM())
+			}
+		}
+		p := proxy.New(*proxyAddr, func(c models.CaptureEntry) { _ = st.AddCapture(c) }, ca)
 		go func() {
-			log.Printf("capture proxy listening on %s (point your client's HTTP proxy here)", *proxyAddr)
+			log.Printf("capture proxy listening on %s (HTTPS interception: %v)", *proxyAddr, ca != nil)
 			if err := p.ListenAndServe(); err != nil {
 				log.Printf("proxy stopped: %v", err)
 			}

@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertCircle, CheckCircle2, ChevronDown, Clock, Code2, FlaskConical, Loader2, Play, Save, Send, Wand2, XCircle } from "lucide-react";
+import { AlertCircle, Bug, CheckCircle2, ChevronDown, Clock, Code2, FlaskConical, Loader2, Play, Save, Send, Wand2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -24,6 +24,7 @@ import { CodeEditor } from "@/components/CodeEditor";
 import { AutomationEditor } from "@/components/AutomationEditor";
 import { ScheduleDialog } from "@/components/ScheduleDialog";
 import { RunDialog } from "@/components/RunDialog";
+import { FuzzDialog } from "@/components/FuzzDialog";
 import { ResponsePanel } from "@/components/ResponsePanel";
 import { CodeDialog } from "@/components/CodeDialog";
 import { cn, jsonError } from "@/lib/utils";
@@ -56,6 +57,7 @@ export function RequestEditor() {
   const [codeOpen, setCodeOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
   const [runOpen, setRunOpen] = useState(false);
+  const [fuzzOpen, setFuzzOpen] = useState(false);
   const [configHeight, setConfigHeight] = useState(300);
   const dragging = useRef(false);
   const configRef = useRef<HTMLDivElement>(null);
@@ -171,6 +173,9 @@ export function RequestEditor() {
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => setRunOpen(true)}>
                 <Play /> {t("loadTest")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setFuzzOpen(true)}>
+                <Bug /> {t("fuzz")}
               </DropdownMenuItem>
             </DropdownMenuContent>
           </DropdownMenu>
@@ -292,6 +297,7 @@ export function RequestEditor() {
         items={[{ name: req.name || req.url, request: req }]}
         defaultRepeat={10}
       />
+      <FuzzDialog open={fuzzOpen} onOpenChange={setFuzzOpen} request={req} />
     </div>
   );
 }

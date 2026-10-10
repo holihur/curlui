@@ -61,8 +61,14 @@ internal/private endpoints, and you get precise per-phase network timings.
 - **Concurrent runner** — run a whole folder, or load-test one request with a
   bounded concurrency and repeat count, and see a pass/fail + latency summary.
 - **Capture proxy** — run with `-proxy :8899` and point any client at it to
-  record requests/responses (HTTPS is tunnelled); inspect, **replay**, or open a
-  capture in the editor to modify and resend.
+  record requests/responses; **HTTPS is decrypted** via a generated CA
+  (download it from the Traffic tab). Inspect, **replay**, or open a capture in
+  the editor to modify and resend.
+- **Fuzzing** — mutate params/headers/JSON body with a payload list, send them
+  concurrently, and flag anomalies (5xx, status changes, size shifts).
+- **MCP server** — `curlui -mcp` speaks the Model Context Protocol over stdio,
+  exposing `http_request`, `list_collections`, `list_environments` and
+  `run_saved_request` as tools for AI agents.
 - **Export / import** — export a collection as JSON (round-trips back in) or as
   a sheet of cURL commands.
 - **Self-update** — Settings → Updates checks GitHub Releases and can replace
@@ -189,6 +195,8 @@ The server accepts flags or environment variables:
 | `-data`    | `CURLUI_DATA`    | `data/store.json`| JSON data store path            |
 | `-static`  | `CURLUI_STATIC`  | `web/dist`       | Frontend dir (fallback when the UI is not embedded) |
 | `-proxy`   | `CURLUI_PROXY`   | _(off)_          | Recording HTTP proxy address, e.g. `:8899` |
+| `-proxy-mitm` | `CURLUI_PROXY_MITM` | `1`         | Decrypt HTTPS in the proxy (clients trust the CA) |
+| `-mcp`     | —                | —                | Run an MCP server over stdio (tools for AI agents) |
 | `-service` | —                | —                | `install` / `uninstall` / `status` / `print` a system service |
 | `-version` | —                | —                | Print version and exit          |
 
@@ -242,6 +250,8 @@ web/
 | `GET`    | `/api/proxy`                  | Captured proxy traffic           |
 | `DELETE` | `/api/proxy`                  | Clear captures                   |
 | `POST`   | `/api/proxy/{id}/replay`      | Replay a capture                 |
+| `GET`    | `/api/proxy/ca`               | Download the MITM CA certificate |
+| `POST`   | `/api/fuzz`                   | Fuzz a request and flag anomalies |
 | `GET`    | `/api/export?id=&format=`     | Export collection (JSON or cURL) |
 | `GET`    | `/api/update/check`           | Check for a newer release        |
 | `POST`   | `/api/update`                 | Download + replace the binary    |
@@ -327,6 +337,25 @@ folder to nest it, between rows to reorder, or on empty space to move it to the
 root. Ordering and nesting are saved to the store.
 
 ## Notes
+
+### Using curlui from an AI agent (MCP)
+
+```bash
+curlui -mcp            # speaks MCP (JSON-RPC 2.0) over stdio
+```
+
+Point an MCP client (Claude Desktop, etc.) at this command; the tools are
+`http_request`, `list_collections`, `list_environments`, `run_saved_request`.
+
+### Capturing HTTPS
+
+Start with `-proxy :8899`, then trust the CA (Traffic tab → download, or
+`GET /api/proxy/ca`):
+
+```bash
+curl --proxy http://127.0.0.1:8899 --cacert curlui-ca.crt https://example.com
+```
+
 
 - `form-data` **file** fields and the **binary** body type reference paths on the
   machine running the server (this is a local, self-hosted tool).

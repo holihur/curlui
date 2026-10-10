@@ -13,6 +13,7 @@ import type {
   BatchResult,
   BatchSummary,
   CaptureEntry,
+  FuzzResult,
 } from "./types";
 
 const BASE = "/api";
@@ -242,5 +243,16 @@ export const api = {
   },
   replayProxy(id: string) {
     return request<CaptureEntry>(`/proxy/${id}/replay`, { method: "POST" });
+  },
+
+  // Fuzzing
+  runFuzz(payload: {
+    request: RequestDef;
+    concurrency: number;
+    payloads: string[];
+    envId?: string;
+    variables?: Record<string, string>;
+  }) {
+    return request<FuzzResult>("/fuzz", { method: "POST", body: JSON.stringify(payload) });
   },
 };

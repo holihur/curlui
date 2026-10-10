@@ -123,6 +123,21 @@ export type CaptureEntry = {
   error?: string;
 };
 
+export type FuzzFinding = {
+  name: string;
+  status: number;
+  size: number;
+  duration: number;
+  error?: string;
+  issues: string[] | null;
+};
+
+export type FuzzResult = {
+  baseline: { status: number; size: number; duration: number; error?: string };
+  results: FuzzFinding[];
+  summary: { total: number; issues: number };
+};
+
 export type Hook = {
   enabled: boolean;
   command: string;

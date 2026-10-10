@@ -34,6 +34,7 @@ type Server struct {
 	mockHits     map[string][]models.MockHit
 	proxyAddr    string
 	proxyRunning bool
+	proxyCA      []byte
 }
 
 // SetProxy records whether the capture proxy is running.
@@ -43,6 +44,30 @@ func (s *Server) SetProxy(addr string, running bool) {
 	s.proxyAddr = addr
 	s.proxyRunning = running
 }
+
+// SetProxyCA stores the CA certificate offered to clients for HTTPS interception.
+func (s *Server) SetProxyCA(pem []byte) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.proxyCA = pem
+}
+
+// --- Backend implementation for the MCP server -----------------------------
+
+// Execute runs a request and returns its response.
+func (s *Server) Execute(ctx context.Context, req models.RequestDef, envID string, vars map[string]string, parents []models.RequestDef, mock bool) models.Response {
+	resp, _ := s.runRequest(ctx, sendPayload{Request: req, EnvID: envID, Variables: vars, Parents: parents, Mock: mock})
+	return resp
+}
+
+// Collections returns the saved tree.
+func (s *Server) Collections() []*models.Node { return s.store.Collections() }
+
+// Environments returns the saved environments.
+func (s *Server) Environments() []models.Environment { return s.store.Environments() }
+
+// FindNode looks up a node by id.
+func (s *Server) FindNode(id string) (*models.Node, bool) { return s.store.FindNode(id) }
 
 // New returns a new API server.
 func New(st *store.Store, version string) *Server {
@@ -127,8 +152,10 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/export", s.exportNodes)
 	mux.HandleFunc("POST /api/batch", s.runBatch)
+	mux.HandleFunc("POST /api/fuzz", s.runFuzz)
 
 	mux.HandleFunc("GET /api/proxy", s.listProxy)
+	mux.HandleFunc("GET /api/proxy/ca", s.proxyCAHandler)
 	mux.HandleFunc("DELETE /api/proxy", s.clearProxy)
 	mux.HandleFunc("POST /api/proxy/{id}/replay", s.replayCapture)
 	mux.HandleFunc("GET /api/update/check", s.checkUpdate)
@@ -915,6 +942,201 @@ func (s *Server) runBatch(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// --- fuzzing ----------------------------------------------------------------
+
+var defaultFuzzPayloads = []string{
+	"'", "\"", "`", ";", "--", "' OR '1'='1", "<script>alert(1)</script>",
+	"../../../../etc/passwd", "{{7*7}}", "${7*7}", "%00", "\x00", "null",
+	"0", "-1", "9999999999999999999999", "NaN", "[]", "{}",
+	strings.Repeat("A", 4096),
+}
+
+type fuzzFinding struct {
+	Name     string   `json:"name"`
+	Status   int      `json:"status"`
+	Size     int      `json:"size"`
+	Duration int64    `json:"duration"`
+	Error    string   `json:"error,omitempty"`
+	Issues   []string `json:"issues"`
+}
+
+// runFuzz mutates a request's inputs with a payload list, sends them
+// concurrently, and flags anomalies against the baseline response.
+func (s *Server) runFuzz(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Request     models.RequestDef `json:"request"`
+		EnvID       string            `json:"envId"`
+		Variables   map[string]string `json:"variables"`
+		Concurrency int               `json:"concurrency"`
+		Payloads    []string          `json:"payloads"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	payloads := payload.Payloads
+	if len(payloads) == 0 {
+		payloads = defaultFuzzPayloads
+	}
+	if len(payloads) > 60 {
+		payloads = payloads[:60]
+	}
+	concurrency := payload.Concurrency
+	if concurrency < 1 {
+		concurrency = 8
+	}
+	if concurrency > 32 {
+		concurrency = 32
+	}
+
+	envSet := variables.Set{}
+	if payload.EnvID != "" {
+		for _, env := range s.store.Environments() {
+			if env.ID == payload.EnvID {
+				envSet = variables.FromEnvironment(&env)
+				break
+			}
+		}
+	}
+	if len(payload.Variables) > 0 {
+		envSet = envSet.Merge(variables.Set(payload.Variables))
+	}
+
+	baseline := s.executor.Execute(r.Context(), payload.Request, envSet, false)
+
+	type mut struct {
+		name string
+		req  models.RequestDef
+	}
+	var mutations []mut
+	add := func(name string, req models.RequestDef) {
+		if len(mutations) < 200 {
+			mutations = append(mutations, mut{name: name, req: req})
+		}
+	}
+	clone := func() models.RequestDef {
+		b, _ := json.Marshal(payload.Request)
+		var out models.RequestDef
+		_ = json.Unmarshal(b, &out)
+		return out
+	}
+
+	for _, p := range payloads {
+		for i := range payload.Request.Params {
+			if !payload.Request.Params[i].Enabled || payload.Request.Params[i].Key == "" {
+				continue
+			}
+			m := clone()
+			m.Params[i].Value = p
+			add("param "+payload.Request.Params[i].Key+"="+short(p), m)
+		}
+		for i := range payload.Request.Headers {
+			h := payload.Request.Headers[i]
+			if !h.Enabled || h.Key == "" || strings.EqualFold(h.Key, "Content-Length") {
+				continue
+			}
+			m := clone()
+			m.Headers[i].Value = p
+			add("header "+h.Key+": "+short(p), m)
+		}
+		if payload.Request.Body.Type == "json" && payload.Request.Body.Raw != "" {
+			if mutated := mutateJSONStrings(payload.Request.Body.Raw, p); mutated != "" {
+				m := clone()
+				m.Body.Raw = mutated
+				add("body "+short(p), m)
+			}
+		} else if payload.Request.Body.Raw != "" || payload.Request.Body.Type == "text" || payload.Request.Body.Type == "form-urlencoded" {
+			m := clone()
+			m.Body.Raw = p
+			add("body "+short(p), m)
+		}
+	}
+
+	findings := make([]fuzzFinding, len(mutations))
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	for i, mu := range mutations {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, mu mut) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			resp := s.executor.Execute(r.Context(), mu.req, envSet, false)
+			f := fuzzFinding{Name: mu.name, Status: resp.Status, Size: resp.Size, Duration: resp.Duration, Error: resp.Error}
+			switch {
+			case resp.Error != "":
+				f.Issues = append(f.Issues, "request error")
+			case resp.Status >= 500:
+				f.Issues = append(f.Issues, "server error 5xx")
+			}
+			if resp.Error == "" {
+				if baseline.Error == "" && resp.Status != baseline.Status {
+					f.Issues = append(f.Issues, fmt.Sprintf("status %d → %d", baseline.Status, resp.Status))
+				}
+				if baseline.Size > 0 && (resp.Size > baseline.Size*3 || resp.Size*3 < baseline.Size) {
+					f.Issues = append(f.Issues, "unexpected body size")
+				}
+			}
+			findings[i] = f
+		}(i, mu)
+	}
+	wg.Wait()
+
+	issues := 0
+	for _, f := range findings {
+		if len(f.Issues) > 0 {
+			issues++
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"baseline": map[string]any{"status": baseline.Status, "size": baseline.Size, "duration": baseline.Duration, "error": baseline.Error},
+		"results":  findings,
+		"summary":  map[string]any{"total": len(findings), "issues": issues},
+	})
+}
+
+func short(s string) string {
+	s = strings.ReplaceAll(s, "\n", " ")
+	if len(s) > 24 {
+		return s[:24] + "…"
+	}
+	return s
+}
+
+func mutateJSONStrings(raw, payload string) string {
+	var v any
+	if json.Unmarshal([]byte(raw), &v) != nil {
+		return ""
+	}
+	mutated := replaceStrings(v, payload)
+	b, err := json.Marshal(mutated)
+	if err != nil {
+		return ""
+	}
+	return string(b)
+}
+
+func replaceStrings(v any, payload string) any {
+	switch t := v.(type) {
+	case string:
+		return payload
+	case map[string]any:
+		out := make(map[string]any, len(t))
+		for k, vv := range t {
+			out[k] = replaceStrings(vv, payload)
+		}
+		return out
+	case []any:
+		out := make([]any, len(t))
+		for i, vv := range t {
+			out[i] = replaceStrings(vv, payload)
+		}
+		return out
+	default:
+		return v
+	}
+}
+
 // --- capture proxy ---------------------------------------------------------
 
 func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
@@ -926,6 +1148,19 @@ func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
 		"addr":    addr,
 		"entries": s.store.Captures(),
 	})
+}
+
+func (s *Server) proxyCAHandler(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	pem := s.proxyCA
+	s.mu.Unlock()
+	if len(pem) == 0 {
+		writeErr(w, http.StatusNotFound, "HTTPS interception is not enabled")
+		return
+	}
+	w.Header().Set("Content-Type", "application/x-x509-ca-cert")
+	w.Header().Set("Content-Disposition", `attachment; filename="curlui-ca.crt"`)
+	_, _ = w.Write(pem)
 }
 
 func (s *Server) clearProxy(w http.ResponseWriter, _ *http.Request) {
