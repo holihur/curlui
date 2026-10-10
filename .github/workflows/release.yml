@@ -1,0 +1,71 @@
+name: release
+
+on:
+  push:
+    tags:
+      - "v*"
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Build frontend
+        working-directory: web
+        run: |
+          npm ci || npm install
+          npm run build
+
+      - name: Embed frontend into the server
+        run: |
+          rm -rf server/internal/webui/dist
+          mkdir -p server/internal/webui/dist
+          cp -r web/dist/. server/internal/webui/dist/
+
+      - name: Cross-compile single-file binaries
+        working-directory: server
+        env:
+          CGO_ENABLED: "0"
+          VERSION: ${{ github.ref_name }}
+        run: |
+          set -euo pipefail
+          mkdir -p ../dist
+          for os in linux darwin windows; do
+            for arch in amd64 arm64; do
+              ext=""
+              [ "$os" = "windows" ] && ext=".exe"
+              out="../dist/curlui_${VERSION}_${os}_${arch}${ext}"
+              echo "building $out"
+              GOOS=$os GOARCH=$arch go build \
+                -trimpath \
+                -ldflags "-s -w -X main.version=${VERSION}" \
+                -o "$out" .
+            done
+          done
+          cd ../dist
+          for f in curlui_*; do
+            case "$f" in
+              *.exe) zip "${f%.exe}.zip" "$f" ;;
+              *) tar -czf "${f}.tar.gz" "$f" ;;
+            esac
+          done
+          ls -lh
+
+      - name: Publish release
+        uses: softprops/action-gh-release@v2
+        with:
+          files: dist/*
+          generate_release_notes: true
+          draft: false

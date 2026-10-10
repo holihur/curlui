@@ -1,0 +1,481 @@
+import { useEffect, useRef, useState, type ReactNode } from "react";
+import { AlertCircle, Code2, Loader2, Save, Send, Wand2 } from "lucide-react";
+import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
+import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import { KeyValueEditor } from "@/components/KeyValueEditor";
+import { CodeEditor } from "@/components/CodeEditor";
+import { ResponsePanel } from "@/components/ResponsePanel";
+import { CodeDialog } from "@/components/CodeDialog";
+import { cn } from "@/lib/utils";
+import { tryPrettyJSON } from "@/lib/highlight";
+import { useI18n, type MessageKey } from "@/lib/i18n";
+import { useActiveTab, useStore } from "@/store";
+import type { AuthType, BodyType, RequestDef } from "@/lib/types";
+
+const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
+
+const BODY_TYPES: { value: BodyType; label: MessageKey }[] = [
+  { value: "none", label: "bodyNone" },
+  { value: "json", label: "bodyJson" },
+  { value: "form-urlencoded", label: "bodyFormUrlencoded" },
+  { value: "form-data", label: "bodyFormData" },
+  { value: "xml", label: "bodyXml" },
+  { value: "text", label: "bodyText" },
+  { value: "html", label: "bodyHtml" },
+  { value: "binary", label: "bodyBinary" },
+];
+
+export function RequestEditor() {
+  const { t } = useI18n();
+  const tab = useActiveTab();
+  const updateActiveRequest = useStore((s) => s.updateActiveRequest);
+  const send = useStore((s) => s.send);
+  const saveActiveTab = useStore((s) => s.saveActiveTab);
+
+  const [codeOpen, setCodeOpen] = useState(false);
+  const [configHeight, setConfigHeight] = useState(300);
+  const dragging = useRef(false);
+  const configRef = useRef<HTMLDivElement>(null);
+
+  useEffect(() => {
+    const move = (e: MouseEvent) => {
+      if (!dragging.current || !configRef.current) return;
+      const top = configRef.current.getBoundingClientRect().top;
+      const h = e.clientY - top;
+      setConfigHeight(Math.min(Math.max(h, 150), window.innerHeight - 220));
+    };
+    const up = () => {
+      dragging.current = false;
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+    return () => {
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+  }, []);
+
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      const mod = e.metaKey || e.ctrlKey;
+      if (!mod) return;
+      if (e.key === "Enter") {
+        e.preventDefault();
+        void send();
+      } else if (e.key.toLowerCase() === "s") {
+        e.preventDefault();
+        void saveActiveTab();
+      }
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [send, saveActiveTab]);
+
+  if (!tab) {
+    return (
+      <div className="flex flex-1 flex-col items-center justify-center gap-2 text-muted-foreground">
+        <Code2 className="h-10 w-10 opacity-40" />
+        <p className="text-sm">No request open. Press New to start.</p>
+      </div>
+    );
+  }
+
+  const req = tab.request;
+  const activeParams = req.params.filter((p) => p.enabled && p.key).length;
+  const activeHeaders = req.headers.filter((h) => h.enabled && h.key).length;
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col">
+      {/* URL bar */}
+      <div className="flex items-center gap-2 border-b p-2.5">
+        <Select value={req.method} onValueChange={(v) => updateActiveRequest({ method: v })}>
+          <SelectTrigger className={cn("h-9 w-[110px] shrink-0 font-semibold", `method-${req.method}`)}>
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            {METHODS.map((m) => (
+              <SelectItem key={m} value={m} className={cn("font-semibold", `method-${m}`)}>
+                {m}
+              </SelectItem>
+            ))}
+          </SelectContent>
+        </Select>
+
+        <Input
+          value={req.url}
+          onChange={(e) => updateActiveRequest({ url: e.target.value })}
+          onKeyDown={(e) => {
+            if (e.key === "Enter") void send();
+          }}
+          placeholder={t("urlPlaceholder")}
+          className="h-9 flex-1 font-mono text-sm"
+          spellCheck={false}
+        />
+
+        <Button className="h-9 w-[104px] gap-1.5" onClick={() => void send()} disabled={tab.sending}>
+          {tab.sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+          {t("send")}
+        </Button>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => void saveActiveTab()}>
+              <Save className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("saveTooltip")}</TooltipContent>
+        </Tooltip>
+
+        <Tooltip>
+          <TooltipTrigger asChild>
+            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setCodeOpen(true)}>
+              <Code2 className="h-4 w-4" />
+            </Button>
+          </TooltipTrigger>
+          <TooltipContent>{t("codeTooltip")}</TooltipContent>
+        </Tooltip>
+      </div>
+
+      {tab.error && !tab.response && (
+        <div className="flex items-center gap-2 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
+          <AlertCircle className="h-3.5 w-3.5" />
+          {tab.error}
+        </div>
+      )}
+
+      {/* Request configuration */}
+      <div
+        ref={configRef}
+        className="flex shrink-0 flex-col overflow-hidden border-b bg-card/40"
+        style={{ height: configHeight }}
+      >
+        <Tabs defaultValue="params" className="flex min-h-0 flex-1 flex-col">
+          <div className="shrink-0 border-b px-2 pt-1.5">
+            <TabsList className="h-8 bg-transparent p-0">
+              <TabTrigger value="params">
+                {t("params")}
+                {activeParams > 0 && <Count n={activeParams} />}
+              </TabTrigger>
+              <TabTrigger value="auth">{t("authorization")}</TabTrigger>
+              <TabTrigger value="headers">
+                {t("headers")}
+                {activeHeaders > 0 && <Count n={activeHeaders} />}
+              </TabTrigger>
+              <TabTrigger value="body">{t("body")}</TabTrigger>
+              <TabTrigger value="options">{t("options")}</TabTrigger>
+            </TabsList>
+          </div>
+          <div className="min-h-0 flex-1 overflow-y-auto">
+            <TabsContent value="params" className="m-0">
+              <KeyValueEditor items={req.params} showDescription onChange={(params) => updateActiveRequest({ params })} />
+            </TabsContent>
+            <TabsContent value="auth" className="m-0">
+              <AuthEditor req={req} onChange={updateActiveRequest} />
+            </TabsContent>
+            <TabsContent value="headers" className="m-0">
+              <KeyValueEditor items={req.headers} showDescription onChange={(headers) => updateActiveRequest({ headers })} />
+            </TabsContent>
+            <TabsContent value="body" className="m-0 h-full">
+              <BodyEditor req={req} onChange={updateActiveRequest} />
+            </TabsContent>
+            <TabsContent value="options" className="m-0">
+              <OptionsEditor req={req} onChange={updateActiveRequest} />
+            </TabsContent>
+          </div>
+        </Tabs>
+      </div>
+
+      {/* Drag handle */}
+      <div
+        className="group relative h-1.5 shrink-0 cursor-row-resize bg-border/40"
+        onMouseDown={() => {
+          dragging.current = true;
+          document.body.style.cursor = "row-resize";
+          document.body.style.userSelect = "none";
+        }}
+      >
+        <div className="absolute inset-x-0 top-1/2 mx-auto h-0.5 w-16 -translate-y-1/2 rounded-full bg-muted-foreground/0 transition-colors group-hover:bg-primary/70" />
+      </div>
+
+      <ResponsePanel tab={tab} />
+
+      <CodeDialog open={codeOpen} onOpenChange={setCodeOpen} request={req} />
+    </div>
+  );
+}
+
+function TabTrigger({ value, children }: { value: string; children: ReactNode }) {
+  return (
+    <TabsTrigger
+      value={value}
+      className="rounded-none border-b-2 border-transparent !bg-transparent px-3 py-2 text-xs data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none"
+    >
+      {children}
+    </TabsTrigger>
+  );
+}
+
+function Count({ n }: { n: number }) {
+  return <span className="rounded bg-primary/20 px-1 text-[10px] text-primary">{n}</span>;
+}
+
+function Field({ label, children }: { label: string; children: ReactNode }) {
+  return (
+    <div className="flex flex-col gap-1.5">
+      <label className="text-xs font-medium text-muted-foreground">{label}</label>
+      {children}
+    </div>
+  );
+}
+
+function AuthEditor({
+  req,
+  onChange,
+}: {
+  req: RequestDef;
+  onChange: (patch: Partial<RequestDef>) => void;
+}) {
+  const { t } = useI18n();
+  const setAuth = (patch: Partial<RequestDef["auth"]>) => onChange({ auth: { ...req.auth, ...patch } });
+
+  return (
+    <div className="max-w-xl space-y-4 p-4">
+      <Field label={t("authType")}>
+        <Select value={req.auth.type} onValueChange={(v) => setAuth({ type: v as AuthType })}>
+          <SelectTrigger className="h-9">
+            <SelectValue />
+          </SelectTrigger>
+          <SelectContent>
+            <SelectItem value="none">{t("noAuth")}</SelectItem>
+            <SelectItem value="basic">{t("basicAuth")}</SelectItem>
+            <SelectItem value="bearer">{t("bearerToken")}</SelectItem>
+            <SelectItem value="apikey">{t("apiKey")}</SelectItem>
+          </SelectContent>
+        </Select>
+      </Field>
+
+      {req.auth.type === "none" && <p className="text-xs text-muted-foreground">{t("noAuthHint")}</p>}
+
+      {req.auth.type === "basic" && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t("username")}>
+            <Input value={req.auth.username ?? ""} onChange={(e) => setAuth({ username: e.target.value })} />
+          </Field>
+          <Field label={t("password")}>
+            <Input
+              type="password"
+              value={req.auth.password ?? ""}
+              onChange={(e) => setAuth({ password: e.target.value })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {req.auth.type === "bearer" && (
+        <Field label={t("token")}>
+          <Input
+            value={req.auth.token ?? ""}
+            placeholder="{{token}}"
+            onChange={(e) => setAuth({ token: e.target.value })}
+            className="font-mono text-xs"
+          />
+        </Field>
+      )}
+
+      {req.auth.type === "apikey" && (
+        <div className="grid grid-cols-3 gap-3">
+          <Field label={t("key")}>
+            <Input
+              value={req.auth.key ?? ""}
+              placeholder="X-API-Key"
+              onChange={(e) => setAuth({ key: e.target.value })}
+            />
+          </Field>
+          <Field label={t("value")}>
+            <Input
+              value={req.auth.value ?? ""}
+              placeholder="{{api_key}}"
+              onChange={(e) => setAuth({ value: e.target.value })}
+            />
+          </Field>
+          <Field label={t("addTo")}>
+            <Select
+              value={req.auth.addTo ?? "header"}
+              onValueChange={(v) => setAuth({ addTo: v as "header" | "query" })}
+            >
+              <SelectTrigger>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="header">{t("header")}</SelectItem>
+                <SelectItem value="query">{t("queryParam")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </Field>
+        </div>
+      )}
+    </div>
+  );
+}
+
+function BodyEditor({
+  req,
+  onChange,
+}: {
+  req: RequestDef;
+  onChange: (patch: Partial<RequestDef>) => void;
+}) {
+  const { t } = useI18n();
+  const setBody = (patch: Partial<RequestDef["body"]>) => onChange({ body: { ...req.body, ...patch } });
+  const type = req.body.type;
+  const isRaw = type === "json" || type === "xml" || type === "html" || type === "text";
+
+  return (
+    <div className="flex h-full min-h-0 flex-col">
+      <div className="flex shrink-0 items-center gap-2 border-b px-3 py-2">
+        <div className="flex flex-wrap gap-1">
+          {BODY_TYPES.map((b) => (
+            <button
+              key={b.value}
+              onClick={() => setBody({ type: b.value })}
+              className={cn(
+                "rounded-md px-2.5 py-1 text-xs font-medium transition-colors",
+                type === b.value
+                  ? "bg-primary/15 text-primary"
+                  : "text-muted-foreground hover:bg-accent hover:text-foreground",
+              )}
+            >
+              {t(b.label)}
+            </button>
+          ))}
+        </div>
+        {type === "json" && (
+          <Button
+            variant="ghost"
+            size="xs"
+            className="ml-auto gap-1 text-muted-foreground"
+            onClick={() => {
+              const pretty = tryPrettyJSON(req.body.raw);
+              if (pretty) setBody({ raw: pretty });
+            }}
+          >
+            <Wand2 className="h-3.5 w-3.5" /> {t("beautify")}
+          </Button>
+        )}
+      </div>
+
+      {isRaw && (
+        <div className="min-h-0 flex-1">
+          <CodeEditor
+            value={req.body.raw}
+            onChange={(raw) => setBody({ raw })}
+            language={type === "json" ? "json" : "text"}
+            placeholder={type === "json" ? t("bodyPlaceholder") : t("requestBodyPlaceholder")}
+            className="h-full"
+          />
+        </div>
+      )}
+
+      {(type === "form-urlencoded" || type === "form-data") && (
+        <div className="min-h-0 flex-1 overflow-y-auto">
+          <KeyValueEditor
+            items={req.body.form}
+            showFiles={type === "form-data"}
+            showDescription
+            onChange={(form) => setBody({ form })}
+          />
+        </div>
+      )}
+
+      {type === "binary" && (
+        <div className="p-4">
+          <Field label={t("filePathLabel")}>
+            <Input
+              value={req.body.filePath ?? ""}
+              placeholder="/home/user/data.bin"
+              onChange={(e) => setBody({ filePath: e.target.value })}
+              className="font-mono text-xs"
+            />
+          </Field>
+        </div>
+      )}
+
+      {type === "none" && (
+        <div className="p-6 text-center text-xs text-muted-foreground">{t("noBody")}</div>
+      )}
+    </div>
+  );
+}
+
+function OptionsEditor({
+  req,
+  onChange,
+}: {
+  req: RequestDef;
+  onChange: (patch: Partial<RequestDef>) => void;
+}) {
+  const { t } = useI18n();
+  const setOpts = (patch: Partial<RequestDef["options"]>) =>
+    onChange({ options: { ...req.options, ...patch } });
+
+  return (
+    <div className="max-w-xl space-y-4 p-4">
+      <div className="grid grid-cols-2 gap-4">
+        <Field label={t("timeoutMs")}>
+          <Input
+            type="number"
+            value={req.options.timeout}
+            onChange={(e) => setOpts({ timeout: Number(e.target.value) || 0 })}
+          />
+        </Field>
+        <Field label={t("maxRedirects")}>
+          <Input
+            type="number"
+            value={req.options.maxRedirects ?? 10}
+            onChange={(e) => setOpts({ maxRedirects: Number(e.target.value) || 0 })}
+          />
+        </Field>
+      </div>
+
+      <Field label={t("proxy")}>
+        <Input
+          value={req.options.proxy ?? ""}
+          placeholder="http://127.0.0.1:7890"
+          onChange={(e) => setOpts({ proxy: e.target.value })}
+          className="font-mono text-xs"
+        />
+      </Field>
+
+      <div className="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div className="text-sm font-medium">{t("followRedirects")}</div>
+          <div className="text-xs text-muted-foreground">{t("followRedirectsDesc")}</div>
+        </div>
+        <Switch
+          checked={req.options.followRedirects}
+          onCheckedChange={(v) => setOpts({ followRedirects: v })}
+        />
+      </div>
+
+      <div className="flex items-center justify-between rounded-lg border p-3">
+        <div>
+          <div className="text-sm font-medium">{t("verifyTls")}</div>
+          <div className="text-xs text-muted-foreground">{t("verifyTlsDesc")}</div>
+        </div>
+        <Switch checked={req.options.verifyTLS} onCheckedChange={(v) => setOpts({ verifyTLS: v })} />
+      </div>
+    </div>
+  );
+}

@@ -1,0 +1,24 @@
+# dependencies
+node_modules/
+web/node_modules/
+
+# build output
+web/dist/
+server/curlui-server
+curlui-server
+dist/
+
+# embedded frontend (generated at build time; .gitkeep keeps the dir present)
+server/internal/webui/dist/*
+!server/internal/webui/dist/.gitkeep
+
+# runtime data
+data/
+server/data/
+*.log
+
+# misc
+.DS_Store
+.env
+.vscode/
+.idea/
