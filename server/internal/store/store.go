@@ -669,6 +669,11 @@ func (s *Store) CreateUser(username, name, password, role string) (User, error) 
 	}
 	s.mu.Lock()
 	defer s.mu.Unlock()
+	// The very first account is always an administrator, so a team can never
+	// end up without someone who can manage users.
+	if len(s.root.Users) == 0 {
+		role = "admin"
+	}
 	for _, u := range s.root.Users {
 		if strings.EqualFold(u.Username, username) {
 			return User{}, ErrConflict
