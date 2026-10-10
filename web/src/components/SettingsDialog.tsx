@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
@@ -33,6 +34,9 @@ export function SettingsDialog({
   const { t } = useI18n();
   const toast = useStore((s) => s.toast);
   const [webhook, setWebhook] = useState("");
+  const [userAgent, setUserAgent] = useState("");
+  const [mcpOn, setMcpOn] = useState(true);
+  const [mcpWrite, setMcpWrite] = useState(false);
   const [info, setInfo] = useState<{ current: string; latest: string; hasUpdate: boolean; url: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -77,13 +81,23 @@ export function SettingsDialog({
     if (!open) return;
     api
       .getSettings()
-      .then((s) => setWebhook(s.notifyWebhook ?? ""))
+      .then((s) => {
+        setWebhook(s.notifyWebhook ?? "");
+        setUserAgent(s.userAgent ?? "");
+        setMcpOn(s.mcpEnabled !== "0");
+        setMcpWrite(s.mcpWrite === "1");
+      })
       .catch(() => {});
   }, [open]);
 
   const save = async () => {
     try {
-      await api.saveSettings({ notifyWebhook: webhook.trim() });
+      await api.saveSettings({
+        notifyWebhook: webhook.trim(),
+        userAgent: userAgent.trim(),
+        mcpEnabled: mcpOn ? "1" : "0",
+        mcpWrite: mcpWrite ? "1" : "0",
+      });
       toast({ title: t("settingsSaved"), variant: "success" });
       onOpenChange(false);
     } catch (err) {
@@ -116,6 +130,17 @@ export function SettingsDialog({
           <p className="text-[11px] text-muted-foreground">{t("failureWebhookHint")}</p>
         </Field>
 
+        <Field label={t("userAgent")}>
+          <Input
+            value={userAgent}
+            onChange={(e) => setUserAgent(e.target.value)}
+            placeholder="curlui/1.0"
+            className="font-mono text-xs"
+            spellCheck={false}
+          />
+          <p className="text-[11px] text-muted-foreground">{t("userAgentHint")}</p>
+        </Field>
+
         <div className="border-t pt-4">
           <div className="mb-2 text-sm font-medium">{t("updates")}</div>
           <div className="flex items-center gap-2">
@@ -142,6 +167,24 @@ export function SettingsDialog({
               </Button>
             </div>
           )}
+        </div>
+
+        <div className="border-t pt-4">
+          <div className="text-sm font-medium">{t("mcp")}</div>
+          <p className="mt-0.5 text-[11px] text-muted-foreground">{t("mcpHint")}</p>
+          <div className="mt-2 flex items-center justify-between rounded-lg border p-3">
+            <span className="text-sm">{t("mcpEnable")}</span>
+            <Switch checked={mcpOn} onCheckedChange={setMcpOn} />
+          </div>
+          <div className="mt-2 flex items-center justify-between rounded-lg border p-3">
+            <span className="text-sm">
+              {t("mcpWriteTools")}{" "}
+              <span className="text-[10px] text-muted-foreground">
+                ({t("mcpReadGroup")} + {t("mcpWriteGroup")})
+              </span>
+            </span>
+            <Switch checked={mcpWrite} onCheckedChange={setMcpWrite} disabled={!mcpOn} />
+          </div>
         </div>
 
         <DialogFooter>

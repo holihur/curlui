@@ -60,6 +60,8 @@ export function TrafficPanel() {
   const [filter, setFilter] = useState("");
   const [breakOn, setBreakOn] = useState(false);
   const [breakFilter, setBreakFilter] = useState("");
+  const [breakResp, setBreakResp] = useState(false);
+  const [breakRespFilter, setBreakRespFilter] = useState("");
   const [view, setView] = useState<"list" | "tree">("list");
   const [search, setSearch] = useState("");
   const [entries, setEntries] = useState<CaptureEntry[]>([]);
@@ -79,6 +81,8 @@ export function TrafficPanel() {
         setFilter(d.filter ?? "");
         setBreakOn(d.break ?? false);
         setBreakFilter(d.breakFilter ?? "");
+        setBreakResp(d.breakResponse ?? false);
+        setBreakRespFilter(d.breakResponseFilter ?? "");
         inited.current = true;
       }
     } catch {
@@ -92,8 +96,27 @@ export function TrafficPanel() {
     return () => clearInterval(id);
   }, [refresh]);
 
-  const saveConfig = (patch: Partial<{ capture: boolean; ttlSeconds: number; filter: string; break: boolean; breakFilter: string }>) =>
-    void api.proxyConfig({ capture, ttlSeconds: ttl, filter, break: breakOn, breakFilter, ...patch });
+  const saveConfig = (
+    patch: Partial<{
+      capture: boolean;
+      ttlSeconds: number;
+      filter: string;
+      break: boolean;
+      breakFilter: string;
+      breakResponse: boolean;
+      breakResponseFilter: string;
+    }>,
+  ) =>
+    void api.proxyConfig({
+      capture,
+      ttlSeconds: ttl,
+      filter,
+      break: breakOn,
+      breakFilter,
+      breakResponse: breakResp,
+      breakResponseFilter: breakRespFilter,
+      ...patch,
+    });
 
   const shown = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -241,6 +264,30 @@ export function TrafficPanel() {
                 value={breakFilter}
                 onChange={(e) => setBreakFilter(e.target.value)}
                 onBlur={() => saveConfig({ breakFilter })}
+                placeholder={t("breakFilterHint")}
+                className="mt-2 min-h-[38px] font-mono text-[11px]"
+                spellCheck={false}
+              />
+            )}
+
+            <div className="mt-2 flex items-center gap-2 text-[11px]">
+              <Switch
+                checked={breakResp}
+                onCheckedChange={(v) => {
+                  setBreakResp(v);
+                  saveConfig({ breakResponse: v });
+                }}
+              />
+              <span className={breakResp ? "text-amber-400" : "text-muted-foreground"}>
+                <PauseCircle className="mr-1 inline h-3.5 w-3.5" />
+                {t("breakResponse")}: {breakResp ? t("breakOn") : t("breakOff")}
+              </span>
+            </div>
+            {breakResp && (
+              <Textarea
+                value={breakRespFilter}
+                onChange={(e) => setBreakRespFilter(e.target.value)}
+                onBlur={() => saveConfig({ breakResponseFilter: breakRespFilter })}
                 placeholder={t("breakFilterHint")}
                 className="mt-2 min-h-[38px] font-mono text-[11px]"
                 spellCheck={false}

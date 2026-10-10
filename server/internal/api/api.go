@@ -15,6 +15,7 @@ import (
 
 	curlpkg "curlui/server/internal/curl"
 	"curlui/server/internal/jsonpath"
+	"curlui/server/internal/mcp"
 	"curlui/server/internal/models"
 	"curlui/server/internal/openapi"
 	"curlui/server/internal/proxy"
@@ -78,9 +79,50 @@ func (s *Server) Environments() []models.Environment { return s.store.Environmen
 // FindNode looks up a node by id.
 func (s *Server) FindNode(id string) (*models.Node, bool) { return s.store.FindNode(id) }
 
+// Settings returns application settings (MCP gating reads these).
+func (s *Server) Settings() map[string]string { return s.store.Settings() }
+
+// History returns recent history entries.
+func (s *Server) History() []models.HistoryEntry { return s.store.History() }
+
+// Captures returns recorded proxy traffic.
+func (s *Server) Captures() []models.CaptureEntry { return s.store.Captures() }
+
+// ClearCaptures removes recorded proxy traffic.
+func (s *Server) ClearCaptures() error { return s.store.ClearCaptures() }
+
+// AddRequest saves a new request node (used by the MCP create_request tool).
+func (s *Server) AddRequest(parentID, name string, req models.RequestDef) (*models.Node, error) {
+	node := &models.Node{ID: models.NewID(), Type: "request", Name: name, Request: &req}
+	req.ID = node.ID
+	return s.store.AddNode(parentID, node)
+}
+
+// handleMCP serves the MCP protocol over HTTP (JSON-RPC 2.0).
+func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
+	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	out, respond := mcp.Handle(body, s.version, s)
+	if !respond {
+		w.WriteHeader(http.StatusAccepted)
+		return
+	}
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	_, _ = w.Write(out)
+}
+
 // New returns a new API server.
 func New(st *store.Store, version string) *Server {
 	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}, mockHits: st.MockHits(), version: version}
+	s.executor.UserAgent = func() string {
+		if ua := strings.TrimSpace(st.Settings()["userAgent"]); ua != "" {
+			return ua
+		}
+		return "curlui/" + version
+	}
 	if s.mockHits == nil {
 		s.mockHits = map[string][]models.MockHit{}
 	}
@@ -184,6 +226,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Public mock server: GET/POST/… /mock/{nodeId}
 	mux.HandleFunc("/mock/", s.mockServer)
+	mux.HandleFunc("POST /mcp", s.handleMCP)
 	mux.HandleFunc("GET /api/mock/{id}/hits", s.mockHitsHandler)
 
 	return withCORS(withLogging(mux))
@@ -1210,24 +1253,28 @@ func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
 		_ = s.store.PurgeCaptures(time.Duration(ttl) * time.Second)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"running":     running,
-		"addr":        addr,
-		"capture":     settings["proxyCapture"] != "0",
-		"ttlSeconds":  ttl,
-		"filter":      settings["proxyCaptureFilter"],
-		"break":       settings["proxyBreak"] == "1",
-		"breakFilter": settings["proxyBreakFilter"],
-		"entries":     s.store.Captures(),
+		"running":             running,
+		"addr":                addr,
+		"capture":             settings["proxyCapture"] != "0",
+		"ttlSeconds":          ttl,
+		"filter":              settings["proxyCaptureFilter"],
+		"break":               settings["proxyBreak"] == "1",
+		"breakFilter":         settings["proxyBreakFilter"],
+		"breakResponse":       settings["proxyBreakResponse"] == "1",
+		"breakResponseFilter": settings["proxyBreakResponseFilter"],
+		"entries":             s.store.Captures(),
 	})
 }
 
 func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Capture     bool   `json:"capture"`
-		TTLSeconds  int    `json:"ttlSeconds"`
-		Filter      string `json:"filter"`
-		Break       bool   `json:"break"`
-		BreakFilter string `json:"breakFilter"`
+		Capture             bool   `json:"capture"`
+		TTLSeconds          int    `json:"ttlSeconds"`
+		Filter              string `json:"filter"`
+		Break               bool   `json:"break"`
+		BreakFilter         string `json:"breakFilter"`
+		BreakResponse       bool   `json:"breakResponse"`
+		BreakResponseFilter string `json:"breakResponseFilter"`
 	}
 	if err := decode(r, &payload); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -1241,15 +1288,21 @@ func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 	if payload.Break {
 		brk = "1"
 	}
+	brkResp := "0"
+	if payload.BreakResponse {
+		brkResp = "1"
+	}
 	if payload.TTLSeconds < 0 {
 		payload.TTLSeconds = 0
 	}
 	if err := s.store.SaveSettings(map[string]string{
-		"proxyCapture":       capture,
-		"proxyTTL":           strconv.Itoa(payload.TTLSeconds),
-		"proxyCaptureFilter": payload.Filter,
-		"proxyBreak":         brk,
-		"proxyBreakFilter":   payload.BreakFilter,
+		"proxyCapture":             capture,
+		"proxyTTL":                 strconv.Itoa(payload.TTLSeconds),
+		"proxyCaptureFilter":       payload.Filter,
+		"proxyBreak":               brk,
+		"proxyBreakFilter":         payload.BreakFilter,
+		"proxyBreakResponse":       brkResp,
+		"proxyBreakResponseFilter": payload.BreakResponseFilter,
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1277,6 +1330,7 @@ func (s *Server) resolveIntercept(w http.ResponseWriter, r *http.Request) {
 		Action  string              `json:"action"`
 		Method  string              `json:"method"`
 		URL     string              `json:"url"`
+		Status  int                 `json:"status"`
 		Headers map[string][]string `json:"headers"`
 		Body    string              `json:"body"`
 	}
@@ -1295,6 +1349,7 @@ func (s *Server) resolveIntercept(w http.ResponseWriter, r *http.Request) {
 		Abort:   payload.Action == "abort",
 		Method:  payload.Method,
 		URL:     payload.URL,
+		Status:  payload.Status,
 		Headers: payload.Headers,
 		Body:    []byte(payload.Body),
 	}

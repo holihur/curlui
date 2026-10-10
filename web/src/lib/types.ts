@@ -140,8 +140,10 @@ export type FuzzResult = {
 
 export type PendingIntercept = {
   id: string;
+  phase: "request" | "response";
   method: string;
   url: string;
+  status?: number;
   headers: Record<string, string[]>;
   body: string;
   createdAt: number;

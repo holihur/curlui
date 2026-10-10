@@ -245,6 +245,8 @@ export const api = {
       filter: string;
       break: boolean;
       breakFilter: string;
+      breakResponse: boolean;
+      breakResponseFilter: string;
       entries: CaptureEntry[];
     }>("/proxy");
   },
@@ -254,6 +256,8 @@ export const api = {
     filter: string;
     break: boolean;
     breakFilter: string;
+    breakResponse: boolean;
+    breakResponseFilter: string;
   }) {
     return request<{ ok: boolean }>("/proxy/config", {
       method: "POST",
@@ -271,7 +275,14 @@ export const api = {
   },
   resolveIntercept(
     id: string,
-    payload: { action: "continue" | "abort"; method?: string; url?: string; headers?: Record<string, string[]>; body?: string },
+    payload: {
+      action: "continue" | "abort";
+      method?: string;
+      url?: string;
+      status?: number;
+      headers?: Record<string, string[]>;
+      body?: string;
+    },
   ) {
     return request<{ ok: boolean }>(`/intercept/${id}`, {
       method: "POST",

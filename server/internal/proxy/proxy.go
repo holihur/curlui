@@ -6,6 +6,7 @@ package proxy
 import (
 	"bufio"
 	"bytes"
+	"context"
 	"crypto/tls"
 	"fmt"
 	"io"
@@ -29,14 +30,16 @@ type Proxy struct {
 }
 
 // New creates a proxy that reports captures through record. When ca is nil,
-// HTTPS/CONNECT is tunnelled instead of intercepted. breakEnabled/breakFilter
-// control request breakpoints.
-func New(addr string, record func(models.CaptureEntry), ca *mitm.CA, breakEnabled func() bool, breakFilter func(string) bool) *Proxy {
+// HTTPS/CONNECT is tunnelled instead of intercepted. The breakpoint callbacks
+// control request and response interception.
+func New(addr string, record func(models.CaptureEntry), ca *mitm.CA,
+	reqEnabled func() bool, reqFilter func(string) bool,
+	respEnabled func() bool, respFilter func(string) bool) *Proxy {
 	return &Proxy{
 		addr:        addr,
 		record:      record,
 		ca:          ca,
-		interceptor: NewInterceptor(breakEnabled, breakFilter),
+		interceptor: NewInterceptor(reqEnabled, reqFilter, respEnabled, respFilter),
 		transport: &http.Transport{
 			DialContext: (&net.Dialer{
 				Timeout:   20 * time.Second,
@@ -126,11 +129,30 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request) {
 	defer resp.Body.Close()
 	respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxCaptureBody))
 
-	copyHeaders(w.Header(), resp.Header)
-	w.WriteHeader(resp.StatusCode)
+	// Response breakpoint: let the UI edit the response before it is returned.
+	status := resp.StatusCode
+	respHeader := resp.Header
+	if res, intercepted := p.interceptor.InterceptResponse(r.Context(), method, target, status, cloneHeader(resp.Header), respBody, 10*time.Minute); intercepted {
+		if res.Abort {
+			p.recordCapture(r, reqBody, http.StatusBadGateway, nil, []byte("response aborted by curlui breakpoint"), start, nil)
+			http.Error(w, "response aborted by curlui breakpoint", http.StatusBadGateway)
+			return
+		}
+		status = res.Status
+		respBody = res.Body
+		respHeader = http.Header{}
+		for k, values := range res.Headers {
+			for _, v := range values {
+				respHeader.Add(k, v)
+			}
+		}
+	}
+
+	copyHeaders(w.Header(), respHeader)
+	w.WriteHeader(status)
 	_, _ = w.Write(respBody)
 
-	p.recordCapture(r, reqBody, resp.StatusCode, resp.Header, respBody, start, nil)
+	p.recordCapture(r, reqBody, status, respHeader, respBody, start, nil)
 }
 
 func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
@@ -236,26 +258,43 @@ func (p *Proxy) mitmTunnel(client net.Conn, target string) {
 		respBody, _ := io.ReadAll(io.LimitReader(resp.Body, maxCaptureBody))
 		_ = resp.Body.Close()
 
+		status := resp.StatusCode
+		respHeader := resp.Header
+		if res, intercepted := p.interceptor.InterceptResponse(context.Background(), req.Method, url, status, cloneHeader(resp.Header), respBody, 10*time.Minute); intercepted {
+			if res.Abort {
+				_, _ = fmt.Fprint(tlsConn, "HTTP/1.1 502 Bad Gateway\r\nContent-Length: 0\r\n\r\n")
+				return
+			}
+			status = res.Status
+			respBody = res.Body
+			respHeader = http.Header{}
+			for k, values := range res.Headers {
+				for _, v := range values {
+					respHeader.Add(k, v)
+				}
+			}
+		}
+
 		p.record(models.CaptureEntry{
 			At:              start.UnixMilli(),
 			Method:          req.Method,
 			URL:             url,
 			RequestHeaders:  cloneHeader(req.Header),
 			RequestBody:     string(reqBody),
-			Status:          resp.StatusCode,
-			ResponseHeaders: cloneHeader(resp.Header),
+			Status:          status,
+			ResponseHeaders: cloneHeader(respHeader),
 			ResponseBody:    string(respBody),
-			ContentType:     resp.Header.Get("Content-Type"),
+			ContentType:     respHeader.Get("Content-Type"),
 			Duration:        time.Since(start).Milliseconds(),
 		})
 
 		out := &http.Response{
-			StatusCode:    resp.StatusCode,
-			Status:        resp.Status,
+			StatusCode:    status,
+			Status:        fmt.Sprintf("%d %s", status, http.StatusText(status)),
 			Proto:         "HTTP/1.1",
 			ProtoMajor:    1,
 			ProtoMinor:    1,
-			Header:        resp.Header,
+			Header:        respHeader,
 			Body:          io.NopCloser(bytes.NewReader(respBody)),
 			ContentLength: int64(len(respBody)),
 			Close:         req.Close,

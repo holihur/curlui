@@ -42,6 +42,7 @@ export function InterceptDialog() {
   const [pending, setPending] = useState<PendingIntercept | null>(null);
   const [method, setMethod] = useState("");
   const [url, setUrl] = useState("");
+  const [status, setStatus] = useState(200);
   const [headers, setHeaders] = useState("");
   const [body, setBody] = useState("");
   const editingId = useRef<string | null>(null);
@@ -57,6 +58,7 @@ export function InterceptDialog() {
           editingId.current = first.id;
           setMethod(first.method);
           setUrl(first.url);
+          setStatus(first.status ?? 200);
           setHeaders(headersToText(first.headers ?? {}));
           setBody(first.body ?? "");
         }
@@ -81,6 +83,7 @@ export function InterceptDialog() {
         action,
         method,
         url,
+        status,
         headers: textToHeaders(headers),
         body,
       });
@@ -104,16 +107,34 @@ export function InterceptDialog() {
       >
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
-            <PauseCircle className="h-4 w-4 text-amber-400" /> {t("interceptTitle")}
+            <PauseCircle className="h-4 w-4 text-amber-400" />
+            {pending?.phase === "response" ? t("interceptResponseTitle") : t("interceptTitle")}
           </DialogTitle>
           <DialogDescription>{t("interceptHint")}</DialogDescription>
         </DialogHeader>
 
         <div className="space-y-3">
-          <div className="grid grid-cols-[100px_1fr] gap-2">
-            <Input value={method} onChange={(e) => setMethod(e.target.value)} className="h-9 font-mono text-xs" />
-            <Input value={url} onChange={(e) => setUrl(e.target.value)} className="h-9 font-mono text-xs" />
-          </div>
+          {pending?.phase === "response" ? (
+            <div className="grid grid-cols-[100px_1fr] gap-2">
+              <Input
+                type="number"
+                value={status}
+                title={t("statusLabel")}
+                onChange={(e) => setStatus(Number(e.target.value) || 0)}
+                className="h-9 font-mono text-xs"
+              />
+              <div className="flex h-9 items-center overflow-hidden font-mono text-xs text-muted-foreground">
+                <span className="truncate">
+                  {method} {url}
+                </span>
+              </div>
+            </div>
+          ) : (
+            <div className="grid grid-cols-[100px_1fr] gap-2">
+              <Input value={method} onChange={(e) => setMethod(e.target.value)} className="h-9 font-mono text-xs" />
+              <Input value={url} onChange={(e) => setUrl(e.target.value)} className="h-9 font-mono text-xs" />
+            </div>
+          )}
           <Textarea
             value={headers}
             onChange={(e) => setHeaders(e.target.value)}

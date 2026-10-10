@@ -8,11 +8,13 @@ import (
 	"curlui/server/internal/models"
 )
 
-// PendingInfo describes a request paused at a breakpoint.
+// PendingInfo describes a request or response paused at a breakpoint.
 type PendingInfo struct {
 	ID        string              `json:"id"`
+	Phase     string              `json:"phase"` // "request" | "response"
 	Method    string              `json:"method"`
 	URL       string              `json:"url"`
+	Status    int                 `json:"status,omitempty"` // response phase
 	Headers   map[string][]string `json:"headers"`
 	Body      string              `json:"body"`
 	CreatedAt int64               `json:"createdAt"`
@@ -24,6 +26,7 @@ type Resolution struct {
 	Abort   bool
 	Method  string
 	URL     string
+	Status  int
 	Headers map[string][]string
 	Body    []byte
 }
@@ -33,41 +36,65 @@ type pending struct {
 	ch   chan Resolution
 }
 
-// Interceptor pauses matching requests until the UI resolves them.
+// Interceptor pauses matching requests/responses until the UI resolves them.
 type Interceptor struct {
-	mu      sync.Mutex
-	items   map[string]*pending
-	enabled func() bool
-	filter  func(string) bool
+	mu          sync.Mutex
+	items       map[string]*pending
+	reqEnabled  func() bool
+	reqFilter   func(string) bool
+	respEnabled func() bool
+	respFilter  func(string) bool
 }
 
-// NewInterceptor creates an interceptor. enabled reports whether breakpoints are
-// on; filter decides which URLs are intercepted (nil = all).
-func NewInterceptor(enabled func() bool, filter func(string) bool) *Interceptor {
-	return &Interceptor{items: map[string]*pending{}, enabled: enabled, filter: filter}
+// NewInterceptor creates an interceptor. The enabled funcs report whether the
+// request/response breakpoints are on; the filters decide which URLs pause
+// (nil = all).
+func NewInterceptor(reqEnabled func() bool, reqFilter func(string) bool, respEnabled func() bool, respFilter func(string) bool) *Interceptor {
+	return &Interceptor{
+		items:       map[string]*pending{},
+		reqEnabled:  reqEnabled,
+		reqFilter:   reqFilter,
+		respEnabled: respEnabled,
+		respFilter:  respFilter,
+	}
 }
 
-// Intercept pauses the request and waits for a resolution or timeout. The
-// second return value reports whether the request was intercepted at all.
+func enabled(fn func() bool) bool { return fn != nil && fn() }
+func matches(fn func(string) bool, url string) bool {
+	return fn == nil || fn(url)
+}
+
+// Intercept pauses a request and waits for a resolution or timeout. The second
+// return value reports whether it was intercepted.
 func (i *Interceptor) Intercept(ctx context.Context, method, url string, headers map[string][]string, body []byte, timeout time.Duration) (Resolution, bool) {
 	original := Resolution{Method: method, URL: url, Headers: headers, Body: body}
-	if i == nil || i.enabled == nil || !i.enabled() {
+	if i == nil || !enabled(i.reqEnabled) || !matches(i.reqFilter, url) {
 		return original, false
 	}
-	if i.filter != nil && !i.filter(url) {
+	return i.pause(ctx, PendingInfo{Phase: "request", Method: method, URL: url, Headers: headers, Body: string(body)}, original, timeout)
+}
+
+// InterceptResponse pauses an upstream response before it is returned to the
+// client.
+func (i *Interceptor) InterceptResponse(ctx context.Context, method, url string, status int, headers map[string][]string, body []byte, timeout time.Duration) (Resolution, bool) {
+	original := Resolution{Status: status, Headers: headers, Body: body}
+	if i == nil || !enabled(i.respEnabled) || !matches(i.respFilter, url) {
 		return original, false
 	}
-	id := models.NewID()
-	p := &pending{
-		info: PendingInfo{ID: id, Method: method, URL: url, Headers: headers, Body: string(body), CreatedAt: time.Now().UnixMilli()},
-		ch:   make(chan Resolution, 1),
-	}
+	return i.pause(ctx, PendingInfo{Phase: "response", Method: method, URL: url, Status: status, Headers: headers, Body: string(body)}, original, timeout)
+}
+
+func (i *Interceptor) pause(ctx context.Context, info PendingInfo, original Resolution, timeout time.Duration) (Resolution, bool) {
+	info.ID = models.NewID()
+	info.CreatedAt = time.Now().UnixMilli()
+	p := &pending{info: info, ch: make(chan Resolution, 1)}
+
 	i.mu.Lock()
-	i.items[id] = p
+	i.items[info.ID] = p
 	i.mu.Unlock()
 	defer func() {
 		i.mu.Lock()
-		delete(i.items, id)
+		delete(i.items, info.ID)
 		i.mu.Unlock()
 	}()
 
@@ -83,7 +110,7 @@ func (i *Interceptor) Intercept(ctx context.Context, method, url string, headers
 	}
 }
 
-// List returns the currently paused requests (newest first).
+// List returns the currently paused items.
 func (i *Interceptor) List() []PendingInfo {
 	if i == nil {
 		return nil
@@ -97,7 +124,7 @@ func (i *Interceptor) List() []PendingInfo {
 	return out
 }
 
-// Resolve delivers a decision to a paused request.
+// Resolve delivers a decision to a paused item.
 func (i *Interceptor) Resolve(id string, res Resolution) bool {
 	if i == nil {
 		return false

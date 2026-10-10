@@ -90,6 +90,8 @@ func main() {
 		}, ca,
 			func() bool { return st.Settings()["proxyBreak"] == "1" },
 			func(url string) bool { return matchCaptureFilter(st.Settings()["proxyBreakFilter"], url) },
+			func() bool { return st.Settings()["proxyBreakResponse"] == "1" },
+			func(url string) bool { return matchCaptureFilter(st.Settings()["proxyBreakResponseFilter"], url) },
 		)
 		apiServer.SetInterceptor(p.Interceptor())
 		go func() {
@@ -116,6 +118,8 @@ func main() {
 	mux.Handle("/api/", apiServer.Handler())
 	// Public mock server (same handler, mounted at the root).
 	mux.Handle("/mock/", apiServer.Handler())
+	// MCP over HTTP (JSON-RPC 2.0).
+	mux.Handle("/mcp", apiServer.Handler())
 
 	if fsys, ok := webui.FS(); ok {
 		log.Printf("serving embedded frontend")

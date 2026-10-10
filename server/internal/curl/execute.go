@@ -34,6 +34,9 @@ type Executor struct {
 	// AllowPrivate permits requests to loopback/private addresses. The API
 	// layer enables this since the tool is meant to be run locally.
 	AllowPrivate bool
+	// UserAgent, when set, provides the default User-Agent header for requests
+	// that don't specify one.
+	UserAgent func() string
 }
 
 // Execute runs the request definition. Variables are resolved internally so
@@ -115,7 +118,13 @@ func (e *Executor) Execute(ctx context.Context, def models.RequestDef, vars vari
 
 	// Default User-Agent / Accept when not supplied.
 	if header.Get("User-Agent") == "" {
-		header.Set("User-Agent", "curlui/1.0")
+		ua := "curlui/1.0"
+		if e.UserAgent != nil {
+			if v := strings.TrimSpace(e.UserAgent()); v != "" {
+				ua = v
+			}
+		}
+		header.Set("User-Agent", ua)
 	}
 	if header.Get("Accept") == "" {
 		header.Set("Accept", "*/*")

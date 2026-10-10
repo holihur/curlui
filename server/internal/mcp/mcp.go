@@ -1,5 +1,7 @@
-// Package mcp implements a minimal Model Context Protocol server (JSON-RPC 2.0
-// over stdio) that exposes curlui as tools an AI agent can call.
+// Package mcp implements a minimal Model Context Protocol server (JSON-RPC 2.0)
+// that exposes curlui as tools an AI agent can call. Tools are split into a
+// read group and a write group; both are gated by settings so the UI can toggle
+// MCP on/off and allow or block write tools.
 package mcp
 
 import (
@@ -20,6 +22,11 @@ type Backend interface {
 	Collections() []*models.Node
 	Environments() []models.Environment
 	FindNode(id string) (*models.Node, bool)
+	History() []models.HistoryEntry
+	Captures() []models.CaptureEntry
+	ClearCaptures() error
+	AddRequest(parentID, name string, req models.RequestDef) (*models.Node, error)
+	Settings() map[string]string
 }
 
 type request struct {
@@ -41,32 +48,57 @@ type rpcError struct {
 	Message string `json:"message"`
 }
 
-// Serve runs the MCP server until stdin closes.
+type toolDef struct {
+	name   string
+	write  bool
+	schema map[string]any
+}
+
+// Serve runs the MCP server over stdio until stdin closes.
 func Serve(in io.Reader, out io.Writer, version string, backend Backend) error {
 	scanner := bufio.NewScanner(in)
 	scanner.Buffer(make([]byte, 0, 64*1024), 8<<20)
-	enc := json.NewEncoder(out)
-
 	for scanner.Scan() {
 		line := strings.TrimSpace(scanner.Text())
 		if line == "" {
 			continue
 		}
-		var req request
-		if err := json.Unmarshal([]byte(line), &req); err != nil {
-			continue
-		}
-		res, respond := dispatch(req, version, backend)
+		res, respond := Handle([]byte(line), version, backend)
 		if !respond {
 			continue
 		}
-		res.JSONRPC = "2.0"
-		res.ID = req.ID
-		if err := enc.Encode(res); err != nil {
+		if _, err := out.Write(append(res, '\n')); err != nil {
 			return err
 		}
 	}
 	return scanner.Err()
+}
+
+// Handle processes a single JSON-RPC message and returns the response bytes.
+func Handle(raw []byte, version string, backend Backend) ([]byte, bool) {
+	var req request
+	if err := json.Unmarshal(raw, &req); err != nil {
+		return nil, false
+	}
+	res, respond := dispatch(req, version, backend)
+	if !respond {
+		return nil, false
+	}
+	res.JSONRPC = "2.0"
+	res.ID = req.ID
+	b, err := json.Marshal(res)
+	if err != nil {
+		return nil, false
+	}
+	return b, true
+}
+
+func mcpEnabled(backend Backend) bool {
+	return backend.Settings()["mcpEnabled"] != "0"
+}
+
+func mcpWrite(backend Backend) bool {
+	return backend.Settings()["mcpWrite"] == "1"
 }
 
 func dispatch(req request, version string, backend Backend) (response, bool) {
@@ -82,8 +114,14 @@ func dispatch(req request, version string, backend Backend) (response, bool) {
 	case "ping":
 		return response{Result: map[string]any{}}, true
 	case "tools/list":
-		return response{Result: map[string]any{"tools": tools()}}, true
+		if !mcpEnabled(backend) {
+			return response{Result: map[string]any{"tools": []any{}}}, true
+		}
+		return response{Result: map[string]any{"tools": tools(backend)}}, true
 	case "tools/call":
+		if !mcpEnabled(backend) {
+			return response{Error: &rpcError{Code: -32000, Message: "MCP is disabled — enable it in curlui Settings"}}, true
+		}
 		return callTool(req.Params, backend), true
 	default:
 		return response{Error: &rpcError{Code: -32601, Message: "method not found: " + req.Method}}, true
@@ -100,18 +138,51 @@ func callTool(raw json.RawMessage, backend Backend) response {
 	if err := json.Unmarshal(raw, &call); err != nil {
 		return response{Error: &rpcError{Code: -32602, Message: "invalid params"}}
 	}
+	def := findTool(call.Name)
+	if def == nil {
+		return response{Error: &rpcError{Code: -32601, Message: "unknown tool: " + call.Name}}
+	}
+	if def.write && !mcpWrite(backend) {
+		return response{Error: &rpcError{Code: -32000, Message: "write tools are disabled — enable them in curlui Settings"}}
+	}
+
 	switch call.Name {
-	case "http_request":
-		return toolHTTPRequest(call.Arguments, backend)
 	case "list_collections":
 		return textResult(mustJSON(backend.Collections()))
 	case "list_environments":
 		return textResult(mustJSON(backend.Environments()))
+	case "list_history":
+		return textResult(mustJSON(limitHistory(backend.History(), 30)))
+	case "list_captures":
+		return textResult(mustJSON(limitCaptures(backend.Captures(), 50)))
+	case "get_request":
+		return toolGetRequest(call.Arguments, backend)
+	case "http_request":
+		return toolHTTPRequest(call.Arguments, backend)
 	case "run_saved_request":
 		return toolRunSaved(call.Arguments, backend)
+	case "create_request":
+		return toolCreateRequest(call.Arguments, backend)
+	case "clear_captures":
+		if err := backend.ClearCaptures(); err != nil {
+			return textResult("error: " + err.Error())
+		}
+		return textResult("captures cleared")
 	default:
 		return response{Error: &rpcError{Code: -32601, Message: "unknown tool: " + call.Name}}
 	}
+}
+
+func toolGetRequest(raw json.RawMessage, backend Backend) response {
+	var args struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	node, ok := backend.FindNode(args.ID)
+	if !ok {
+		return textResult("error: request not found: " + args.ID)
+	}
+	return textResult(mustJSON(node))
 }
 
 func toolHTTPRequest(raw json.RawMessage, backend Backend) response {
@@ -125,47 +196,17 @@ func toolHTTPRequest(raw json.RawMessage, backend Backend) response {
 	if err := json.Unmarshal(raw, &args); err != nil {
 		return response{Error: &rpcError{Code: -32602, Message: "invalid arguments"}}
 	}
-	if args.Method == "" {
-		args.Method = "GET"
-	}
+	req := BuildRequest(args.Method, args.URL, args.Headers, args.Body, args.TimeoutMs)
 	if strings.TrimSpace(args.URL) == "" {
 		return textResult("error: url is required")
 	}
-	req := models.RequestDef{
-		Name:    args.Method + " " + args.URL,
-		Method:  args.Method,
-		URL:     args.URL,
-		Headers: []models.KeyValue{},
-		Body:    models.Body{Type: "none", Form: []models.KeyValue{}},
-		Auth:    models.Auth{Type: "none"},
-		Options: models.Options{Timeout: 30000, FollowRedirects: true, VerifyTLS: true, MaxRedirects: 10},
-	}
-	if args.TimeoutMs > 0 {
-		req.Options.Timeout = args.TimeoutMs
-	}
-	for k, v := range args.Headers {
-		req.Headers = append(req.Headers, models.KeyValue{ID: models.NewID(), Key: k, Value: v, Enabled: true})
-	}
-	if args.Body != "" {
-		req.Body.Raw = args.Body
-		if strings.Contains(strings.ToLower(args.Headers["Content-Type"]), "json") || strings.HasPrefix(strings.TrimSpace(args.Body), "{") {
-			req.Body.Type = "json"
-		} else {
-			req.Body.Type = "text"
-		}
-	}
-
 	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
 	defer cancel()
 	resp := backend.Execute(ctx, req, "", nil, nil, false)
-	body := resp.Body
-	if len(body) > 20000 {
-		body = body[:20000] + "\n…(truncated)"
-	}
 	return textResult(mustJSON(map[string]any{
 		"status":  resp.Status,
 		"headers": resp.Headers,
-		"body":    body,
+		"body":    truncate(resp.Body, 20000),
 		"error":   resp.Error,
 	}))
 }
@@ -191,6 +232,78 @@ func toolRunSaved(raw json.RawMessage, backend Backend) response {
 	}))
 }
 
+func toolCreateRequest(raw json.RawMessage, backend Backend) response {
+	var args struct {
+		ParentID string            `json:"parent_id"`
+		Name     string            `json:"name"`
+		Method   string            `json:"method"`
+		URL      string            `json:"url"`
+		Headers  map[string]string `json:"headers"`
+		Body     string            `json:"body"`
+	}
+	if err := json.Unmarshal(raw, &args); err != nil {
+		return response{Error: &rpcError{Code: -32602, Message: "invalid arguments"}}
+	}
+	if strings.TrimSpace(args.URL) == "" {
+		return textResult("error: url is required")
+	}
+	if args.Name == "" {
+		args.Name = args.Method + " " + args.URL
+	}
+	req := BuildRequest(args.Method, args.URL, args.Headers, args.Body, 0)
+	node, err := backend.AddRequest(args.ParentID, args.Name, req)
+	if err != nil {
+		return textResult("error: " + err.Error())
+	}
+	return textResult(mustJSON(map[string]any{"id": node.ID, "name": node.Name}))
+}
+
+// BuildRequest constructs a RequestDef from simple tool arguments.
+func BuildRequest(method, url string, headers map[string]string, body string, timeoutMs int) models.RequestDef {
+	if method == "" {
+		method = "GET"
+	}
+	req := models.RequestDef{
+		Name:    method + " " + url,
+		Method:  method,
+		URL:     url,
+		Headers: []models.KeyValue{},
+		Params:  []models.KeyValue{},
+		Body:    models.Body{Type: "none", Form: []models.KeyValue{}},
+		Auth:    models.Auth{Type: "none"},
+		Options: models.Options{Timeout: 30000, FollowRedirects: true, VerifyTLS: true, MaxRedirects: 10},
+	}
+	if timeoutMs > 0 {
+		req.Options.Timeout = timeoutMs
+	}
+	for k, v := range headers {
+		req.Headers = append(req.Headers, models.KeyValue{ID: models.NewID(), Key: k, Value: v, Enabled: true})
+	}
+	if body != "" {
+		req.Body.Raw = body
+		if strings.Contains(strings.ToLower(headers["Content-Type"]), "json") || strings.HasPrefix(strings.TrimSpace(body), "{") {
+			req.Body.Type = "json"
+		} else {
+			req.Body.Type = "text"
+		}
+	}
+	return req
+}
+
+func limitHistory(h []models.HistoryEntry, n int) []models.HistoryEntry {
+	if len(h) > n {
+		return h[:n]
+	}
+	return h
+}
+
+func limitCaptures(c []models.CaptureEntry, n int) []models.CaptureEntry {
+	if len(c) > n {
+		return c[:n]
+	}
+	return c
+}
+
 func textResult(text string) response {
 	return response{Result: map[string]any{
 		"content": []map[string]any{{"type": "text", "text": text}},
@@ -212,41 +325,78 @@ func truncate(s string, n int) string {
 	return s[:n] + "\n…(truncated)"
 }
 
-func tools() []map[string]any {
-	return []map[string]any{
-		{
-			"name":        "http_request",
-			"description": "Send an HTTP request from the curlui server and return the status, headers and body.",
-			"inputSchema": map[string]any{
-				"type": "object",
-				"properties": map[string]any{
-					"method":     map[string]any{"type": "string", "description": "HTTP method (default GET)"},
-					"url":        map[string]any{"type": "string", "description": "Absolute URL"},
-					"headers":    map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
-					"body":       map[string]any{"type": "string"},
-					"timeout_ms": map[string]any{"type": "integer"},
-				},
-				"required": []string{"url"},
+func allToolDefs() []toolDef {
+	return []toolDef{
+		// read group
+		{"list_collections", false, map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"list_environments", false, map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"list_history", false, map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"list_captures", false, map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"get_request", false, map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": map[string]any{"type": "string"}},
+			"required":   []string{"id"},
+		}},
+		// write group
+		{"http_request", true, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"method":     map[string]any{"type": "string", "description": "HTTP method (default GET)"},
+				"url":        map[string]any{"type": "string", "description": "Absolute URL"},
+				"headers":    map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+				"body":       map[string]any{"type": "string"},
+				"timeout_ms": map[string]any{"type": "integer"},
 			},
-		},
-		{
-			"name":        "list_collections",
-			"description": "List the saved collections tree (folders and requests).",
-			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
-		},
-		{
-			"name":        "list_environments",
-			"description": "List environments and their variables.",
-			"inputSchema": map[string]any{"type": "object", "properties": map[string]any{}},
-		},
-		{
-			"name":        "run_saved_request",
-			"description": "Run a saved request by its node id.",
-			"inputSchema": map[string]any{
-				"type":       "object",
-				"properties": map[string]any{"id": map[string]any{"type": "string"}},
-				"required":   []string{"id"},
+			"required": []string{"url"},
+		}},
+		{"run_saved_request", true, map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": map[string]any{"type": "string"}},
+			"required":   []string{"id"},
+		}},
+		{"create_request", true, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"parent_id": map[string]any{"type": "string"},
+				"name":      map[string]any{"type": "string"},
+				"method":    map[string]any{"type": "string"},
+				"url":       map[string]any{"type": "string"},
+				"headers":   map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "string"}},
+				"body":      map[string]any{"type": "string"},
 			},
-		},
+			"required": []string{"url"},
+		}},
+		{"clear_captures", true, map[string]any{"type": "object", "properties": map[string]any{}}},
 	}
+}
+
+func findTool(name string) *toolDef {
+	defs := allToolDefs()
+	for i := range defs {
+		if defs[i].name == name {
+			return &defs[i]
+		}
+	}
+	return nil
+}
+
+func tools(backend Backend) []map[string]any {
+	write := mcpWrite(backend)
+	out := []map[string]any{}
+	for _, d := range allToolDefs() {
+		if d.write && !write {
+			continue
+		}
+		group := "read"
+		if d.write {
+			group = "write"
+		}
+		out = append(out, map[string]any{
+			"name":        d.name,
+			"description": "[" + group + "] curlui tool",
+			"group":       group,
+			"inputSchema": d.schema,
+		})
+	}
+	return out
 }
