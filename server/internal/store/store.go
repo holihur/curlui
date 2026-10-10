@@ -16,11 +16,13 @@ var ErrNotFound = errors.New("not found")
 
 // Data is the persisted document.
 type Data struct {
-	Collections  []*models.Node        `json:"collections"`
-	Environments []models.Environment  `json:"environments"`
-	History      []models.HistoryEntry `json:"history"`
-	Schedules    []models.ScheduleJob  `json:"schedules,omitempty"`
-	Settings     map[string]string     `json:"settings"`
+	Collections  []*models.Node              `json:"collections"`
+	Environments []models.Environment        `json:"environments"`
+	History      []models.HistoryEntry       `json:"history"`
+	Schedules    []models.ScheduleJob        `json:"schedules,omitempty"`
+	MockHits     map[string][]models.MockHit `json:"mockHits,omitempty"`
+	Captures     []models.CaptureEntry       `json:"captures,omitempty"`
+	Settings     map[string]string           `json:"settings"`
 }
 
 // Store is a concurrency-safe JSON file store.
@@ -474,6 +476,60 @@ func (s *Store) SaveSchedules(jobs []models.ScheduleJob) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.data.Schedules = jobs
+	return s.persist()
+}
+
+// --- captures (proxy) ------------------------------------------------------
+
+// Captures returns recorded proxy traffic, newest first.
+func (s *Store) Captures() []models.CaptureEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]models.CaptureEntry, len(s.data.Captures))
+	copy(out, s.data.Captures)
+	return out
+}
+
+// AddCapture prepends a capture and trims the retained history.
+func (s *Store) AddCapture(entry models.CaptureEntry) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if entry.ID == "" {
+		entry.ID = models.NewID()
+	}
+	s.data.Captures = append([]models.CaptureEntry{entry}, s.data.Captures...)
+	if len(s.data.Captures) > 300 {
+		s.data.Captures = s.data.Captures[:300]
+	}
+	return s.persist()
+}
+
+// ClearCaptures removes all captured traffic.
+func (s *Store) ClearCaptures() error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Captures = nil
+	return s.persist()
+}
+
+// MockHits returns persisted mock access history.
+func (s *Store) MockHits() map[string][]models.MockHit {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make(map[string][]models.MockHit, len(s.data.MockHits))
+	for k, v := range s.data.MockHits {
+		cp := make([]models.MockHit, len(v))
+		copy(cp, v)
+		out[k] = cp
+	}
+	return out
+}
+
+// SaveMockHits replaces the persisted mock hit history.
+func (s *Store) SaveMockHits(hits map[string][]models.MockHit) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.MockHits = hits
 	return s.persist()
 }
 

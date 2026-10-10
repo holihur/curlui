@@ -70,6 +70,7 @@ type State = {
   closeTab: (id: string) => void;
   setActiveTab: (id: string) => void;
   renameTab: (id: string, name: string) => void;
+  applyRoute: () => void;
   updateActiveRequest: (patch: Partial<RequestDef>) => void;
   markSaved: (id: string, sourceId: string, name: string) => void;
 
@@ -110,6 +111,31 @@ function findNode(nodes: CollectionNode[], id: string): CollectionNode | null {
     }
   }
   return null;
+}
+
+// --- deep-link routing (#/r/<uuid> for a request, #/f/<uuid> for a folder) ---
+
+// isSmall reports whether we are on a phone-sized viewport (Tailwind `sm` = 640px).
+function isSmall(): boolean {
+  return typeof window !== "undefined" && window.innerWidth < 640;
+}
+
+function setHash(hash: string) {
+  if (typeof window === "undefined") return;
+  const next = hash && !hash.startsWith("#") ? "#" + hash : hash;
+  if (window.location.hash === next) return;
+  if (next) {
+    window.location.hash = next;
+  } else if (window.location.hash) {
+    history.replaceState(null, "", window.location.pathname + window.location.search);
+  }
+}
+
+function parseHash(): { type: "r" | "f"; id: string } | null {
+  if (typeof window === "undefined") return null;
+  const m = /^#\/(r|f)\/([^/?#]+)/.exec(window.location.hash);
+  if (!m) return null;
+  return { type: m[1] as "r" | "f", id: decodeURIComponent(m[2]) };
 }
 
 const ENV_STORAGE = "curlui.activeEnvId";
@@ -247,10 +273,6 @@ export const useStore = create<State>((set, get) => ({
       get().refreshHistory(),
       get().refreshEnvironments(),
     ]);
-    // Open a blank request if nothing is open.
-    if (get().tabs.length === 0) {
-      get().newTab();
-    }
   },
 
   async refreshCollections() {
@@ -285,14 +307,30 @@ export const useStore = create<State>((set, get) => ({
 
   newTab(request, sourceId) {
     const req = normalizeRequest(request ?? blankRequest());
+    const name = req.name || "Untitled request";
+    // Phones handle one request at a time: reuse the active tab.
+    if (isSmall() && get().tabs.length > 0) {
+      const activeId = get().activeTabId ?? get().tabs[0].id;
+      set((s) => ({
+        tabs: s.tabs.map((t) =>
+          t.id === activeId
+            ? { ...t, name, request: req, sourceId, response: undefined, error: undefined, sending: false }
+            : t,
+        ),
+        activeTabId: activeId,
+      }));
+      setHash(sourceId ? `#/r/${sourceId}` : "");
+      return;
+    }
     const tab: Tab = {
       id: uid(),
-      name: req.name || "Untitled request",
+      name,
       request: req,
       sourceId,
       sending: false,
     };
     set((s) => ({ tabs: [...s.tabs, tab], activeTabId: tab.id }));
+    setHash(sourceId ? `#/r/${sourceId}` : "");
   },
 
   openNode(node) {
@@ -300,11 +338,23 @@ export const useStore = create<State>((set, get) => ({
     if (typeof window !== "undefined" && window.innerWidth < 768) set({ sidebarOpen: false });
     const existing = get().tabs.find((t) => t.sourceId === node.id);
     if (existing) {
-      set({ activeTabId: existing.id });
+      get().setActiveTab(existing.id);
       return;
     }
     const req = normalizeRequest({ ...node.request, name: node.name });
     get().newTab(req, node.id);
+  },
+
+  applyRoute() {
+    const route = parseHash();
+    if (!route) return;
+    const node = findNode(get().collections, route.id);
+    if (!node) return;
+    if (route.type === "r" && node.type === "request") {
+      get().openNode(node);
+    } else if (route.type === "f" && node.type === "folder") {
+      set({ selectedFolderId: node.id });
+    }
   },
 
   openHistory(entry) {
@@ -329,12 +379,16 @@ export const useStore = create<State>((set, get) => ({
         const idx = s.tabs.findIndex((t) => t.id === id);
         activeTabId = tabs[Math.min(idx, tabs.length - 1)]?.id ?? null;
       }
+      const active = tabs.find((t) => t.id === activeTabId);
+      setTimeout(() => setHash(active?.sourceId ? `#/r/${active.sourceId}` : ""), 0);
       return { tabs, activeTabId };
     });
   },
 
   setActiveTab(id) {
+    const tab = get().tabs.find((t) => t.id === id);
     set({ activeTabId: id });
+    setHash(tab?.sourceId ? `#/r/${tab.sourceId}` : "");
   },
 
   setSidebarOpen(v) {
@@ -361,6 +415,7 @@ export const useStore = create<State>((set, get) => ({
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === id ? { ...t, sourceId, name } : t)),
     }));
+    if (get().activeTabId === id) setHash(`#/r/${sourceId}`);
   },
 
   async send(opts) {
@@ -563,6 +618,7 @@ export const useStore = create<State>((set, get) => ({
 
   selectFolder(id) {
     set({ selectedFolderId: id });
+    setHash(id ? `#/f/${id}` : "");
   },
   async clearHistory() {
     try {

@@ -25,6 +25,9 @@ type Runner func(
 // Persist is called with the full job list whenever it changes.
 type Persist func([]models.ScheduleJob)
 
+// Notify is called when a run fails (error or status >= 400).
+type Notify func(models.ScheduleJob, models.ScheduleResult)
+
 // Scheduler manages jobs with a background ticker.
 type Scheduler struct {
 	mu      sync.Mutex
@@ -32,11 +35,12 @@ type Scheduler struct {
 	results map[string][]models.ScheduleResult
 	run     Runner
 	persist Persist
+	notify  Notify
 }
 
 // New creates a scheduler and starts its background loop.
-func New(run Runner, persist Persist) *Scheduler {
-	s := &Scheduler{jobs: map[string]*models.ScheduleJob{}, results: map[string][]models.ScheduleResult{}, run: run, persist: persist}
+func New(run Runner, persist Persist, notify Notify) *Scheduler {
+	s := &Scheduler{jobs: map[string]*models.ScheduleJob{}, results: map[string][]models.ScheduleResult{}, run: run, persist: persist, notify: notify}
 	go s.loop()
 	return s
 }
@@ -120,6 +124,12 @@ func (s *Scheduler) execute(id string, scheduled bool) {
 		s.results[id] = s.results[id][:50]
 	}
 	s.mu.Unlock()
+
+	result := models.ScheduleResult{At: now, Status: resp.Status, Duration: resp.Duration, Error: resp.Error}
+	if (resp.Error != "" || resp.Status >= 400) && s.notify != nil {
+		jobCopy := *j
+		go s.notify(jobCopy, result)
+	}
 	s.save()
 }
 

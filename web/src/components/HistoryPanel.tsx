@@ -1,6 +1,6 @@
 import { Trash2, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
-import { cn, formatMs, relativeTime, statusColor } from "@/lib/utils";
+import { cn, formatMs, relativeTime, shortMethod, statusColor } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { useStore } from "@/store";
 
@@ -40,8 +40,11 @@ export function HistoryPanel() {
             onClick={() => openHistory(h)}
           >
             <div className="flex items-center gap-2">
-              <span className={cn("shrink-0 text-[10px] font-semibold", `method-${h.request.method}`)}>
-                {h.request.method}
+              <span
+                title={h.request.method}
+                className={cn("shrink-0 text-[10px] font-semibold", `method-${h.request.method}`)}
+              >
+                {shortMethod(h.request.method)}
               </span>
               <span className="min-w-0 flex-1 truncate text-xs" title={h.request.url}>
                 {h.request.url || "(no url)"}

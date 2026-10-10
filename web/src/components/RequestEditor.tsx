@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, type ReactNode } from "react";
-import { AlertCircle, Clock, Code2, FlaskConical, Loader2, Save, Send, Wand2 } from "lucide-react";
+import { AlertCircle, CheckCircle2, ChevronDown, Clock, Code2, FlaskConical, Loader2, Play, Save, Send, Wand2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -12,13 +12,21 @@ import {
 } from "@/components/ui/select";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
+import {
+  DropdownMenu,
+  DropdownMenuContent,
+  DropdownMenuItem,
+  DropdownMenuSeparator,
+  DropdownMenuTrigger,
+} from "@/components/ui/dropdown-menu";
 import { KeyValueEditor } from "@/components/KeyValueEditor";
 import { CodeEditor } from "@/components/CodeEditor";
 import { AutomationEditor } from "@/components/AutomationEditor";
 import { ScheduleDialog } from "@/components/ScheduleDialog";
+import { RunDialog } from "@/components/RunDialog";
 import { ResponsePanel } from "@/components/ResponsePanel";
 import { CodeDialog } from "@/components/CodeDialog";
-import { cn } from "@/lib/utils";
+import { cn, jsonError } from "@/lib/utils";
 import { tryPrettyJSON } from "@/lib/highlight";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useActiveTab, useStore } from "@/store";
@@ -47,6 +55,7 @@ export function RequestEditor() {
 
   const [codeOpen, setCodeOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
+  const [runOpen, setRunOpen] = useState(false);
   const [configHeight, setConfigHeight] = useState(300);
   const dragging = useRef(false);
   const configRef = useRef<HTMLDivElement>(null);
@@ -99,6 +108,7 @@ export function RequestEditor() {
   const req = tab.request;
   const activeParams = req.params.filter((p) => p.enabled && p.key).length;
   const activeHeaders = req.headers.filter((h) => h.enabled && h.key).length;
+  const bodyJsonError = req.body.type === "json" ? jsonError(req.body.raw) : null;
 
   return (
     <div className="flex min-h-0 flex-1 flex-col">
@@ -128,34 +138,49 @@ export function RequestEditor() {
           spellCheck={false}
         />
 
-        <Button className="h-9 w-[104px] gap-1.5" onClick={() => void send()} disabled={tab.sending}>
-          {tab.sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-          {t("send")}
-        </Button>
+        <div className="flex">
+          <Button
+            className="h-9 w-9 gap-1.5 rounded-r-none px-0 sm:w-[96px] sm:px-4"
+            onClick={() => void send()}
+            disabled={tab.sending}
+            title={t("send")}
+          >
+            {tab.sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
+            <span className="hidden sm:inline">{t("send")}</span>
+          </Button>
+          <DropdownMenu>
+            <DropdownMenuTrigger asChild>
+              <Button
+                className="h-9 rounded-l-none border-l border-primary-foreground/25 px-1.5"
+                disabled={tab.sending}
+                title={t("more")}
+              >
+                <ChevronDown className="h-4 w-4" />
+              </Button>
+            </DropdownMenuTrigger>
+            <DropdownMenuContent align="end" className="w-48">
+              <DropdownMenuItem onClick={() => void send()}>
+                <Send /> {t("sendNow")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => void send({ mock: true })}>
+                <FlaskConical /> {t("sendAsMock")}
+              </DropdownMenuItem>
+              <DropdownMenuSeparator />
+              <DropdownMenuItem onClick={() => setScheduleOpen(true)}>
+                <Clock /> {t("scheduleSend")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setRunOpen(true)}>
+                <Play /> {t("loadTest")}
+              </DropdownMenuItem>
+            </DropdownMenuContent>
+          </DropdownMenu>
+        </div>
 
         {req.options.sendVia === "browser" && (
           <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-400">
             {t("browserBadge")}
           </span>
         )}
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => void send({ mock: true })}>
-              <FlaskConical className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("sendAsMock")}</TooltipContent>
-        </Tooltip>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setScheduleOpen(true)}>
-              <Clock className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("scheduleSend")}</TooltipContent>
-        </Tooltip>
 
         <Tooltip>
           <TooltipTrigger asChild>
@@ -201,7 +226,12 @@ export function RequestEditor() {
                 {t("headers")}
                 {activeHeaders > 0 && <Count n={activeHeaders} />}
               </TabTrigger>
-              <TabTrigger value="body">{t("body")}</TabTrigger>
+              <TabTrigger value="body">
+                {t("body")}
+                {bodyJsonError && (
+                  <span className="h-1.5 w-1.5 rounded-full bg-red-400" title={t("invalidJson")} />
+                )}
+              </TabTrigger>
               <TabTrigger value="automation">
                 {t("automation")}
                 {status && (
@@ -255,6 +285,13 @@ export function RequestEditor() {
 
       <CodeDialog open={codeOpen} onOpenChange={setCodeOpen} request={req} />
       <ScheduleDialog open={scheduleOpen} onOpenChange={setScheduleOpen} request={req} />
+      <RunDialog
+        open={runOpen}
+        onOpenChange={setRunOpen}
+        title={t("loadTest")}
+        items={[{ name: req.name || req.url, request: req }]}
+        defaultRepeat={10}
+      />
     </div>
   );
 }
@@ -384,6 +421,8 @@ function BodyEditor({
   const setBody = (patch: Partial<RequestDef["body"]>) => onChange({ body: { ...req.body, ...patch } });
   const type = req.body.type;
   const isRaw = type === "json" || type === "xml" || type === "html" || type === "text";
+  const jsonErr = type === "json" ? jsonError(req.body.raw) : null;
+  const hasJson = type === "json" && req.body.raw.trim().length > 0;
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -405,19 +444,39 @@ function BodyEditor({
           ))}
         </div>
         {type === "json" && (
-          <Button
-            variant="ghost"
-            size="xs"
-            className="ml-auto gap-1 text-muted-foreground"
-            onClick={() => {
-              const pretty = tryPrettyJSON(req.body.raw);
-              if (pretty) setBody({ raw: pretty });
-            }}
-          >
-            <Wand2 className="h-3.5 w-3.5" /> {t("beautify")}
-          </Button>
+          <div className="ml-auto flex items-center gap-2">
+            {hasJson &&
+              (jsonErr ? (
+                <span className="flex items-center gap-1 text-[11px] text-red-400">
+                  <XCircle className="h-3.5 w-3.5" /> {t("invalidJson")}
+                </span>
+              ) : (
+                <span className="flex items-center gap-1 text-[11px] text-emerald-400">
+                  <CheckCircle2 className="h-3.5 w-3.5" /> {t("validJson")}
+                </span>
+              ))}
+            <Button
+              variant="ghost"
+              size="xs"
+              className="gap-1 text-muted-foreground"
+              disabled={!!jsonErr || !hasJson}
+              onClick={() => {
+                const pretty = tryPrettyJSON(req.body.raw);
+                if (pretty) setBody({ raw: pretty });
+              }}
+            >
+              <Wand2 className="h-3.5 w-3.5" /> {t("beautify")}
+            </Button>
+          </div>
         )}
       </div>
+
+      {jsonErr && (
+        <div className="flex items-start gap-2 border-b bg-destructive/10 px-3 py-1.5 text-[11px] text-destructive">
+          <AlertCircle className="mt-0.5 h-3.5 w-3.5 shrink-0" />
+          <span className="font-mono">{jsonErr}</span>
+        </div>
+      )}
 
       {isRaw && (
         <div className="min-h-0 flex-1">

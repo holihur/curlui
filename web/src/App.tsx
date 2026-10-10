@@ -10,6 +10,8 @@ import { useStore } from "@/store";
 
 export default function App() {
   const loadAll = useStore((s) => s.loadAll);
+  const applyRoute = useStore((s) => s.applyRoute);
+  const newTab = useStore((s) => s.newTab);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const started = useRef(false);
@@ -17,8 +19,17 @@ export default function App() {
   useEffect(() => {
     if (started.current) return;
     started.current = true;
-    void loadAll();
-  }, [loadAll]);
+    void loadAll().then(() => {
+      applyRoute();
+      if (useStore.getState().tabs.length === 0) newTab();
+    });
+  }, [loadAll, applyRoute, newTab]);
+
+  useEffect(() => {
+    const onHash = () => applyRoute();
+    window.addEventListener("hashchange", onHash);
+    return () => window.removeEventListener("hashchange", onHash);
+  }, [applyRoute]);
 
   return (
     <TooltipProvider delayDuration={250}>

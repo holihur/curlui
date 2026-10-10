@@ -5,13 +5,17 @@ import (
 	"encoding/hex"
 )
 
-// NewID returns a short random hex identifier.
+// NewID returns a random RFC 4122 version 4 UUID. Every saved request (and
+// folder) gets a stable, URL-safe id used for deep links.
 func NewID() string {
-	b := make([]byte, 12)
+	b := make([]byte, 16)
 	if _, err := rand.Read(b); err != nil {
-		return "000000000000000000000000"
+		return "00000000-0000-4000-8000-000000000000"
 	}
-	return hex.EncodeToString(b)
+	b[6] = (b[6] & 0x0f) | 0x40 // version 4
+	b[8] = (b[8] & 0x3f) | 0x80 // variant 10
+	h := hex.EncodeToString(b)
+	return h[0:8] + "-" + h[8:12] + "-" + h[12:16] + "-" + h[16:20] + "-" + h[20:32]
 }
 
 // KeyValue is a generic enabled/disabled key/value row used for params,
@@ -195,6 +199,23 @@ type HistoryEntry struct {
 	Error      string     `json:"error,omitempty"`
 	EnvID      string     `json:"envId,omitempty"`
 	CreatedAt  int64      `json:"createdAt"`
+}
+
+// CaptureEntry is a proxied request/response recorded by the capture proxy.
+type CaptureEntry struct {
+	ID              string              `json:"id"`
+	At              int64               `json:"at"`
+	Method          string              `json:"method"`
+	URL             string              `json:"url"`
+	RequestHeaders  map[string][]string `json:"requestHeaders"`
+	RequestBody     string              `json:"requestBody"`
+	Status          int                 `json:"status"`
+	ResponseHeaders map[string][]string `json:"responseHeaders"`
+	ResponseBody    string              `json:"responseBody"`
+	ContentType     string              `json:"contentType"`
+	Duration        int64               `json:"duration"`
+	Tunnel          bool                `json:"tunnel,omitempty"`
+	Error           string              `json:"error,omitempty"`
 }
 
 // ScheduleJob is a delayed or periodic request kept by the scheduler.

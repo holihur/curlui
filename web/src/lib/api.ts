@@ -10,6 +10,9 @@ import type {
   RequestDef,
   ScheduleJob,
   ScheduleResult,
+  BatchResult,
+  BatchSummary,
+  CaptureEntry,
 } from "./types";
 
 const BASE = "/api";
@@ -203,5 +206,41 @@ export const api = {
   },
   mockHits(id: string) {
     return request<{ count: number; lastAt: number; hits: MockHit[] }>(`/mock/${id}/hits`);
+  },
+
+  // Updates
+  checkUpdate() {
+    return request<{ current: string; latest: string; hasUpdate: boolean; url: string }>("/update/check");
+  },
+  applyUpdate() {
+    return request<{ ok: boolean; updated: boolean; version: string; restartRequired?: boolean }>(
+      "/update",
+      { method: "POST" },
+    );
+  },
+
+  // Concurrent batch runner
+  runBatch(payload: {
+    items: { name: string; request: RequestDef; repeat?: number }[];
+    concurrency: number;
+    envId?: string;
+    variables?: Record<string, string>;
+    mock?: boolean;
+  }) {
+    return request<{ results: BatchResult[]; summary: BatchSummary }>("/batch", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+
+  // Capture proxy
+  listProxy() {
+    return request<{ running: boolean; addr: string; entries: CaptureEntry[] }>("/proxy");
+  },
+  clearProxy() {
+    return request<{ ok: boolean }>("/proxy", { method: "DELETE" });
+  },
+  replayProxy(id: string) {
+    return request<CaptureEntry>(`/proxy/${id}/replay`, { method: "POST" });
   },
 };

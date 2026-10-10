@@ -86,6 +86,43 @@ export type MockHit = {
   source: string;
 };
 
+export type BatchResult = {
+  name: string;
+  method: string;
+  url: string;
+  index: number;
+  status: number;
+  duration: number;
+  error?: string;
+  assertionsFailed: number;
+};
+
+export type BatchSummary = {
+  total: number;
+  ok: number;
+  failed: number;
+  avgMs: number;
+  minMs: number;
+  maxMs: number;
+  durationMs: number;
+};
+
+export type CaptureEntry = {
+  id: string;
+  at: number;
+  method: string;
+  url: string;
+  requestHeaders: Record<string, string[]>;
+  requestBody: string;
+  status: number;
+  responseHeaders: Record<string, string[]>;
+  responseBody: string;
+  contentType: string;
+  duration: number;
+  tunnel?: boolean;
+  error?: string;
+};
+
 export type Hook = {
   enabled: boolean;
   command: string;

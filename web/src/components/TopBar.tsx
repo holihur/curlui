@@ -1,41 +1,72 @@
-import { useEffect, useState } from "react";import {
-  Braces,
+import { useRef, useState } from "react";
+import {
+  Check,
+  ChevronDown,
   FileJson2,
   FileUp,
+  FolderInput,
   Globe,
   Menu,
   Moon,
+  MoreHorizontal,
   Plus,
+  Settings as SettingsIcon,
   Sun,
   TerminalSquare,
   Zap,
 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Select, SelectContent, SelectItem, SelectTrigger, SelectValue } from "@/components/ui/select";
-import { Tooltip, TooltipContent, TooltipTrigger } from "@/components/ui/tooltip";
 import {
   DropdownMenu,
   DropdownMenuContent,
   DropdownMenuItem,
+  DropdownMenuLabel,
+  DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { ImportCurlDialog } from "@/components/ImportCurlDialog";
 import { OpenAPIDialog } from "@/components/OpenAPIDialog";
+import { SettingsDialog } from "@/components/SettingsDialog";
 import { LOCALES, useI18n } from "@/lib/i18n";
+import { api } from "@/lib/api";
 import { useStore } from "@/store";
 
 const NONE = "__none__";
 
 export function TopBar() {
-  const { t, locale, setLocale, theme, toggleTheme } = useI18n();
+  const { t, locale, setLocale, theme, setTheme } = useI18n();
   const environments = useStore((s) => s.environments);
   const activeEnvId = useStore((s) => s.activeEnvId);
   const setActiveEnv = useStore((s) => s.setActiveEnv);
   const newTab = useStore((s) => s.newTab);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
+  const selectedFolderId = useStore((s) => s.selectedFolderId);
+  const refreshCollections = useStore((s) => s.refreshCollections);
+  const toast = useStore((s) => s.toast);
+
   const [importOpen, setImportOpen] = useState(false);
   const [openapiOpen, setOpenapiOpen] = useState(false);
+  const [settingsOpen, setSettingsOpen] = useState(false);
+  const collectionFileRef = useRef<HTMLInputElement>(null);
+
+  const importCollection = async (file: File) => {
+    try {
+      const parsed = JSON.parse(await file.text());
+      const nodes = Array.isArray(parsed) ? parsed : parsed.collections;
+      if (!Array.isArray(nodes) || nodes.length === 0) throw new Error("no collections found");
+      const { count } = await api.importCollections(selectedFolderId ?? "", nodes);
+      await refreshCollections();
+      toast({ title: `${t("imported")}: ${count}`, variant: "success" });
+    } catch (err) {
+      toast({
+        title: t("importFailed"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    }
+  };
 
   return (
     <header className="flex h-12 shrink-0 items-center gap-2 border-b bg-card px-2 sm:px-3">
@@ -58,18 +89,32 @@ export function TopBar() {
 
       <div className="hidden h-6 w-px bg-border sm:block" />
 
-      <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => newTab()}>
-        <Plus className="h-4 w-4" />
-        <span className="hidden sm:inline">{t("new")}</span>
-      </Button>
-      <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setImportOpen(true)}>
-        <FileUp className="h-4 w-4" />
-        <span className="hidden sm:inline">{t("importCurl")}</span>
-      </Button>
-      <Button variant="ghost" size="sm" className="gap-1.5" onClick={() => setOpenapiOpen(true)}>
-        <FileJson2 className="h-4 w-4" />
-        <span className="hidden lg:inline">{t("importOpenapi")}</span>
-      </Button>
+      {/* New + Import in one menu */}
+      <DropdownMenu>
+        <DropdownMenuTrigger asChild>
+          <Button variant="ghost" size="sm" className="gap-1.5">
+            <Plus className="h-4 w-4" />
+            <span className="hidden sm:inline">{t("new")}</span>
+            <ChevronDown className="h-3.5 w-3.5 opacity-60" />
+          </Button>
+        </DropdownMenuTrigger>
+        <DropdownMenuContent align="start">
+          <DropdownMenuItem onClick={() => newTab()}>
+            <Plus /> {t("newRequest")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => setImportOpen(true)}>
+            <FileUp /> {t("importCurl")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setOpenapiOpen(true)}>
+            <FileJson2 /> {t("importOpenapi")}
+          </DropdownMenuItem>
+          <DropdownMenuSeparator />
+          <DropdownMenuItem onClick={() => collectionFileRef.current?.click()}>
+            <FolderInput /> {t("importCollection")}
+          </DropdownMenuItem>
+        </DropdownMenuContent>
+      </DropdownMenu>
 
       <div className="ml-auto flex min-w-0 items-center gap-2">
         <div className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
@@ -90,39 +135,50 @@ export function TopBar() {
           </SelectContent>
         </Select>
 
+        {/* Theme, language and settings in one "…" menu */}
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" title={t("language")}>
-              <Globe className="h-4 w-4" />
+            <Button variant="ghost" size="icon" className="h-8 w-8" title={t("more")}>
+              <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end">
+          <DropdownMenuContent align="end" className="w-52">
+            <DropdownMenuLabel>{t("theme")}</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => setTheme("light")}>
+              {theme === "light" ? <Check /> : <Sun />} {t("themeLight")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setTheme("dark")}>
+              {theme === "dark" ? <Check /> : <Moon />} {t("themeDark")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuLabel>{t("language")}</DropdownMenuLabel>
             {LOCALES.map((l) => (
-              <DropdownMenuItem
-                key={l.value}
-                onClick={() => setLocale(l.value)}
-                className={l.value === locale ? "text-primary" : ""}
-              >
-                {l.label}
+              <DropdownMenuItem key={l.value} onClick={() => setLocale(l.value)}>
+                {locale === l.value ? <Check /> : <Globe />} {l.label}
               </DropdownMenuItem>
             ))}
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
+              <SettingsIcon /> {t("settings")}
+            </DropdownMenuItem>
           </DropdownMenuContent>
         </DropdownMenu>
-
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="ghost" size="icon" className="h-8 w-8" onClick={toggleTheme}>
-              {theme === "dark" ? <Sun className="h-4 w-4" /> : <Moon className="h-4 w-4" />}
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("toggleTheme")}</TooltipContent>
-        </Tooltip>
-
-        <Braces className="hidden h-4 w-4 text-muted-foreground md:block" />
       </div>
 
       <ImportCurlDialog open={importOpen} onOpenChange={setImportOpen} />
       <OpenAPIDialog open={openapiOpen} onOpenChange={setOpenapiOpen} />
+      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <input
+        ref={collectionFileRef}
+        type="file"
+        accept="application/json,.json"
+        className="hidden"
+        onChange={(e) => {
+          const f = e.target.files?.[0];
+          if (f) void importCollection(f);
+          e.target.value = "";
+        }}
+      />
     </header>
   );
 }

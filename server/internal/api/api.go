@@ -1,6 +1,7 @@
 package api
 
 import (
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -18,6 +19,7 @@ import (
 	"curlui/server/internal/openapi"
 	"curlui/server/internal/scheduler"
 	"curlui/server/internal/store"
+	"curlui/server/internal/update"
 	"curlui/server/internal/variables"
 )
 
@@ -26,23 +28,69 @@ type Server struct {
 	store     *store.Store
 	executor  *curlpkg.Executor
 	scheduler *scheduler.Scheduler
+	version   string
 
-	mu       sync.Mutex
-	mockHits map[string][]models.MockHit
+	mu           sync.Mutex
+	mockHits     map[string][]models.MockHit
+	proxyAddr    string
+	proxyRunning bool
+}
+
+// SetProxy records whether the capture proxy is running.
+func (s *Server) SetProxy(addr string, running bool) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.proxyAddr = addr
+	s.proxyRunning = running
 }
 
 // New returns a new API server.
-func New(st *store.Store) *Server {
-	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}, mockHits: map[string][]models.MockHit{}}
+func New(st *store.Store, version string) *Server {
+	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}, mockHits: st.MockHits(), version: version}
+	if s.mockHits == nil {
+		s.mockHits = map[string][]models.MockHit{}
+	}
 	s.scheduler = scheduler.New(
 		func(ctx context.Context, req models.RequestDef, envID string, vars map[string]string, parents []models.RequestDef, mock bool) models.Response {
 			resp, _ := s.runRequest(ctx, sendPayload{Request: req, EnvID: envID, Variables: vars, Parents: parents, Mock: mock})
 			return resp
 		},
 		func(jobs []models.ScheduleJob) { _ = st.SaveSchedules(jobs) },
+		func(job models.ScheduleJob, res models.ScheduleResult) { s.notifyFailure(st, job, res) },
 	)
 	s.scheduler.Load(st.Schedules())
 	return s
+}
+
+// notifyFailure POSTs a JSON payload to the configured webhook when a
+// scheduled run fails.
+func (s *Server) notifyFailure(st *store.Store, job models.ScheduleJob, res models.ScheduleResult) {
+	url := strings.TrimSpace(st.Settings()["notifyWebhook"])
+	if url == "" {
+		return
+	}
+	payload, _ := json.Marshal(map[string]any{
+		"job":    job.Name,
+		"jobId":  job.ID,
+		"method": job.Request.Method,
+		"url":    job.Request.URL,
+		"status": res.Status,
+		"error":  res.Error,
+		"at":     res.At,
+	})
+	req, err := http.NewRequest(http.MethodPost, url, bytes.NewReader(payload))
+	if err != nil {
+		log.Printf("notify: %v", err)
+		return
+	}
+	req.Header.Set("Content-Type", "application/json")
+	client := &http.Client{Timeout: 10 * time.Second}
+	resp, err := client.Do(req)
+	if err != nil {
+		log.Printf("notify failed: %v", err)
+		return
+	}
+	_ = resp.Body.Close()
 }
 
 // Handler returns the fully configured http.Handler.
@@ -76,6 +124,15 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("POST /api/openapi/parse", s.parseOpenAPI)
 	mux.HandleFunc("POST /api/collections/import", s.importCollections)
+
+	mux.HandleFunc("GET /api/export", s.exportNodes)
+	mux.HandleFunc("POST /api/batch", s.runBatch)
+
+	mux.HandleFunc("GET /api/proxy", s.listProxy)
+	mux.HandleFunc("DELETE /api/proxy", s.clearProxy)
+	mux.HandleFunc("POST /api/proxy/{id}/replay", s.replayCapture)
+	mux.HandleFunc("GET /api/update/check", s.checkUpdate)
+	mux.HandleFunc("POST /api/update", s.applyUpdate)
 
 	mux.HandleFunc("POST /api/schedule", s.createSchedule)
 	mux.HandleFunc("GET /api/schedule", s.listSchedules)
@@ -391,11 +448,16 @@ func (s *Server) recordMockHit(id, method, path, source string) {
 		return
 	}
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	s.mockHits[id] = append([]models.MockHit{{At: time.Now().UnixMilli(), Method: method, Path: path, Source: source}}, s.mockHits[id]...)
 	if len(s.mockHits[id]) > 100 {
 		s.mockHits[id] = s.mockHits[id][:100]
 	}
+	snap := make(map[string][]models.MockHit, len(s.mockHits))
+	for k, v := range s.mockHits {
+		snap[k] = v
+	}
+	s.mu.Unlock()
+	_ = s.store.SaveMockHits(snap)
 }
 
 func (s *Server) mockHitsHandler(w http.ResponseWriter, r *http.Request) {
@@ -618,6 +680,338 @@ func (s *Server) cancelSchedule(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) scheduleResults(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{"results": s.scheduler.Results(r.PathValue("id"))})
+}
+
+// --- export ----------------------------------------------------------------
+
+func (s *Server) exportNodes(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	format := r.URL.Query().Get("format")
+
+	var nodes []*models.Node
+	if id != "" {
+		n, ok := s.store.FindNode(id)
+		if !ok {
+			writeErr(w, http.StatusNotFound, "node not found")
+			return
+		}
+		nodes = []*models.Node{n}
+	} else {
+		nodes = s.store.Collections()
+	}
+
+	if format == "curl" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="curlui-export.sh"`)
+		for _, n := range nodes {
+			writeCurlNode(w, n, "")
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="curlui-export.json"`)
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"format":      "curlui",
+		"version":     1,
+		"exportedAt":  time.Now().UnixMilli(),
+		"collections": nodes,
+	})
+}
+
+func writeCurlNode(w io.Writer, n *models.Node, prefix string) {
+	if n.Type == "request" && n.Request != nil {
+		fmt.Fprintf(w, "# %s%s\n%s\n\n", prefix, n.Name, curlpkg.Generate(*n.Request))
+	}
+	for _, c := range n.Children {
+		writeCurlNode(w, c, prefix+n.Name+" / ")
+	}
+}
+
+// --- update ----------------------------------------------------------------
+
+func (s *Server) checkUpdate(w http.ResponseWriter, _ *http.Request) {
+	rel, err := update.LatestRelease()
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, update.Info{
+		Current:   s.version,
+		Latest:    rel.Tag,
+		HasUpdate: update.IsNewer(s.version, rel.Tag),
+		URL:       rel.URL,
+	})
+}
+
+func (s *Server) applyUpdate(w http.ResponseWriter, _ *http.Request) {
+	rel, err := update.LatestRelease()
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if !update.IsNewer(s.version, rel.Tag) {
+		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": false, "version": s.version})
+		return
+	}
+	url := update.AssetURL(rel)
+	if url == "" {
+		writeErr(w, http.StatusNotFound, "no build for this platform in "+rel.Tag)
+		return
+	}
+	data, err := update.Download(url)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	if err := update.Apply(data); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	log.Printf("updated to %s — restart to apply", rel.Tag)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": true, "version": rel.Tag, "restartRequired": true})
+}
+
+// --- batch / concurrent runner --------------------------------------------
+
+type batchItem struct {
+	Name    string            `json:"name"`
+	Request models.RequestDef `json:"request"`
+	Repeat  int               `json:"repeat"`
+}
+
+type batchResult struct {
+	Name             string `json:"name"`
+	Method           string `json:"method"`
+	URL              string `json:"url"`
+	Index            int    `json:"index"`
+	Status           int    `json:"status"`
+	Duration         int64  `json:"duration"`
+	Error            string `json:"error,omitempty"`
+	AssertionsFailed int    `json:"assertionsFailed"`
+}
+
+// runBatch executes many requests concurrently with a bounded worker pool.
+func (s *Server) runBatch(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Items       []batchItem       `json:"items"`
+		Concurrency int               `json:"concurrency"`
+		EnvID       string            `json:"envId"`
+		Variables   map[string]string `json:"variables"`
+		Mock        bool              `json:"mock"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if len(payload.Items) == 0 {
+		writeErr(w, http.StatusBadRequest, "no requests to run")
+		return
+	}
+
+	concurrency := payload.Concurrency
+	if concurrency < 1 {
+		concurrency = 5
+	}
+	if concurrency > 64 {
+		concurrency = 64
+	}
+
+	envSet := variables.Set{}
+	if payload.EnvID != "" {
+		for _, env := range s.store.Environments() {
+			if env.ID == payload.EnvID {
+				envSet = variables.FromEnvironment(&env)
+				break
+			}
+		}
+	}
+	if len(payload.Variables) > 0 {
+		envSet = envSet.Merge(variables.Set(payload.Variables))
+	}
+
+	// Expand repeats into a flat job list.
+	type job struct {
+		item batchItem
+		idx  int
+	}
+	var jobs []job
+	for _, it := range payload.Items {
+		repeat := it.Repeat
+		if repeat < 1 {
+			repeat = 1
+		}
+		if repeat > 1000 {
+			repeat = 1000
+		}
+		for i := 0; i < repeat; i++ {
+			jobs = append(jobs, job{item: it, idx: i})
+		}
+	}
+
+	results := make([]batchResult, len(jobs))
+	sem := make(chan struct{}, concurrency)
+	var wg sync.WaitGroup
+	start := time.Now()
+	for i, jb := range jobs {
+		wg.Add(1)
+		sem <- struct{}{}
+		go func(i int, jb job) {
+			defer wg.Done()
+			defer func() { <-sem }()
+			resp := s.executor.Execute(r.Context(), jb.item.Request, envSet, payload.Mock)
+			fails := 0
+			for _, a := range resp.Assertions {
+				if !a.Passed {
+					fails++
+				}
+			}
+			results[i] = batchResult{
+				Name:             jb.item.Name,
+				Method:           jb.item.Request.Method,
+				URL:              jb.item.Request.URL,
+				Index:            jb.idx,
+				Status:           resp.Status,
+				Duration:         resp.Duration,
+				Error:            resp.Error,
+				AssertionsFailed: fails,
+			}
+		}(i, jb)
+	}
+	wg.Wait()
+
+	var ok, failed int
+	var totalMs, minMs, maxMs int64
+	for i, res := range results {
+		if res.Error == "" && res.Status >= 200 && res.Status < 400 && res.AssertionsFailed == 0 {
+			ok++
+		} else {
+			failed++
+		}
+		totalMs += res.Duration
+		if i == 0 || res.Duration < minMs {
+			minMs = res.Duration
+		}
+		if res.Duration > maxMs {
+			maxMs = res.Duration
+		}
+	}
+	avg := int64(0)
+	if len(results) > 0 {
+		avg = totalMs / int64(len(results))
+	}
+
+	writeJSON(w, http.StatusOK, map[string]any{
+		"results": results,
+		"summary": map[string]any{
+			"total":      len(results),
+			"ok":         ok,
+			"failed":     failed,
+			"avgMs":      avg,
+			"minMs":      minMs,
+			"maxMs":      maxMs,
+			"durationMs": time.Since(start).Milliseconds(),
+		},
+	})
+}
+
+// --- capture proxy ---------------------------------------------------------
+
+func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	running, addr := s.proxyRunning, s.proxyAddr
+	s.mu.Unlock()
+	writeJSON(w, http.StatusOK, map[string]any{
+		"running": running,
+		"addr":    addr,
+		"entries": s.store.Captures(),
+	})
+}
+
+func (s *Server) clearProxy(w http.ResponseWriter, _ *http.Request) {
+	if err := s.store.ClearCaptures(); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
+}
+
+func (s *Server) replayCapture(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	var found *models.CaptureEntry
+	for _, c := range s.store.Captures() {
+		if c.ID == id {
+			cp := c
+			found = &cp
+			break
+		}
+	}
+	if found == nil {
+		writeErr(w, http.StatusNotFound, "capture not found")
+		return
+	}
+	req := captureToRequest(*found)
+	resp := s.executor.Execute(r.Context(), req, variables.Set{}, false)
+	entry := models.CaptureEntry{
+		At:              time.Now().UnixMilli(),
+		Method:          req.Method,
+		URL:             req.URL,
+		RequestHeaders:  headerMap(req.Headers),
+		RequestBody:     req.Body.Raw,
+		Status:          resp.Status,
+		ResponseHeaders: resp.Headers,
+		ResponseBody:    resp.Body,
+		ContentType:     resp.ContentType,
+		Duration:        resp.Duration,
+		Error:           resp.Error,
+	}
+	_ = s.store.AddCapture(entry)
+	writeJSON(w, http.StatusOK, entry)
+}
+
+// captureToRequest rebuilds an editable request from a capture.
+func captureToRequest(c models.CaptureEntry) models.RequestDef {
+	req := models.RequestDef{
+		Name:    c.Method + " " + c.URL,
+		Method:  c.Method,
+		URL:     c.URL,
+		Headers: []models.KeyValue{},
+		Params:  []models.KeyValue{},
+		Body:    models.Body{Type: "none", Form: []models.KeyValue{}},
+		Auth:    models.Auth{Type: "none"},
+		Options: models.Options{Timeout: 30000, FollowRedirects: true, VerifyTLS: true, MaxRedirects: 10},
+	}
+	ct := ""
+	for k, values := range c.RequestHeaders {
+		if strings.EqualFold(k, "Content-Type") && len(values) > 0 {
+			ct = values[0]
+		}
+		for _, v := range values {
+			req.Headers = append(req.Headers, models.KeyValue{ID: models.NewID(), Key: k, Value: v, Enabled: true})
+		}
+	}
+	if c.RequestBody != "" {
+		req.Body.Raw = c.RequestBody
+		switch {
+		case strings.Contains(strings.ToLower(ct), "json"):
+			req.Body.Type = "json"
+		case strings.Contains(strings.ToLower(ct), "xml"):
+			req.Body.Type = "xml"
+		default:
+			req.Body.Type = "text"
+		}
+	}
+	return req
+}
+
+func headerMap(kvs []models.KeyValue) map[string][]string {
+	out := map[string][]string{}
+	for _, kv := range kvs {
+		if kv.Enabled && kv.Key != "" {
+			out[kv.Key] = append(out[kv.Key], kv.Value)
+		}
+	}
+	return out
 }
 
 // --- OpenAPI / Swagger import ---------------------------------------------

@@ -58,6 +58,19 @@ internal/private endpoints, and you get precise per-phase network timings.
   browser's `fetch()` (CORS applies).
 - **Scheduler** — send after a delay, at a time, or on a repeating interval
   (optionally a fixed number of times); manage and watch jobs in the Schedules tab.
+- **Concurrent runner** — run a whole folder, or load-test one request with a
+  bounded concurrency and repeat count, and see a pass/fail + latency summary.
+- **Capture proxy** — run with `-proxy :8899` and point any client at it to
+  record requests/responses (HTTPS is tunnelled); inspect, **replay**, or open a
+  capture in the editor to modify and resend.
+- **Export / import** — export a collection as JSON (round-trips back in) or as
+  a sheet of cURL commands.
+- **Self-update** — Settings → Updates checks GitHub Releases and can replace
+  the running binary in place (restart to apply).
+- **Run as a service** — `curlui -service install` sets up systemd / launchd / sc.
+- **Deep links** — every request has a UUID; the URL (`#/r/<uuid>`) restores the
+  exact request on refresh and is shareable.
+- **3 languages** — English, 简体中文 and 日本語, plus light/dark themes (persisted).
 - **Duplicate** requests/folders and **copy as cURL** from the tree.
 - **Responsive UI** — works on desktop, tablet and phone; the sidebar collapses
   to a drawer with auto-close when you pick a request.
@@ -175,6 +188,8 @@ The server accepts flags or environment variables:
 | `-addr`    | `CURLUI_ADDR`    | `:8080`          | Listen address                  |
 | `-data`    | `CURLUI_DATA`    | `data/store.json`| JSON data store path            |
 | `-static`  | `CURLUI_STATIC`  | `web/dist`       | Frontend dir (fallback when the UI is not embedded) |
+| `-proxy`   | `CURLUI_PROXY`   | _(off)_          | Recording HTTP proxy address, e.g. `:8899` |
+| `-service` | —                | —                | `install` / `uninstall` / `status` / `print` a system service |
 | `-version` | —                | —                | Print version and exit          |
 
 ## Project layout
@@ -223,6 +238,13 @@ web/
 | `POST`   | `/api/schedule/{id}/cancel`   | Stop future runs                 |
 | `DELETE` | `/api/schedule/{id}`          | Delete a job                     |
 | `GET`    | `/api/schedule/{id}/results`  | Recent run results               |
+| `POST`   | `/api/batch`                  | Run many requests concurrently   |
+| `GET`    | `/api/proxy`                  | Captured proxy traffic           |
+| `DELETE` | `/api/proxy`                  | Clear captures                   |
+| `POST`   | `/api/proxy/{id}/replay`      | Replay a capture                 |
+| `GET`    | `/api/export?id=&format=`     | Export collection (JSON or cURL) |
+| `GET`    | `/api/update/check`           | Check for a newer release        |
+| `POST`   | `/api/update`                 | Download + replace the binary    |
 | any      | `/mock/{requestId}`           | Mock server for a saved request  |
 
 Example:

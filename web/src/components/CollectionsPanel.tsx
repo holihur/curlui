@@ -2,6 +2,7 @@ import { useState, type DragEvent } from "react";
 import {
   ChevronRight,
   Copy,
+  Download,
   FileCode2,
   Folder,
   FolderCog,
@@ -11,6 +12,7 @@ import {
   Link2,
   MoreVertical,
   Pencil,
+  Play,
   Plus,
   Terminal,
   Trash2,
@@ -25,12 +27,13 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { PromptDialog } from "@/components/PromptDialog";
-import { cn, copyText } from "@/lib/utils";
+import { cn, copyText, downloadURL, shortMethod } from "@/lib/utils";
 import { findNode, useStore } from "@/store";
 import type { CollectionNode } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { FolderSettingsDialog, MoveDialog } from "@/components/FolderSettingsDialog";
+import { RunDialog, type RunItem } from "@/components/RunDialog";
 
 type DropPosition = "before" | "after" | "inside" | "dependency";
 type DropTarget = { id: string; position: DropPosition };
@@ -54,6 +57,7 @@ export function CollectionsPanel() {
   const [filter, setFilter] = useState("");
   const [folderSettings, setFolderSettings] = useState<CollectionNode | null>(null);
   const [moveTarget, setMoveTarget] = useState<CollectionNode | null>(null);
+  const [runScope, setRunScope] = useState<{ title: string; items: RunItem[]; defaultRepeat: number } | null>(null);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
@@ -169,11 +173,15 @@ export function CollectionsPanel() {
               if (kind === "duplicate") void duplicateNode(n.id);
               if (kind === "folder-settings") setFolderSettings(n);
               if (kind === "move") setMoveTarget(n);
+              if (kind === "run-concurrent") setRunScope({ title: n.name, items: collectRunItems(n, ""), defaultRepeat: 1 });
+              if (kind === "load-test" && n.request) setRunScope({ title: n.name, items: [{ name: n.name, request: n.request }], defaultRepeat: 10 });
               if (kind === "copy-curl" && n.request) {
                 void api.generateCurl(n.request).then(async ({ command }) => {
                   if (await copyText(command)) toast({ title: t("copiedToClipboard"), variant: "success" });
                 });
               }
+              if (kind === "export-json") downloadURL(`/api/export?id=${encodeURIComponent(n.id)}&format=curlui`);
+              if (kind === "export-curl") downloadURL(`/api/export?id=${encodeURIComponent(n.id)}&format=curl`);
               if (kind === "new-request") setDialog({ kind: "request", parentId: n.id });
               if (kind === "new-folder") setDialog({ kind: "folder", parentId: n.id });
             }}
@@ -218,6 +226,13 @@ export function CollectionsPanel() {
         onOpenChange={(o) => !o && setMoveTarget(null)}
         node={moveTarget}
       />
+      <RunDialog
+        open={runScope !== null}
+        onOpenChange={(o) => !o && setRunScope(null)}
+        title={runScope?.title ?? ""}
+        items={runScope?.items ?? []}
+        defaultRepeat={runScope?.defaultRepeat ?? 1}
+      />
     </div>
   );
 }
@@ -247,7 +262,11 @@ type TreeNodeProps = {
       | "new-folder"
       | "duplicate"
       | "copy-curl"
+      | "export-json"
+      | "export-curl"
       | "folder-settings"
+      | "run-concurrent"
+      | "load-test"
       | "move",
     node: CollectionNode,
   ) => void;
@@ -399,8 +418,11 @@ function TreeNode(props: TreeNodeProps) {
         )}
 
         {!isFolder && node.request && (
-          <span className={cn("shrink-0 text-[10px] font-semibold", `method-${node.request.method}`)}>
-            {node.request.method}
+          <span
+            title={node.request.method}
+            className={cn("shrink-0 text-[10px] font-semibold", `method-${node.request.method}`)}
+          >
+            {shortMethod(node.request.method)}
           </span>
         )}
 
@@ -425,6 +447,9 @@ function TreeNode(props: TreeNodeProps) {
                 <DropdownMenuItem onClick={() => onMenu("folder-settings", node)}>
                   <FolderCog /> {t("folderSettings")}
                 </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => onMenu("run-concurrent", node)}>
+                  <Play /> {t("runConcurrently")}
+                </DropdownMenuItem>
                 <DropdownMenuSeparator />
               </>
             )}
@@ -439,8 +464,20 @@ function TreeNode(props: TreeNodeProps) {
                 <Terminal /> {t("copyAsCurl")}
               </DropdownMenuItem>
             )}
+            {!isFolder && (
+              <DropdownMenuItem onClick={() => onMenu("load-test", node)}>
+                <Play /> {t("loadTest")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => onMenu("move", node)}>
               <FolderInput /> {t("moveTo")}
+            </DropdownMenuItem>
+            <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => onMenu("export-json", node)}>
+              <Download /> {t("exportJson")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onMenu("export-curl", node)}>
+              <Download /> {t("exportCurl")}
             </DropdownMenuItem>
             <DropdownMenuItem className="text-destructive" onClick={() => onMenu("delete", node)}>
               <Trash2 /> {t("delete")}
@@ -466,4 +503,17 @@ function containsNode(node: CollectionNode, id: string): boolean {
     if (containsNode(c, id)) return true;
   }
   return false;
+}
+
+// collectRunItems flattens a node's requests for the concurrent runner.
+function collectRunItems(node: CollectionNode, prefix: string): RunItem[] {
+  const out: RunItem[] = [];
+  const name = prefix ? `${prefix} / ${node.name}` : node.name;
+  if (node.type === "request" && node.request) {
+    out.push({ name, request: node.request });
+  }
+  for (const c of node.children ?? []) {
+    out.push(...collectRunItems(c, name));
+  }
+  return out;
 }

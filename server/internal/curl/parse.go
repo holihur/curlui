@@ -313,18 +313,22 @@ func Generate(req models.RequestDef) string {
 		b.WriteString(" -X " + strings.ToUpper(req.Method))
 	}
 
-	// URL including enabled params.
+	// Build the URL with enabled params, without re-parsing (which would
+	// percent-encode {{placeholders}} in the path).
 	u := req.URL
 	if len(req.Params) > 0 {
-		if base, err := url.Parse(u); err == nil {
-			q := base.Query()
-			for _, p := range req.Params {
-				if p.Enabled && p.Key != "" {
-					q.Add(p.Key, p.Value)
-				}
+		q := url.Values{}
+		for _, p := range req.Params {
+			if p.Enabled && p.Key != "" {
+				q.Add(p.Key, p.Value)
 			}
-			base.RawQuery = q.Encode()
-			u = base.String()
+		}
+		if enc := q.Encode(); enc != "" {
+			if strings.Contains(u, "?") {
+				u += "&" + enc
+			} else {
+				u += "?" + enc
+			}
 		}
 	}
 	b.WriteString(" " + shellQuote(u))

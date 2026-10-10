@@ -18,8 +18,9 @@ export function RequestTabs() {
 
   if (tabs.length === 0) return null;
 
+  // The tab strip is hidden on small screens (the drawer selects requests).
   return (
-    <div className="flex h-10 shrink-0 items-stretch border-b bg-card">
+    <div className="hidden h-10 shrink-0 items-stretch border-b bg-card sm:flex">
       <div className="flex min-w-0 flex-1 items-stretch overflow-x-auto">
         {tabs.map((t) => {
           const active = t.id === activeTabId;

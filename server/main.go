@@ -18,6 +18,8 @@ import (
 	"time"
 
 	"curlui/server/internal/api"
+	"curlui/server/internal/models"
+	"curlui/server/internal/proxy"
 	"curlui/server/internal/store"
 	"curlui/server/internal/webui"
 )
@@ -32,10 +34,17 @@ func main() {
 	dataPath := flag.String("data", envOr("CURLUI_DATA", "data/store.json"), "path to the JSON data store")
 	staticDir := flag.String("static", envOr("CURLUI_STATIC", "web/dist"), "directory with the built frontend (fallback when not embedded)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
+	service := flag.String("service", "", "manage a system service: install | uninstall | status | print")
+	proxyAddr := flag.String("proxy", envOr("CURLUI_PROXY", ""), "run an HTTP capture proxy on this address (e.g. :8081); empty disables")
 	flag.Parse()
 
 	if *showVersion {
 		fmt.Println("curlui " + version)
+		return
+	}
+
+	if *service != "" {
+		runService(*service, *addr, *dataPath)
 		return
 	}
 
@@ -44,7 +53,18 @@ func main() {
 		log.Fatalf("failed to open store: %v", err)
 	}
 
-	apiServer := api.New(st)
+	apiServer := api.New(st, version)
+
+	if *proxyAddr != "" {
+		p := proxy.New(*proxyAddr, func(c models.CaptureEntry) { _ = st.AddCapture(c) })
+		go func() {
+			log.Printf("capture proxy listening on %s (point your client's HTTP proxy here)", *proxyAddr)
+			if err := p.ListenAndServe(); err != nil {
+				log.Printf("proxy stopped: %v", err)
+			}
+		}()
+		apiServer.SetProxy(*proxyAddr, true)
+	}
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiServer.Handler())
