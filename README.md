@@ -36,7 +36,15 @@ internal/private endpoints, and you get precise per-phase network timings.
 - **JSON syntax highlighting** — both the request body editor and the response
   viewer highlight JSON (dependency-free, theme-aware).
 - **Multi-language UI** — English and 简体中文, switchable at runtime and
-  remembered in the browser.
+  remembered in the browser (and on the server).
+- **Pre-request / post-response hooks** — run any script as a child process;
+  the context arrives as JSON on **stdin** and the result is read from
+  **stdout**, so hooks can be shell, Python, Node, Go, …
+- **Assertions & JSON-path extraction** — validate status/headers/body/JSON
+  paths; extract response values into `{{variables}}` for child requests.
+- **Request chaining** — a request can declare parent requests; their responses
+  are executed first and referenced by descendants.
+- **Duplicate** requests/folders and **copy as cURL** from the tree.
 - **Options** — timeout, follow redirects, TLS verification toggle, custom proxy.
 - **Response viewer** — pretty/raw body, headers, cookies, timing waterfall and
   the exact request that was sent. Binary responses can be downloaded.
@@ -52,7 +60,29 @@ internal/private endpoints, and you get precise per-phase network timings.
 | State     | Zustand                                                     |
 | Storage   | JSON file (`data/store.json`), atomic writes                 |
 
-## Quick start
+## Download & run (single binary)
+
+Every tagged release ships pre-built, **self-contained** binaries — the web UI
+is embedded, so there is nothing else to install:
+
+1. Open the [Releases](https://github.com/holihur/curlui/releases) page and
+download the archive for your platform (Linux / macOS / Windows · amd64 / arm64).
+2. Unpack and run the single file:
+
+   ```bash
+   ./curlui -addr :8080        # Linux / macOS
+   # curlui.exe -addr :8080    # Windows
+   ```
+3. Open <http://localhost:8080>.
+
+No Node, no Go and no extra assets required — one file serves the UI and the API.
+
+```bash
+curlui -version               # print the version
+curlui -help                  # all flags
+```
+
+## Quick start (from source)
 
 Requirements: **Go 1.22+** and **Node 20+**.
 
@@ -83,7 +113,8 @@ The server accepts flags or environment variables:
 | ---------- | ---------------- | ---------------- | ------------------------------- |
 | `-addr`    | `CURLUI_ADDR`    | `:8080`          | Listen address                  |
 | `-data`    | `CURLUI_DATA`    | `data/store.json`| JSON data store path            |
-| `-static`  | `CURLUI_STATIC`  | `web/dist`       | Built frontend directory        |
+| `-static`  | `CURLUI_STATIC`  | `web/dist`       | Frontend dir (fallback when the UI is not embedded) |
+| `-version` | —                | —                | Print version and exit          |
 
 ## Project layout
 
