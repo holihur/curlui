@@ -1,0 +1,61 @@
+name: screenshots
+
+# Keeps docs/screenshots/*.png (stored in Git LFS) up to date by rebuilding the
+# app and re-capturing every screen with Playwright whenever the UI/backend
+# changes, weekly, or on demand.
+on:
+  workflow_dispatch:
+  schedule:
+    - cron: "0 4 * * 1"
+  push:
+    branches: [main]
+    paths:
+      - "web/**"
+      - "server/**"
+      - "scripts/screenshots.mjs"
+      - "scripts/screenshots.sh"
+      - ".github/workflows/screenshots.yml"
+
+permissions:
+  contents: write
+
+concurrency:
+  group: screenshots
+  cancel-in-progress: true
+
+jobs:
+  capture:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          lfs: true
+
+      - uses: actions/setup-go@v5
+        with:
+          go-version-file: server/go.mod
+          cache-dependency-path: server/go.sum
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+
+      - name: Install Playwright
+        run: |
+          npm i -D playwright@latest
+          npx playwright install --with-deps chromium
+
+      - name: Build and capture screenshots
+        run: bash scripts/screenshots.sh
+
+      - name: Commit refreshed screenshots
+        run: |
+          git config user.name "github-actions[bot]"
+          git config user.email "github-actions[bot]@users.noreply.github.com"
+          git add docs/screenshots
+          if git diff --cached --quiet; then
+            echo "screenshots unchanged"
+          else
+            git commit -m "chore(screenshots): refresh [skip ci]"
+            git push
+          fi

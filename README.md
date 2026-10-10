@@ -7,6 +7,11 @@ precise per-phase network timings.
 
 ![curlui](docs/screenshots/hero.png)
 
+> Screenshots live in **Git LFS** (`docs/screenshots/`) and are regenerated
+automatically: `bash scripts/screenshots.sh` locally, or the
+[`screenshots`](.github/workflows/screenshots.yml) workflow on CI (which commits
+the refreshed images back).
+
 > **One binary, zero dependencies.** Mock server, request chaining, response
 > assertions with a live pass/fail indicator, pre/post hooks, an OpenAPI
 > importer and a scheduler — all in a single ~8 MB file.
