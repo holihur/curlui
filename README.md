@@ -62,20 +62,28 @@ internal/private endpoints, and you get precise per-phase network timings.
   bounded concurrency and repeat count, and see a pass/fail + latency summary.
 - **Capture proxy** — run with `-proxy :8899` and point any client at it to
   record requests/responses; **HTTPS is decrypted** via a generated CA
-  (download it from the Traffic tab). Capture can be toggled off (proxy-only
+  (download it from the Traffic tab) and can be restricted to specific hosts.
+  Capture can be toggled off (proxy-only
   mode) and captured traffic auto-expires after a configurable **TTL**. A
   newline-separated **filter** (* wildcards) limits what is captured, entries are
   searchable, and the capture list **exports to HAR or cURL**. A **Breakpoints**
-  toggle pauses matching requests so you can edit and continue (or abort). View
-  captures as a flat list or grouped **by host**, and save any capture — or the
-  whole list — **as a collection**.
+  toggle pauses matching requests **or responses** so you can edit and continue
+  (or abort). View captures as a flat list or grouped **by host**, and save any
+  capture — or the whole list — **as a collection**.
 - **Fuzzing** — mutate params/headers/JSON body with a payload list, send them
   concurrently, and flag anomalies (5xx, status changes, size shifts).
-- **MCP server** — `curlui -mcp` speaks the Model Context Protocol over stdio,
-  exposing `http_request`, `list_collections`, `list_environments` and
-  `run_saved_request` as tools for AI agents.
+- **MCP server** — `curlui -mcp` speaks the Model Context Protocol over stdio
+  (or `POST /mcp` over HTTP), with **read tools** (collections, environments,
+  history, captures, intercepts, get request) and **write tools**
+  (http_request, run_saved_request, create_request, replay_capture,
+  resolve_intercept, proxy_config, clear_captures). Both groups are toggled from
+  Settings.
+- **Custom User-Agent** — configurable in Settings; applied to requests that
+  don't set their own.
 - **Export / import** — export a collection as JSON (round-trips back in) or as
-  a sheet of cURL commands.
+  a sheet of cURL commands. **Export docs** renders a collection to **Markdown,
+  HTML, Word or PDF** using the built-in template or your own (Go template
+  syntax over the collection).
 - **Self-update** — Settings → Updates checks GitHub Releases and can replace
   the running binary in place (restart to apply).
 - **Run as a service** — `curlui -service install` sets up systemd / launchd / sc.
@@ -255,7 +263,8 @@ web/
 | `GET`    | `/api/proxy`                  | Captured proxy traffic           |
 | `DELETE` | `/api/proxy`                  | Clear captures                   |
 | `POST`   | `/api/proxy/{id}/replay`      | Replay a capture                 |
-| `POST`   | `/api/proxy/config`           | Toggle capture, set TTL + filter |
+| `POST`   | `/api/proxy/config`           | Toggle capture/breakpoints/MITM  |
+| `GET`    | `/api/export/doc`             | Export docs (md/html/word/pdf)   |
 | `GET`    | `/api/proxy/export?format=`   | Export captures (HAR or cURL)    |
 | `POST`   | `/api/proxy/save`             | Save captures as a collection    |
 | `GET`    | `/api/intercept`              | List paused (breakpoint) requests |
@@ -266,6 +275,7 @@ web/
 | `GET`    | `/api/update/check`           | Check for a newer release        |
 | `POST`   | `/api/update`                 | Download + replace the binary    |
 | any      | `/mock/{requestId}`           | Mock server for a saved request  |
+| `POST`   | `/mcp`                        | MCP over HTTP (JSON-RPC 2.0)     |
 
 Example:
 

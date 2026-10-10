@@ -247,6 +247,8 @@ export const api = {
       breakFilter: string;
       breakResponse: boolean;
       breakResponseFilter: string;
+      mitm: boolean;
+      mitmFilter: string;
       entries: CaptureEntry[];
     }>("/proxy");
   },
@@ -258,6 +260,8 @@ export const api = {
     breakFilter: string;
     breakResponse: boolean;
     breakResponseFilter: string;
+    mitm: boolean;
+    mitmFilter: string;
   }) {
     return request<{ ok: boolean }>("/proxy/config", {
       method: "POST",

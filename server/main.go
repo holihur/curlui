@@ -70,12 +70,17 @@ func main() {
 
 	if *proxyAddr != "" {
 		var ca *mitm.CA
-		if *proxyMITM {
-			if c, err := mitm.LoadOrCreate(filepath.Dir(absOr(*dataPath))); err != nil {
-				log.Printf("HTTPS interception disabled: %v", err)
-			} else {
-				ca = c
-				apiServer.SetProxyCA(c.CertPEM())
+		if c, err := mitm.LoadOrCreate(filepath.Dir(absOr(*dataPath))); err != nil {
+			log.Printf("HTTPS interception disabled: %v", err)
+		} else {
+			ca = c
+			apiServer.SetProxyCA(c.CertPEM())
+			if st.Settings()["proxyMITM"] == "" {
+				v := "0"
+				if *proxyMITM {
+					v = "1"
+				}
+				_ = st.SaveSettings(map[string]string{"proxyMITM": v})
 			}
 		}
 		p := proxy.New(*proxyAddr, func(c models.CaptureEntry) {
@@ -87,12 +92,15 @@ func main() {
 				return
 			}
 			_ = st.AddCapture(c)
-		}, ca,
-			func() bool { return st.Settings()["proxyBreak"] == "1" },
-			func(url string) bool { return matchCaptureFilter(st.Settings()["proxyBreakFilter"], url) },
-			func() bool { return st.Settings()["proxyBreakResponse"] == "1" },
-			func(url string) bool { return matchCaptureFilter(st.Settings()["proxyBreakResponseFilter"], url) },
-		)
+		}, proxy.Options{
+			CA:                   ca,
+			RequestBreakEnabled:  func() bool { return st.Settings()["proxyBreak"] == "1" },
+			RequestBreakFilter:   func(url string) bool { return matchCaptureFilter(st.Settings()["proxyBreakFilter"], url) },
+			ResponseBreakEnabled: func() bool { return st.Settings()["proxyBreakResponse"] == "1" },
+			ResponseBreakFilter:  func(url string) bool { return matchCaptureFilter(st.Settings()["proxyBreakResponseFilter"], url) },
+			MITMEnabled:          func() bool { return st.Settings()["proxyMITM"] != "0" },
+			MITMFilter:           func(host string) bool { return matchCaptureFilter(st.Settings()["proxyMITMFilter"], host) },
+		})
 		apiServer.SetInterceptor(p.Interceptor())
 		go func() {
 			log.Printf("capture proxy listening on %s (HTTPS interception: %v)", *proxyAddr, ca != nil)

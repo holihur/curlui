@@ -14,6 +14,7 @@ import (
 	"time"
 
 	curlpkg "curlui/server/internal/curl"
+	"curlui/server/internal/doc"
 	"curlui/server/internal/jsonpath"
 	"curlui/server/internal/mcp"
 	"curlui/server/internal/models"
@@ -202,6 +203,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/collections/import", s.importCollections)
 
 	mux.HandleFunc("GET /api/export", s.exportNodes)
+	mux.HandleFunc("GET /api/export/doc", s.exportDoc)
 	mux.HandleFunc("POST /api/batch", s.runBatch)
 	mux.HandleFunc("POST /api/fuzz", s.runFuzz)
 
@@ -803,6 +805,76 @@ func (s *Server) exportNodes(w http.ResponseWriter, r *http.Request) {
 	})
 }
 
+// exportDoc renders a collection to Markdown, HTML, Word or PDF, using the
+// optional template query parameter or the saved docTemplate setting.
+func (s *Server) exportDoc(w http.ResponseWriter, r *http.Request) {
+	id := r.URL.Query().Get("id")
+	format := strings.ToLower(r.URL.Query().Get("format"))
+	tmpl := r.URL.Query().Get("template")
+	if tmpl == "" {
+		tmpl = s.store.Settings()["docTemplate"]
+	}
+
+	title := "API Documentation"
+	var nodes []*models.Node
+	if id != "" {
+		n, ok := s.store.FindNode(id)
+		if !ok {
+			writeErr(w, http.StatusNotFound, "node not found")
+			return
+		}
+		nodes = []*models.Node{n}
+		title = n.Name
+	} else {
+		nodes = s.store.Collections()
+	}
+
+	model := doc.BuildModel(title, nodes)
+
+	var (
+		data []byte
+		err  error
+		ct   string
+		ext  string
+	)
+	switch format {
+	case "html":
+		data, err = doc.RenderHTML(model, tmpl)
+		ct, ext = "text/html; charset=utf-8", "html"
+	case "word", "doc", "docx":
+		data, err = doc.RenderHTML(model, tmpl)
+		ct, ext = "application/msword", "doc"
+	case "pdf":
+		data, err = doc.RenderPDF(model)
+		ct, ext = "application/pdf", "pdf"
+	default:
+		data, err = doc.RenderMarkdown(model, tmpl)
+		ct, ext = "text/markdown; charset=utf-8", "md"
+	}
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	base := "curlui-docs"
+	if id != "" {
+		if n, ok := s.store.FindNode(id); ok {
+			base = safeFilename(n.Name)
+		}
+	}
+	w.Header().Set("Content-Type", ct)
+	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", base+"."+ext))
+	_, _ = w.Write(data)
+}
+
+func safeFilename(name string) string {
+	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-", "?", "-", "\"", "-", "<", "-", ">", "-", "|", "-")
+	out := strings.TrimSpace(repl.Replace(name))
+	if out == "" {
+		return "curlui-docs"
+	}
+	return out
+}
+
 func writeCurlNode(w io.Writer, n *models.Node, prefix string) {
 	if n.Type == "request" && n.Request != nil {
 		fmt.Fprintf(w, "# %s%s\n%s\n\n", prefix, n.Name, curlpkg.Generate(*n.Request))
@@ -1262,6 +1334,8 @@ func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
 		"breakFilter":         settings["proxyBreakFilter"],
 		"breakResponse":       settings["proxyBreakResponse"] == "1",
 		"breakResponseFilter": settings["proxyBreakResponseFilter"],
+		"mitm":                settings["proxyMITM"] != "0",
+		"mitmFilter":          settings["proxyMITMFilter"],
 		"entries":             s.store.Captures(),
 	})
 }
@@ -1275,6 +1349,8 @@ func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 		BreakFilter         string `json:"breakFilter"`
 		BreakResponse       bool   `json:"breakResponse"`
 		BreakResponseFilter string `json:"breakResponseFilter"`
+		MITM                bool   `json:"mitm"`
+		MITMFilter          string `json:"mitmFilter"`
 	}
 	if err := decode(r, &payload); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -1292,6 +1368,10 @@ func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 	if payload.BreakResponse {
 		brkResp = "1"
 	}
+	mitm := "0"
+	if payload.MITM {
+		mitm = "1"
+	}
 	if payload.TTLSeconds < 0 {
 		payload.TTLSeconds = 0
 	}
@@ -1303,6 +1383,8 @@ func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 		"proxyBreakFilter":         payload.BreakFilter,
 		"proxyBreakResponse":       brkResp,
 		"proxyBreakResponseFilter": payload.BreakResponseFilter,
+		"proxyMITM":                mitm,
+		"proxyMITMFilter":          payload.MITMFilter,
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
@@ -1459,7 +1541,45 @@ func (s *Server) clearProxy(w http.ResponseWriter, _ *http.Request) {
 }
 
 func (s *Server) replayCapture(w http.ResponseWriter, r *http.Request) {
-	id := r.PathValue("id")
+	entry, err := s.replayCaptureByID(r.Context(), r.PathValue("id"))
+	if err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, entry)
+}
+
+// ReplayCapture re-sends a captured request (used by the MCP server).
+func (s *Server) ReplayCapture(ctx context.Context, id string) (models.CaptureEntry, error) {
+	return s.replayCaptureByID(ctx, id)
+}
+
+// SaveSettings merges settings (used by the MCP proxy_config tool).
+func (s *Server) SaveSettings(m map[string]string) error { return s.store.SaveSettings(m) }
+
+// Intercepts lists paused breakpoint items.
+func (s *Server) Intercepts() []proxy.PendingInfo {
+	s.mu.Lock()
+	i := s.interceptor
+	s.mu.Unlock()
+	if i == nil {
+		return nil
+	}
+	return i.List()
+}
+
+// ResolveIntercept resolves a paused breakpoint item.
+func (s *Server) ResolveIntercept(id string, res proxy.Resolution) bool {
+	s.mu.Lock()
+	i := s.interceptor
+	s.mu.Unlock()
+	if i == nil {
+		return false
+	}
+	return i.Resolve(id, res)
+}
+
+func (s *Server) replayCaptureByID(ctx context.Context, id string) (models.CaptureEntry, error) {
 	var found *models.CaptureEntry
 	for _, c := range s.store.Captures() {
 		if c.ID == id {
@@ -1469,11 +1589,10 @@ func (s *Server) replayCapture(w http.ResponseWriter, r *http.Request) {
 		}
 	}
 	if found == nil {
-		writeErr(w, http.StatusNotFound, "capture not found")
-		return
+		return models.CaptureEntry{}, fmt.Errorf("capture not found")
 	}
 	req := captureToRequest(*found)
-	resp := s.executor.Execute(r.Context(), req, variables.Set{}, false)
+	resp := s.executor.Execute(ctx, req, variables.Set{}, false)
 	entry := models.CaptureEntry{
 		At:              time.Now().UnixMilli(),
 		Method:          req.Method,
@@ -1488,7 +1607,7 @@ func (s *Server) replayCapture(w http.ResponseWriter, r *http.Request) {
 		Error:           resp.Error,
 	}
 	_ = s.store.AddCapture(entry)
-	writeJSON(w, http.StatusOK, entry)
+	return entry, nil
 }
 
 // captureToRequest rebuilds an editable request from a capture.

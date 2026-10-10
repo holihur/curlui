@@ -4,6 +4,7 @@ import {
   Copy,
   Download,
   FileCode2,
+  FileText,
   Folder,
   FolderCog,
   FolderInput,
@@ -34,6 +35,7 @@ import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { FolderSettingsDialog, MoveDialog } from "@/components/FolderSettingsDialog";
 import { RunDialog, type RunItem } from "@/components/RunDialog";
+import { DocExportDialog } from "@/components/DocExportDialog";
 
 type DropPosition = "before" | "after" | "inside" | "dependency";
 type DropTarget = { id: string; position: DropPosition };
@@ -58,6 +60,8 @@ export function CollectionsPanel() {
   const [folderSettings, setFolderSettings] = useState<CollectionNode | null>(null);
   const [moveTarget, setMoveTarget] = useState<CollectionNode | null>(null);
   const [runScope, setRunScope] = useState<{ title: string; items: RunItem[]; defaultRepeat: number } | null>(null);
+  const [docNode, setDocNode] = useState<CollectionNode | null>(null);
+  const [docOpen, setDocOpen] = useState(false);
   const [dragId, setDragId] = useState<string | null>(null);
   const [dropTarget, setDropTarget] = useState<DropTarget | null>(null);
 
@@ -182,6 +186,10 @@ export function CollectionsPanel() {
               }
               if (kind === "export-json") downloadURL(`/api/export?id=${encodeURIComponent(n.id)}&format=curlui`);
               if (kind === "export-curl") downloadURL(`/api/export?id=${encodeURIComponent(n.id)}&format=curl`);
+              if (kind === "export-docs") {
+                setDocNode(n);
+                setDocOpen(true);
+              }
               if (kind === "new-request") setDialog({ kind: "request", parentId: n.id });
               if (kind === "new-folder") setDialog({ kind: "folder", parentId: n.id });
             }}
@@ -233,6 +241,7 @@ export function CollectionsPanel() {
         items={runScope?.items ?? []}
         defaultRepeat={runScope?.defaultRepeat ?? 1}
       />
+      <DocExportDialog open={docOpen} onOpenChange={setDocOpen} node={docNode} />
     </div>
   );
 }
@@ -264,6 +273,7 @@ type TreeNodeProps = {
       | "copy-curl"
       | "export-json"
       | "export-curl"
+      | "export-docs"
       | "folder-settings"
       | "run-concurrent"
       | "load-test"
@@ -478,6 +488,9 @@ function TreeNode(props: TreeNodeProps) {
             </DropdownMenuItem>
             <DropdownMenuItem onClick={() => onMenu("export-curl", node)}>
               <Download /> {t("exportCurl")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => onMenu("export-docs", node)}>
+              <FileText /> {t("exportDocs")}
             </DropdownMenuItem>
             <DropdownMenuItem className="text-destructive" onClick={() => onMenu("delete", node)}>
               <Trash2 /> {t("delete")}

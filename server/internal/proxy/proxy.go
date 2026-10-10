@@ -27,19 +27,30 @@ type Proxy struct {
 	transport   *http.Transport
 	ca          *mitm.CA
 	interceptor *Interceptor
+	mitmEnabled func() bool
+	mitmFilter  func(string) bool
 }
 
-// New creates a proxy that reports captures through record. When ca is nil,
-// HTTPS/CONNECT is tunnelled instead of intercepted. The breakpoint callbacks
-// control request and response interception.
-func New(addr string, record func(models.CaptureEntry), ca *mitm.CA,
-	reqEnabled func() bool, reqFilter func(string) bool,
-	respEnabled func() bool, respFilter func(string) bool) *Proxy {
+// Options configures the proxy.
+type Options struct {
+	CA                   *mitm.CA
+	RequestBreakEnabled  func() bool
+	RequestBreakFilter   func(string) bool
+	ResponseBreakEnabled func() bool
+	ResponseBreakFilter  func(string) bool
+	MITMEnabled          func() bool
+	MITMFilter           func(string) bool
+}
+
+// New creates a proxy that reports captures through record.
+func New(addr string, record func(models.CaptureEntry), opts Options) *Proxy {
 	return &Proxy{
 		addr:        addr,
 		record:      record,
-		ca:          ca,
-		interceptor: NewInterceptor(reqEnabled, reqFilter, respEnabled, respFilter),
+		ca:          opts.CA,
+		interceptor: NewInterceptor(opts.RequestBreakEnabled, opts.RequestBreakFilter, opts.ResponseBreakEnabled, opts.ResponseBreakFilter),
+		mitmEnabled: opts.MITMEnabled,
+		mitmFilter:  opts.MITMFilter,
 		transport: &http.Transport{
 			DialContext: (&net.Dialer{
 				Timeout:   20 * time.Second,
@@ -64,6 +75,20 @@ func (p *Proxy) CAPEM() []byte {
 
 // Interceptor exposes the request breakpoint controller.
 func (p *Proxy) Interceptor() *Interceptor { return p.interceptor }
+
+// mitm reports whether a CONNECT to host should be decrypted.
+func (p *Proxy) mitm(host string) bool {
+	if p.ca == nil {
+		return false
+	}
+	if p.mitmEnabled != nil && !p.mitmEnabled() {
+		return false
+	}
+	if p.mitmFilter != nil && !p.mitmFilter(host) {
+		return false
+	}
+	return true
+}
 
 // ListenAndServe blocks serving the proxy.
 func (p *Proxy) ListenAndServe() error {
@@ -156,7 +181,7 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request) {
 }
 
 func (p *Proxy) tunnel(w http.ResponseWriter, r *http.Request) {
-	if p.ca != nil {
+	if p.mitm(r.Host) {
 		p.mitmConnect(w, r)
 		return
 	}

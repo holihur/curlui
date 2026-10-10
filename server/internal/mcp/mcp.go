@@ -14,6 +14,7 @@ import (
 	"time"
 
 	"curlui/server/internal/models"
+	"curlui/server/internal/proxy"
 )
 
 // Backend is what the MCP tools operate on (implemented by the API server).
@@ -27,6 +28,10 @@ type Backend interface {
 	ClearCaptures() error
 	AddRequest(parentID, name string, req models.RequestDef) (*models.Node, error)
 	Settings() map[string]string
+	SaveSettings(map[string]string) error
+	Intercepts() []proxy.PendingInfo
+	ResolveIntercept(id string, res proxy.Resolution) bool
+	ReplayCapture(ctx context.Context, id string) (models.CaptureEntry, error)
 }
 
 type request struct {
@@ -168,6 +173,14 @@ func callTool(raw json.RawMessage, backend Backend) response {
 			return textResult("error: " + err.Error())
 		}
 		return textResult("captures cleared")
+	case "list_intercepts":
+		return textResult(mustJSON(backend.Intercepts()))
+	case "replay_capture":
+		return toolReplayCapture(call.Arguments, backend)
+	case "resolve_intercept":
+		return toolResolveIntercept(call.Arguments, backend)
+	case "proxy_config":
+		return toolProxyConfig(call.Arguments, backend)
 	default:
 		return response{Error: &rpcError{Code: -32601, Message: "unknown tool: " + call.Name}}
 	}
@@ -256,6 +269,107 @@ func toolCreateRequest(raw json.RawMessage, backend Backend) response {
 		return textResult("error: " + err.Error())
 	}
 	return textResult(mustJSON(map[string]any{"id": node.ID, "name": node.Name}))
+}
+
+func toolReplayCapture(raw json.RawMessage, backend Backend) response {
+	var args struct {
+		ID string `json:"id"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	ctx, cancel := context.WithTimeout(context.Background(), 60*time.Second)
+	defer cancel()
+	entry, err := backend.ReplayCapture(ctx, args.ID)
+	if err != nil {
+		return textResult("error: " + err.Error())
+	}
+	return textResult(mustJSON(map[string]any{
+		"status": entry.Status,
+		"url":    entry.URL,
+		"body":   truncate(entry.ResponseBody, 20000),
+		"error":  entry.Error,
+	}))
+}
+
+func toolResolveIntercept(raw json.RawMessage, backend Backend) response {
+	var args struct {
+		ID      string              `json:"id"`
+		Action  string              `json:"action"`
+		Method  string              `json:"method"`
+		URL     string              `json:"url"`
+		Status  int                 `json:"status"`
+		Headers map[string][]string `json:"headers"`
+		Body    string              `json:"body"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	ok := backend.ResolveIntercept(args.ID, proxy.Resolution{
+		Abort:   args.Action == "abort",
+		Method:  args.Method,
+		URL:     args.URL,
+		Status:  args.Status,
+		Headers: args.Headers,
+		Body:    []byte(args.Body),
+	})
+	if !ok {
+		return textResult("error: intercept not found: " + args.ID)
+	}
+	return textResult("ok")
+}
+
+func toolProxyConfig(raw json.RawMessage, backend Backend) response {
+	var args struct {
+		Capture             *bool   `json:"capture"`
+		TTLSeconds          *int    `json:"ttl_seconds"`
+		Filter              *string `json:"filter"`
+		Break               *bool   `json:"break"`
+		BreakFilter         *string `json:"break_filter"`
+		BreakResponse       *bool   `json:"break_response"`
+		BreakResponseFilter *string `json:"break_response_filter"`
+		MITM                *bool   `json:"mitm"`
+		MITMFilter          *string `json:"mitm_filter"`
+	}
+	_ = json.Unmarshal(raw, &args)
+	m := map[string]string{}
+	if args.Capture != nil {
+		m["proxyCapture"] = boolStr(*args.Capture)
+	}
+	if args.TTLSeconds != nil {
+		m["proxyTTL"] = fmt.Sprint(*args.TTLSeconds)
+	}
+	if args.Filter != nil {
+		m["proxyCaptureFilter"] = *args.Filter
+	}
+	if args.Break != nil {
+		m["proxyBreak"] = boolStr(*args.Break)
+	}
+	if args.BreakFilter != nil {
+		m["proxyBreakFilter"] = *args.BreakFilter
+	}
+	if args.BreakResponse != nil {
+		m["proxyBreakResponse"] = boolStr(*args.BreakResponse)
+	}
+	if args.BreakResponseFilter != nil {
+		m["proxyBreakResponseFilter"] = *args.BreakResponseFilter
+	}
+	if args.MITM != nil {
+		m["proxyMITM"] = boolStr(*args.MITM)
+	}
+	if args.MITMFilter != nil {
+		m["proxyMITMFilter"] = *args.MITMFilter
+	}
+	if len(m) == 0 {
+		return textResult("nothing to change")
+	}
+	if err := backend.SaveSettings(m); err != nil {
+		return textResult("error: " + err.Error())
+	}
+	return textResult("settings updated")
+}
+
+func boolStr(b bool) string {
+	if b {
+		return "1"
+	}
+	return "0"
 }
 
 // BuildRequest constructs a RequestDef from simple tool arguments.
@@ -367,6 +481,39 @@ func allToolDefs() []toolDef {
 			"required": []string{"url"},
 		}},
 		{"clear_captures", true, map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"list_intercepts", false, map[string]any{"type": "object", "properties": map[string]any{}}},
+		{"replay_capture", true, map[string]any{
+			"type":       "object",
+			"properties": map[string]any{"id": map[string]any{"type": "string"}},
+			"required":   []string{"id"},
+		}},
+		{"resolve_intercept", true, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"id":      map[string]any{"type": "string"},
+				"action":  map[string]any{"type": "string", "enum": []string{"continue", "abort"}},
+				"method":  map[string]any{"type": "string"},
+				"url":     map[string]any{"type": "string"},
+				"status":  map[string]any{"type": "integer"},
+				"headers": map[string]any{"type": "object", "additionalProperties": map[string]any{"type": "array", "items": map[string]any{"type": "string"}}},
+				"body":    map[string]any{"type": "string"},
+			},
+			"required": []string{"id", "action"},
+		}},
+		{"proxy_config", true, map[string]any{
+			"type": "object",
+			"properties": map[string]any{
+				"capture":               map[string]any{"type": "boolean"},
+				"ttl_seconds":           map[string]any{"type": "integer"},
+				"filter":                map[string]any{"type": "string"},
+				"break":                 map[string]any{"type": "boolean"},
+				"break_filter":          map[string]any{"type": "string"},
+				"break_response":        map[string]any{"type": "boolean"},
+				"break_response_filter": map[string]any{"type": "string"},
+				"mitm":                  map[string]any{"type": "boolean"},
+				"mitm_filter":           map[string]any{"type": "string"},
+			},
+		}},
 	}
 }
 

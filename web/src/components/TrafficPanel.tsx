@@ -58,6 +58,8 @@ export function TrafficPanel() {
   const [capture, setCapture] = useState(true);
   const [ttl, setTtl] = useState(0);
   const [filter, setFilter] = useState("");
+  const [mitm, setMitm] = useState(true);
+  const [mitmFilter, setMitmFilter] = useState("");
   const [breakOn, setBreakOn] = useState(false);
   const [breakFilter, setBreakFilter] = useState("");
   const [breakResp, setBreakResp] = useState(false);
@@ -79,6 +81,8 @@ export function TrafficPanel() {
         setCapture(d.capture ?? true);
         setTtl(d.ttlSeconds ?? 0);
         setFilter(d.filter ?? "");
+        setMitm(d.mitm ?? true);
+        setMitmFilter(d.mitmFilter ?? "");
         setBreakOn(d.break ?? false);
         setBreakFilter(d.breakFilter ?? "");
         setBreakResp(d.breakResponse ?? false);
@@ -105,6 +109,8 @@ export function TrafficPanel() {
       breakFilter: string;
       breakResponse: boolean;
       breakResponseFilter: string;
+      mitm: boolean;
+      mitmFilter: string;
     }>,
   ) =>
     void api.proxyConfig({
@@ -115,6 +121,8 @@ export function TrafficPanel() {
       breakFilter,
       breakResponse: breakResp,
       breakResponseFilter: breakRespFilter,
+      mitm,
+      mitmFilter,
       ...patch,
     });
 
@@ -245,6 +253,27 @@ export function TrafficPanel() {
               className="mt-2 min-h-[38px] font-mono text-[11px]"
               spellCheck={false}
             />
+
+            <div className="mt-2 flex items-center gap-2 text-[11px]">
+              <Switch
+                checked={mitm}
+                onCheckedChange={(v) => {
+                  setMitm(v);
+                  saveConfig({ mitm: v });
+                }}
+              />
+              <span className={mitm ? "text-emerald-400" : "text-muted-foreground"}>{t("mitm")}</span>
+            </div>
+            {mitm && (
+              <Textarea
+                value={mitmFilter}
+                onChange={(e) => setMitmFilter(e.target.value)}
+                onBlur={() => saveConfig({ mitmFilter })}
+                placeholder={t("mitmHint")}
+                className="mt-2 min-h-[38px] font-mono text-[11px]"
+                spellCheck={false}
+              />
+            )}
 
             <div className="mt-2 flex items-center gap-2 text-[11px]">
               <Switch
