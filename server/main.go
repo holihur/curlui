@@ -35,7 +35,8 @@ var version = "dev"
 
 func main() {
 	addr := flag.String("addr", envOr("CURLUI_ADDR", ":8080"), "listen address")
-	dataPath := flag.String("data", envOr("CURLUI_DATA", "data/store.json"), "path to the JSON data store")
+	dataPath := flag.String("data", envOr("CURLUI_DATA", "data/store.json"), "path to the JSON data store (used when -db is empty)")
+	dbDSN := flag.String("db", envOr("CURLUI_DATABASE_URL", ""), "PostgreSQL DSN for the GORM backend (e.g. postgres://user:pass@localhost:5432/curlui)")
 	staticDir := flag.String("static", envOr("CURLUI_STATIC", "web/dist"), "directory with the built frontend (fallback when not embedded)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	service := flag.String("service", "", "manage a system service: install | uninstall | status | print")
@@ -54,7 +55,7 @@ func main() {
 		return
 	}
 
-	st, err := store.Open(*dataPath)
+	st, err := store.Open(store.Options{Path: *dataPath, DSN: *dbDSN})
 	if err != nil {
 		log.Fatalf("failed to open store: %v", err)
 	}
@@ -144,7 +145,11 @@ func main() {
 	}
 
 	log.Printf("curlui %s listening on http://%s", version, *addr)
-	log.Printf("data store: %s", absOr(*dataPath))
+	if *dbDSN != "" {
+		log.Printf("data store: PostgreSQL (GORM)")
+	} else {
+		log.Printf("data store: %s", absOr(*dataPath))
+	}
 	if err := srv.ListenAndServe(); err != nil && err != http.ErrServerClosed {
 		log.Fatalf("server error: %v", err)
 	}

@@ -1,13 +1,25 @@
 package store
 
 import (
+	"crypto/hmac"
+	"crypto/rand"
+	"crypto/sha256"
+	"crypto/subtle"
+	"encoding/hex"
 	"encoding/json"
 	"errors"
+	"log"
 	"os"
 	"path/filepath"
 	"sort"
+	"strconv"
+	"strings"
 	"sync"
 	"time"
+
+	"gorm.io/driver/postgres"
+	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 
 	"curlui/server/internal/models"
 )
@@ -15,7 +27,19 @@ import (
 // ErrNotFound is returned when an entity cannot be located.
 var ErrNotFound = errors.New("not found")
 
-// Data is the persisted document.
+// ErrConflict is returned for duplicate usernames/slugs.
+var ErrConflict = errors.New("already exists")
+
+// ErrForbidden is returned when a user lacks access.
+var ErrForbidden = errors.New("forbidden")
+
+// DefaultProjectID is the workspace used in anonymous (no-login) mode.
+const DefaultProjectID = "local"
+
+// AnonymousUserID is the implicit user when authentication is disabled.
+const AnonymousUserID = "local"
+
+// Data is the persisted workspace document (one per project).
 type Data struct {
 	Collections  []*models.Node              `json:"collections"`
 	Environments []models.Environment        `json:"environments"`
@@ -23,47 +47,355 @@ type Data struct {
 	Schedules    []models.ScheduleJob        `json:"schedules,omitempty"`
 	MockHits     map[string][]models.MockHit `json:"mockHits,omitempty"`
 	Captures     []models.CaptureEntry       `json:"captures,omitempty"`
-	Settings     map[string]string           `json:"settings"`
+	Settings     map[string]string           `json:"settings,omitempty"`
 }
 
-// Store is a concurrency-safe JSON file store.
+// User is a team member.
+type User struct {
+	ID           string    `json:"id"`
+	Username     string    `json:"username"`
+	Name         string    `json:"name"`
+	PasswordHash string    `json:"passwordHash,omitempty"`
+	Role         string    `json:"role"` // admin | member | viewer
+	CreatedAt    time.Time `json:"createdAt"`
+}
+
+// Session is a logged-in session.
+type Session struct {
+	Token     string    `json:"token"`
+	UserID    string    `json:"userId"`
+	CreatedAt time.Time `json:"createdAt"`
+	ExpiresAt time.Time `json:"expiresAt"`
+}
+
+// ProjectMeta describes a project (workspace) and its membership.
+type ProjectMeta struct {
+	ID        string            `json:"id"`
+	Name      string            `json:"name"`
+	OwnerID   string            `json:"ownerId"`
+	Members   map[string]string `json:"members"` // userID -> role
+	CreatedAt time.Time         `json:"createdAt"`
+	UpdatedAt time.Time         `json:"updatedAt"`
+	Version   int64             `json:"version"`
+}
+
+// Root is the whole in-memory database.
+type Root struct {
+	Projects map[string]*Data
+	Meta     map[string]*ProjectMeta
+	Users    map[string]*User
+	Sessions map[string]*Session
+	Global   map[string]string
+	Version  int64
+}
+
+// Options configures the store backend.
+type Options struct {
+	Path string // JSON file path (used when DSN is empty)
+	DSN  string // PostgreSQL DSN; enables the GORM backend
+}
+
+// Store is a concurrency-safe workspace store. Shared state (root, mutex, db)
+// is common to all project views; a view points at one project's data.
 type Store struct {
-	mu       sync.RWMutex
+	mu       *sync.RWMutex
+	historyN int
 	path     string
-	data     Data
-	historyN int // max history entries to retain
+	db       *gorm.DB
+	root     *Root
+	pid      string
+	data     *Data
 }
 
-// Open loads (or creates) the store at path.
-func Open(path string) (*Store, error) {
-	s := &Store{path: path, historyN: 500}
-	if err := os.MkdirAll(filepath.Dir(path), 0o755); err != nil {
+// --- GORM rows -------------------------------------------------------------
+
+type userRow struct {
+	ID        string `gorm:"primaryKey"`
+	Username  string `gorm:"uniqueIndex"`
+	Name      string
+	Password  string
+	Role      string
+	CreatedAt time.Time
+}
+
+func (userRow) TableName() string { return "users" }
+
+type sessionRow struct {
+	Token     string `gorm:"primaryKey"`
+	UserID    string `gorm:"index"`
+	CreatedAt time.Time
+	ExpiresAt time.Time `gorm:"index"`
+}
+
+func (sessionRow) TableName() string { return "sessions" }
+
+type projectRow struct {
+	ID        string `gorm:"primaryKey"`
+	Name      string
+	OwnerID   string `gorm:"index"`
+	Data      string `gorm:"type:jsonb"`
+	Version   int64
+	CreatedAt time.Time
+	UpdatedAt time.Time
+}
+
+func (projectRow) TableName() string { return "projects" }
+
+type memberRow struct {
+	ProjectID string `gorm:"primaryKey"`
+	UserID    string `gorm:"primaryKey"`
+	Role      string
+}
+
+func (memberRow) TableName() string { return "project_members" }
+
+type settingRow struct {
+	Key   string `gorm:"primaryKey"`
+	Value string
+}
+
+func (settingRow) TableName() string { return "settings" }
+
+// Open loads (or creates) the store. With a DSN it uses PostgreSQL via GORM,
+// otherwise it falls back to a JSON file.
+func Open(opts Options) (*Store, error) {
+	root := newRoot()
+	s := &Store{mu: &sync.RWMutex{}, historyN: 500, path: opts.Path, root: root}
+
+	if opts.DSN != "" {
+		db, err := gorm.Open(postgres.Open(opts.DSN), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+		if err != nil {
+			return nil, err
+		}
+		if err := db.AutoMigrate(&userRow{}, &sessionRow{}, &projectRow{}, &memberRow{}, &settingRow{}); err != nil {
+			return nil, err
+		}
+		s.db = db
+		if err := s.loadPG(); err != nil {
+			return nil, err
+		}
+	} else if err := s.loadFile(); err != nil {
 		return nil, err
 	}
-	raw, err := os.ReadFile(path)
-	if err != nil {
-		if os.IsNotExist(err) {
-			s.data = Data{Settings: map[string]string{}}
-			return s, s.persist()
+
+	s.ensureDefaultProject()
+	if opts.DSN != "" && s.root.Global["pgMigrated"] == "" {
+		if err := s.importLegacyFile(opts.Path); err == nil && len(s.root.Projects[DefaultProjectID].Collections) > 0 {
+			if err := s.saveProjectRow(DefaultProjectID); err != nil {
+				return nil, err
+			}
+			s.root.Global["pgMigrated"] = "1"
+			if err := s.db.Save(&settingRow{Key: "pgMigrated", Value: "1"}).Error; err != nil {
+				return nil, err
+			}
+			log.Printf("imported existing JSON data into PostgreSQL")
 		}
-		return nil, err
 	}
-	if len(raw) > 0 {
-		if err := json.Unmarshal(raw, &s.data); err != nil {
-			// Corrupt file: back it up rather than losing data.
-			_ = os.WriteFile(path+".bak", raw, 0o644)
-			s.data = Data{Settings: map[string]string{}}
-		}
-	}
-	if s.data.Settings == nil {
-		s.data.Settings = map[string]string{}
-	}
+	s.pid = DefaultProjectID
+	s.data = root.Projects[DefaultProjectID]
 	return s, nil
 }
 
-// persist must be called with the lock held.
+// importLegacyFile loads a previously used JSON document into the default
+// project (used once when switching a fresh PostgreSQL database to GORM).
+func (s *Store) importLegacyFile(path string) error {
+	if path == "" {
+		return os.ErrNotExist
+	}
+	if _, err := os.Stat(path); err != nil {
+		return err
+	}
+	f := &Store{mu: &sync.RWMutex{}, historyN: s.historyN, path: path, root: newRoot()}
+	if err := f.loadFile(); err != nil {
+		return err
+	}
+	if d := f.root.Projects[DefaultProjectID]; d != nil {
+		s.root.Projects[DefaultProjectID] = d
+		if m := f.root.Meta[DefaultProjectID]; m != nil {
+			s.root.Meta[DefaultProjectID] = m
+		}
+	}
+	for k, v := range f.root.Global {
+		if _, ok := s.root.Global[k]; !ok {
+			s.root.Global[k] = v
+		}
+	}
+	return nil
+}
+
+func newRoot() *Root {
+	return &Root{
+		Projects: map[string]*Data{},
+		Meta:     map[string]*ProjectMeta{},
+		Users:    map[string]*User{},
+		Sessions: map[string]*Session{},
+		Global:   map[string]string{},
+	}
+}
+
+func newData() *Data {
+	return &Data{Settings: map[string]string{}}
+}
+
+func (s *Store) ensureDefaultProject() {
+	if _, ok := s.root.Projects[DefaultProjectID]; !ok {
+		s.root.Projects[DefaultProjectID] = newData()
+		s.root.Meta[DefaultProjectID] = &ProjectMeta{
+			ID:        DefaultProjectID,
+			Name:      "Personal",
+			OwnerID:   AnonymousUserID,
+			Members:   map[string]string{},
+			CreatedAt: time.Now(),
+			UpdatedAt: time.Now(),
+		}
+	}
+	if s.db != nil {
+		if _, ok := s.root.Meta[DefaultProjectID]; ok {
+			_ = s.saveProjectRow(DefaultProjectID)
+		}
+	}
+}
+
+// loadFile reads the JSON document, migrating a legacy flat file.
+func (s *Store) loadFile() error {
+	if s.path == "" {
+		s.path = filepath.Join("data", "store.json")
+	}
+	if err := os.MkdirAll(filepath.Dir(s.path), 0o755); err != nil {
+		return err
+	}
+	raw, err := os.ReadFile(s.path)
+	if err != nil {
+		if os.IsNotExist(err) {
+			return nil
+		}
+		return err
+	}
+	if len(raw) == 0 {
+		return nil
+	}
+	var probe map[string]json.RawMessage
+	if err := json.Unmarshal(raw, &probe); err != nil {
+		_ = os.WriteFile(s.path+".bak", raw, 0o644)
+		return nil
+	}
+	if _, ok := probe["projects"]; ok {
+		var root struct {
+			Projects map[string]*Data        `json:"projects"`
+			Meta     map[string]*ProjectMeta `json:"projectMeta"`
+			Users    map[string]*User        `json:"users"`
+			Sessions map[string]*Session     `json:"sessions"`
+			Global   map[string]string       `json:"global"`
+		}
+		if err := json.Unmarshal(raw, &root); err != nil {
+			_ = os.WriteFile(s.path+".bak", raw, 0o644)
+			return nil
+		}
+		if root.Projects != nil {
+			s.root.Projects = root.Projects
+		}
+		for id, m := range root.Meta {
+			if m == nil {
+				continue
+			}
+			if m.Members == nil {
+				m.Members = map[string]string{}
+			}
+			s.root.Meta[id] = m
+		}
+		for id, u := range root.Users {
+			s.root.Users[id] = u
+		}
+		for t, se := range root.Sessions {
+			s.root.Sessions[t] = se
+		}
+		if root.Global != nil {
+			s.root.Global = root.Global
+		}
+		return nil
+	}
+	// Legacy flat file: becomes the default project.
+	var d Data
+	if err := json.Unmarshal(raw, &d); err != nil {
+		_ = os.WriteFile(s.path+".bak", raw, 0o644)
+		return nil
+	}
+	if d.Settings == nil {
+		d.Settings = map[string]string{}
+	}
+	s.root.Global = d.Settings
+	d.Settings = nil
+	s.root.Projects[DefaultProjectID] = &d
+	return nil
+}
+
+// loadPG reads every table into memory.
+func (s *Store) loadPG() error {
+	var pros []projectRow
+	if err := s.db.Find(&pros).Error; err != nil {
+		return err
+	}
+	for _, p := range pros {
+		d := newData()
+		if p.Data != "" {
+			if err := json.Unmarshal([]byte(p.Data), d); err != nil {
+				d = newData()
+			}
+		}
+		s.root.Projects[p.ID] = d
+		s.root.Meta[p.ID] = &ProjectMeta{
+			ID:        p.ID,
+			Name:      p.Name,
+			OwnerID:   p.OwnerID,
+			Members:   map[string]string{},
+			CreatedAt: p.CreatedAt,
+			UpdatedAt: p.UpdatedAt,
+			Version:   p.Version,
+		}
+	}
+	var members []memberRow
+	if err := s.db.Find(&members).Error; err != nil {
+		return err
+	}
+	for _, m := range members {
+		if meta := s.root.Meta[m.ProjectID]; meta != nil {
+			meta.Members[m.UserID] = m.Role
+		}
+	}
+	var urs []userRow
+	if err := s.db.Find(&urs).Error; err != nil {
+		return err
+	}
+	for _, u := range urs {
+		s.root.Users[u.ID] = &User{ID: u.ID, Username: u.Username, Name: u.Name, PasswordHash: u.Password, Role: u.Role, CreatedAt: u.CreatedAt}
+	}
+	var sessions []sessionRow
+	if err := s.db.Where("expires_at > ?", time.Now()).Find(&sessions).Error; err != nil {
+		return err
+	}
+	for _, se := range sessions {
+		s.root.Sessions[se.Token] = &Session{Token: se.Token, UserID: se.UserID, CreatedAt: se.CreatedAt, ExpiresAt: se.ExpiresAt}
+	}
+	var sets []settingRow
+	if err := s.db.Find(&sets).Error; err != nil {
+		return err
+	}
+	for _, st := range sets {
+		s.root.Global[st.Key] = st.Value
+	}
+	return nil
+}
+
+// persist writes the active project (and, in file mode, everything).
 func (s *Store) persist() error {
-	raw, err := json.MarshalIndent(&s.data, "", "  ")
+	if s.db != nil {
+		return s.saveProjectRow(s.pid)
+	}
+	return s.persistFile()
+}
+
+func (s *Store) persistFile() error {
+	raw, err := json.MarshalIndent(s.dumpRoot(), "", "  ")
 	if err != nil {
 		return err
 	}
@@ -74,11 +406,494 @@ func (s *Store) persist() error {
 	return os.Rename(tmp, s.path)
 }
 
-// Snapshot returns a copy of the whole document.
-func (s *Store) Snapshot() Data {
+func (s *Store) dumpRoot() map[string]any {
+	return map[string]any{
+		"projects":    s.root.Projects,
+		"projectMeta": s.root.Meta,
+		"users":       s.root.Users,
+		"sessions":    s.root.Sessions,
+		"global":      s.root.Global,
+	}
+}
+
+// saveProjectRow upserts a project's JSONB blob and bumps its version.
+// Must be called with the lock held.
+func (s *Store) saveProjectRow(pid string) error {
+	if s.db == nil || pid == "" {
+		return nil
+	}
+	meta := s.root.Meta[pid]
+	if meta == nil {
+		return nil
+	}
+	d := s.root.Projects[pid]
+	if d == nil {
+		return nil
+	}
+	meta.Version++
+	meta.UpdatedAt = time.Now()
+	raw, err := json.Marshal(d)
+	if err != nil {
+		return err
+	}
+	row := projectRow{ID: pid, Name: meta.Name, OwnerID: meta.OwnerID, Data: string(raw), Version: meta.Version, CreatedAt: meta.CreatedAt, UpdatedAt: meta.UpdatedAt}
+	return s.db.Save(&row).Error
+}
+
+// --- Project views ---------------------------------------------------------
+
+// Project returns a view scoped to a project id (falls back to the default).
+func (s *Store) Project(id string) *Store {
+	if id == "" {
+		id = DefaultProjectID
+	}
+	if _, ok := s.root.Projects[id]; !ok {
+		id = DefaultProjectID
+	}
+	return &Store{mu: s.mu, historyN: s.historyN, path: s.path, db: s.db, root: s.root, pid: id, data: s.root.Projects[id]}
+}
+
+// ProjectID returns the id of this view's project.
+func (s *Store) ProjectID() string { return s.pid }
+
+// Version returns the project's change counter (bumped on every write).
+func (s *Store) Version() int64 {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
-	return s.data
+	if m := s.root.Meta[s.pid]; m != nil {
+		return m.Version
+	}
+	return 0
+}
+
+// Projects lists all projects the given user may access.
+func (s *Store) Projects(userID string, isAdmin bool) []ProjectMeta {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]ProjectMeta, 0, len(s.root.Meta))
+	for _, m := range s.root.Meta {
+		if !isAdmin && !canAccess(m, userID) {
+			continue
+		}
+		cp := *m
+		out = append(out, cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
+}
+
+func canAccess(m *ProjectMeta, userID string) bool {
+	if m.ID == DefaultProjectID {
+		return true // anonymous / shared default workspace
+	}
+	if m.OwnerID == userID {
+		return true
+	}
+	_, ok := m.Members[userID]
+	return ok
+}
+
+// Role returns the caller's role in a project ("", false when no access).
+func (s *Store) Role(projectID, userID string, isAdmin bool) (string, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	m := s.root.Meta[projectID]
+	if m == nil {
+		return "", false
+	}
+	if isAdmin {
+		return "admin", true
+	}
+	if m.OwnerID == userID {
+		return "owner", true
+	}
+	if r, ok := m.Members[userID]; ok {
+		return r, true
+	}
+	if projectID == DefaultProjectID {
+		return "member", true
+	}
+	return "", false
+}
+
+// CreateProject creates a project owned by ownerID.
+func (s *Store) CreateProject(id, name, ownerID string) (ProjectMeta, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if id == "" {
+		id = models.NewID()
+	}
+	if _, ok := s.root.Projects[id]; ok {
+		return ProjectMeta{}, ErrConflict
+	}
+	if name == "" {
+		name = "Untitled project"
+	}
+	now := time.Now()
+	meta := &ProjectMeta{ID: id, Name: name, OwnerID: ownerID, Members: map[string]string{}, CreatedAt: now, UpdatedAt: now}
+	s.root.Projects[id] = newData()
+	s.root.Meta[id] = meta
+	if s.db != nil {
+		row := projectRow{ID: id, Name: name, OwnerID: ownerID, Data: "{}", CreatedAt: now, UpdatedAt: now}
+		if err := s.db.Create(&row).Error; err != nil {
+			return ProjectMeta{}, err
+		}
+	} else if err := s.persistFile(); err != nil {
+		return ProjectMeta{}, err
+	}
+	return *meta, nil
+}
+
+// RenameProject updates a project's display name.
+func (s *Store) RenameProject(id, name string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := s.root.Meta[id]
+	if m == nil {
+		return ErrNotFound
+	}
+	m.Name = name
+	m.UpdatedAt = time.Now()
+	if s.db != nil {
+		return s.db.Model(&projectRow{}).Where("id = ?", id).Update("name", name).Error
+	}
+	return s.persistFile()
+}
+
+// DeleteProject removes a project (the default project cannot be deleted).
+func (s *Store) DeleteProject(id string) error {
+	if id == DefaultProjectID {
+		return ErrForbidden
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.root.Meta[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.root.Meta, id)
+	delete(s.root.Projects, id)
+	if s.db != nil {
+		if err := s.db.Delete(&projectRow{}, "id = ?", id).Error; err != nil {
+			return err
+		}
+		return s.db.Delete(&memberRow{}, "project_id = ?", id).Error
+	}
+	return s.persistFile()
+}
+
+// SetMember adds or updates a member's role.
+func (s *Store) SetMember(projectID, userID, role string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := s.root.Meta[projectID]
+	if m == nil {
+		return ErrNotFound
+	}
+	if m.Members == nil {
+		m.Members = map[string]string{}
+	}
+	m.Members[userID] = role
+	m.UpdatedAt = time.Now()
+	if s.db != nil {
+		return s.db.Save(&memberRow{ProjectID: projectID, UserID: userID, Role: role}).Error
+	}
+	return s.persistFile()
+}
+
+// RemoveMember revokes a member's access.
+func (s *Store) RemoveMember(projectID, userID string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	m := s.root.Meta[projectID]
+	if m == nil {
+		return ErrNotFound
+	}
+	delete(m.Members, userID)
+	if s.db != nil {
+		return s.db.Delete(&memberRow{}, "project_id = ? AND user_id = ?", projectID, userID).Error
+	}
+	return s.persistFile()
+}
+
+// --- Users -----------------------------------------------------------------
+
+// Users returns all users (without password hashes).
+func (s *Store) Users() []User {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]User, 0, len(s.root.Users))
+	for _, u := range s.root.Users {
+		cp := *u
+		cp.PasswordHash = ""
+		out = append(out, cp)
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.Before(out[j].CreatedAt) })
+	return out
+}
+
+// FindUser returns a user by id.
+func (s *Store) FindUser(id string) (*User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	u, ok := s.root.Users[id]
+	return u, ok
+}
+
+// UserCount returns the number of registered users.
+func (s *Store) UserCount() int {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return len(s.root.Users)
+}
+
+// FindByUsername returns a user by username.
+func (s *Store) FindByUsername(username string) (*User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, u := range s.root.Users {
+		if strings.EqualFold(u.Username, username) {
+			return u, true
+		}
+	}
+	return nil, false
+}
+
+// CreateUser registers a user.
+func (s *Store) CreateUser(username, name, password, role string) (User, error) {
+	username = strings.TrimSpace(username)
+	if username == "" || password == "" {
+		return User{}, errors.New("username and password are required")
+	}
+	if role == "" {
+		role = "member"
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for _, u := range s.root.Users {
+		if strings.EqualFold(u.Username, username) {
+			return User{}, ErrConflict
+		}
+	}
+	u := &User{ID: models.NewID(), Username: username, Name: name, PasswordHash: HashPassword(password), Role: role, CreatedAt: time.Now()}
+	s.root.Users[u.ID] = u
+	if s.db != nil {
+		row := userRow{ID: u.ID, Username: u.Username, Name: u.Name, Password: u.PasswordHash, Role: u.Role, CreatedAt: u.CreatedAt}
+		if err := s.db.Create(&row).Error; err != nil {
+			delete(s.root.Users, u.ID)
+			return User{}, err
+		}
+	} else if err := s.persistFile(); err != nil {
+		return User{}, err
+	}
+	cp := *u
+	cp.PasswordHash = ""
+	return cp, nil
+}
+
+// UpdateUser edits a user's name, role and (optionally) password.
+func (s *Store) UpdateUser(id, name, role, password string) (User, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u := s.root.Users[id]
+	if u == nil {
+		return User{}, ErrNotFound
+	}
+	if name != "" {
+		u.Name = name
+	}
+	if role != "" {
+		u.Role = role
+	}
+	if password != "" {
+		u.PasswordHash = HashPassword(password)
+	}
+	if s.db != nil {
+		if err := s.db.Model(&userRow{}).Where("id = ?", id).Updates(map[string]any{"name": u.Name, "role": u.Role, "password": u.PasswordHash}).Error; err != nil {
+			return User{}, err
+		}
+	} else if err := s.persistFile(); err != nil {
+		return User{}, err
+	}
+	cp := *u
+	cp.PasswordHash = ""
+	return cp, nil
+}
+
+// DeleteUser removes a user and their sessions.
+func (s *Store) DeleteUser(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.root.Users[id]; !ok {
+		return ErrNotFound
+	}
+	delete(s.root.Users, id)
+	for t, se := range s.root.Sessions {
+		if se.UserID == id {
+			delete(s.root.Sessions, t)
+		}
+	}
+	if s.db != nil {
+		if err := s.db.Delete(&userRow{}, "id = ?", id).Error; err != nil {
+			return err
+		}
+		if err := s.db.Delete(&sessionRow{}, "user_id = ?", id).Error; err != nil {
+			return err
+		}
+		return s.db.Delete(&memberRow{}, "user_id = ?", id).Error
+	}
+	return s.persistFile()
+}
+
+// Authenticate verifies credentials, returning the user on success.
+func (s *Store) Authenticate(username, password string) (*User, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, u := range s.root.Users {
+		if strings.EqualFold(u.Username, username) {
+			if VerifyPassword(password, u.PasswordHash) {
+				return u, true
+			}
+			return nil, false
+		}
+	}
+	return nil, false
+}
+
+// --- Sessions --------------------------------------------------------------
+
+// CreateSession issues a session token for a user.
+func (s *Store) CreateSession(userID string, ttl time.Duration) (Session, error) {
+	if ttl <= 0 {
+		ttl = 30 * 24 * time.Hour
+	}
+	tok := randomToken()
+	se := &Session{Token: tok, UserID: userID, CreatedAt: time.Now(), ExpiresAt: time.Now().Add(ttl)}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.root.Sessions[tok] = se
+	if s.db != nil {
+		row := sessionRow{Token: se.Token, UserID: se.UserID, CreatedAt: se.CreatedAt, ExpiresAt: se.ExpiresAt}
+		if err := s.db.Create(&row).Error; err != nil {
+			delete(s.root.Sessions, tok)
+			return Session{}, err
+		}
+	} else if err := s.persistFile(); err != nil {
+		return Session{}, err
+	}
+	return *se, nil
+}
+
+// SessionUser resolves a session token to its user.
+func (s *Store) SessionUser(token string) (*User, bool) {
+	if token == "" {
+		return nil, false
+	}
+	s.mu.RLock()
+	se, ok := s.root.Sessions[token]
+	if !ok || time.Now().After(se.ExpiresAt) {
+		s.mu.RUnlock()
+		return nil, false
+	}
+	u, ok := s.root.Users[se.UserID]
+	s.mu.RUnlock()
+	return u, ok
+}
+
+// DeleteSession logs a session out.
+func (s *Store) DeleteSession(token string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.root.Sessions, token)
+	if s.db != nil {
+		return s.db.Delete(&sessionRow{}, "token = ?", token).Error
+	}
+	return s.persistFile()
+}
+
+// PurgeSessions removes expired sessions.
+func (s *Store) PurgeSessions() {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now()
+	for t, se := range s.root.Sessions {
+		if now.After(se.ExpiresAt) {
+			delete(s.root.Sessions, t)
+		}
+	}
+	if s.db != nil {
+		_ = s.db.Delete(&sessionRow{}, "expires_at < ?", now).Error
+	}
+}
+
+// randomToken returns a URL-safe random hex token.
+func randomToken() string {
+	b := make([]byte, 32)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// --- Password hashing (PBKDF2-HMAC-SHA256) ---------------------------------
+
+const pbkdf2Iter = 100000
+
+// HashPassword returns a salted PBKDF2 hash string.
+func HashPassword(pw string) string {
+	salt := make([]byte, 16)
+	_, _ = rand.Read(salt)
+	key := pbkdf2SHA256([]byte(pw), salt, pbkdf2Iter, 32)
+	return "pbkdf2$" + strconv.Itoa(pbkdf2Iter) + "$" + hex.EncodeToString(salt) + "$" + hex.EncodeToString(key)
+}
+
+// VerifyPassword checks a password against an encoded hash.
+func VerifyPassword(pw, enc string) bool {
+	parts := strings.Split(enc, "$")
+	if len(parts) != 4 || parts[0] != "pbkdf2" {
+		return false
+	}
+	iter, err := strconv.Atoi(parts[1])
+	if err != nil || iter <= 0 {
+		return false
+	}
+	salt, err := hex.DecodeString(parts[2])
+	if err != nil {
+		return false
+	}
+	want, err := hex.DecodeString(parts[3])
+	if err != nil {
+		return false
+	}
+	got := pbkdf2SHA256([]byte(pw), salt, iter, len(want))
+	return subtle.ConstantTimeCompare(got, want) == 1
+}
+
+func pbkdf2SHA256(password, salt []byte, iter, keyLen int) []byte {
+	prf := hmac.New(sha256.New, password)
+	hashLen := prf.Size()
+	numBlocks := (keyLen + hashLen - 1) / hashLen
+	var buf [4]byte
+	dk := make([]byte, 0, numBlocks*hashLen)
+	u := make([]byte, hashLen)
+	for block := 1; block <= numBlocks; block++ {
+		prf.Reset()
+		prf.Write(salt)
+		buf[0] = byte(block >> 24)
+		buf[1] = byte(block >> 16)
+		buf[2] = byte(block >> 8)
+		buf[3] = byte(block)
+		prf.Write(buf[:])
+		t := prf.Sum(nil)
+		copy(u, t)
+		for n := 2; n <= iter; n++ {
+			prf.Reset()
+			prf.Write(u)
+			u = prf.Sum(u[:0])
+			for x := range u {
+				t[x] ^= u[x]
+			}
+		}
+		dk = append(dk, t...)
+	}
+	return dk[:keyLen]
 }
 
 // --- Collections -----------------------------------------------------------
@@ -558,14 +1373,14 @@ func (s *Store) SaveMockHits(hits map[string][]models.MockHit) error {
 	return s.persist()
 }
 
-// --- Settings --------------------------------------------------------------
+// --- Settings (global, shared across projects) -----------------------------
 
 // Settings returns application settings.
 func (s *Store) Settings() map[string]string {
 	s.mu.RLock()
 	defer s.mu.RUnlock()
 	out := map[string]string{}
-	for k, v := range s.data.Settings {
+	for k, v := range s.root.Global {
 		out[k] = v
 	}
 	return out
@@ -576,7 +1391,22 @@ func (s *Store) SaveSettings(in map[string]string) error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	for k, v := range in {
-		s.data.Settings[k] = v
+		s.root.Global[k] = v
 	}
-	return s.persist()
+	if s.db != nil {
+		for k, v := range in {
+			if err := s.db.Save(&settingRow{Key: k, Value: v}).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	}
+	return s.persistFile()
+}
+
+// Snapshot returns a copy of the active project's document.
+func (s *Store) Snapshot() Data {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	return *s.data
 }

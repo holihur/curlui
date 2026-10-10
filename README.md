@@ -123,11 +123,11 @@ internal/private endpoints, and you get precise per-phase network timings.
 
 | Layer     | Tech                                                        |
 | --------- | ----------------------------------------------------------- |
-| Backend   | Go (standard library only — zero dependencies)              |
+| Backend   | Go (standard library + `gopkg.in/yaml.v3`, GORM)            |
 | Frontend  | React 19, TypeScript, Vite                                  |
 | Styling   | Tailwind CSS v4, shadcn/ui (Radix primitives), lucide icons  |
 | State     | Zustand                                                     |
-| Storage   | JSON file (`data/store.json`), atomic writes                 |
+| Storage   | PostgreSQL via GORM (multi-project), JSON file fallback      |
 
 ## Install (one line)
 
@@ -205,13 +205,39 @@ The server accepts flags or environment variables:
 | Flag       | Env var          | Default          | Description                     |
 | ---------- | ---------------- | ---------------- | ------------------------------- |
 | `-addr`    | `CURLUI_ADDR`    | `:8080`          | Listen address                  |
-| `-data`    | `CURLUI_DATA`    | `data/store.json`| JSON data store path            |
+| `-data`    | `CURLUI_DATA`    | `data/store.json`| JSON store path (used when `-db` is empty) |
+| `-db`      | `CURLUI_DATABASE_URL` | *(empty)*   | PostgreSQL DSN — enables the GORM backend |
 | `-static`  | `CURLUI_STATIC`  | `web/dist`       | Frontend dir (fallback when the UI is not embedded) |
 | `-proxy`   | `CURLUI_PROXY`   | _(off)_          | Recording HTTP proxy address, e.g. `:8899` |
 | `-proxy-mitm` | `CURLUI_PROXY_MITM` | `1`         | Decrypt HTTPS in the proxy (clients trust the CA) |
 | `-mcp`     | —                | —                | Run an MCP server over stdio (tools for AI agents) |
 | `-service` | —                | —                | `install` / `uninstall` / `status` / `print` a system service |
 | `-version` | —                | —                | Print version and exit          |
+
+### Storage: PostgreSQL (GORM)
+
+Point curlui at a database and it uses PostgreSQL via
+[GORM](https://gorm.io) instead of the JSON file:
+
+```bash
+curlui -db 'postgres://curlui:secret@localhost:5432/curlui?sslmode=disable'
+# or
+CURLUI_DATABASE_URL='postgres://...' curlui
+```
+
+Schema is auto-migrated on start:
+
+| Table             | Contents                                                        |
+| ----------------- | --------------------------------------------------------------- |
+| `projects`        | one row per project — workspace document stored as `jsonb` + version |
+| `project_members` | `(project_id, user_id, role)` — team membership                  |
+| `users`           | team accounts (PBKDF2-HMAC-SHA256 password hashes)              |
+| `sessions`        | login sessions (opaque bearer tokens)                           |
+| `settings`        | global settings (UI, proxy, MCP)                                |
+
+The **default project** (`local`) is always available, so a single user can keep
+using every feature **without logging in**. Existing `data/store.json` files are
+imported into PostgreSQL automatically the first time a database is used.
 
 ## Project layout
 
@@ -223,7 +249,7 @@ server/
     curl/execute.go           # Go HTTP executor (timings, auth, bodies)
     curl/parse.go             # cURL tokenizer/parser + generator
     models/models.go          # shared data types
-    store/store.go            # concurrency-safe JSON store
+    store/store.go            # GORM/PostgreSQL + JSON store, projects, users
     variables/variables.go    # {{var}} substitution + dynamic vars
 web/
   src/
