@@ -1,9 +1,10 @@
-import { useCallback, useEffect, useState } from "react";
-import { ArrowUpRight, Play, RefreshCw, Trash2 } from "lucide-react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { ArrowUpRight, Download, Play, RefreshCw, Search, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
-import { cn, formatMs, shortMethod, statusColor, uid } from "@/lib/utils";
+import { cn, downloadURL, formatMs, shortMethod, statusColor, uid } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
@@ -35,17 +36,24 @@ export function TrafficPanel() {
   const [addr, setAddr] = useState("");
   const [capture, setCapture] = useState(true);
   const [ttl, setTtl] = useState(0);
+  const [filter, setFilter] = useState("");
+  const [search, setSearch] = useState("");
   const [entries, setEntries] = useState<CaptureEntry[]>([]);
   const [selected, setSelected] = useState<CaptureEntry | null>(null);
+  const inited = useRef(false);
 
   const refresh = useCallback(async () => {
     try {
       const d = await api.listProxy();
       setRunning(d.running);
       setAddr(d.addr);
-      setCapture(d.capture ?? true);
-      setTtl(d.ttlSeconds ?? 0);
       setEntries(d.entries ?? []);
+      if (!inited.current) {
+        setCapture(d.capture ?? true);
+        setTtl(d.ttlSeconds ?? 0);
+        setFilter(d.filter ?? "");
+        inited.current = true;
+      }
     } catch {
       /* ignore */
     }
@@ -56,6 +64,22 @@ export function TrafficPanel() {
     const id = setInterval(refresh, 2000);
     return () => clearInterval(id);
   }, [refresh]);
+
+  const saveConfig = (patch: Partial<{ capture: boolean; ttlSeconds: number; filter: string }>) =>
+    void api.proxyConfig({ capture, ttlSeconds: ttl, filter, ...patch });
+
+  const shown = useMemo(() => {
+    const q = search.trim().toLowerCase();
+    if (!q) return entries;
+    return entries.filter(
+      (e) =>
+        e.url.toLowerCase().includes(q) ||
+        e.method.toLowerCase().includes(q) ||
+        String(e.status).includes(q) ||
+        e.requestBody.toLowerCase().includes(q) ||
+        e.responseBody.toLowerCase().includes(q),
+    );
+  }, [entries, search]);
 
   return (
     <div className="flex h-full flex-col">
@@ -85,36 +109,79 @@ export function TrafficPanel() {
             <Trash2 className="h-3.5 w-3.5" />
           </Button>
         </div>
+
         {!running && <div className="mt-1.5 text-[11px] text-muted-foreground">{t("proxyHint")}</div>}
+
         {running && (
-          <div className="mt-2 flex items-center gap-2 text-[11px]">
-            <Switch
-              checked={capture}
-              onCheckedChange={(v) => {
-                setCapture(v);
-                void api.proxyConfig({ capture: v, ttlSeconds: ttl });
-              }}
+          <>
+            <div className="mt-2 flex items-center gap-2 text-[11px]">
+              <Switch
+                checked={capture}
+                onCheckedChange={(v) => {
+                  setCapture(v);
+                  saveConfig({ capture: v });
+                }}
+              />
+              <span className="text-muted-foreground">{capture ? t("captureOn") : t("captureOff")}</span>
+              <span className="ml-auto text-muted-foreground">{t("ttl")}</span>
+              <Input
+                type="number"
+                min={0}
+                value={ttl}
+                title={t("ttlHint")}
+                onChange={(e) => setTtl(Number(e.target.value) || 0)}
+                onBlur={() => saveConfig({ ttlSeconds: ttl })}
+                className="h-7 w-20 text-xs"
+              />
+            </div>
+            <Textarea
+              value={filter}
+              onChange={(e) => setFilter(e.target.value)}
+              onBlur={() => saveConfig({})}
+              placeholder={t("captureFilterHint")}
+              title={t("captureFilter")}
+              className="mt-2 min-h-[42px] font-mono text-[11px]"
+              spellCheck={false}
             />
-            <span className="text-muted-foreground">{capture ? t("captureOn") : t("captureOff")}</span>
-            <span className="ml-auto text-muted-foreground">{t("ttl")}</span>
+          </>
+        )}
+
+        <div className="mt-2 flex items-center gap-1">
+          <div className="relative min-w-0 flex-1">
+            <Search className="pointer-events-none absolute left-2 top-1/2 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
             <Input
-              type="number"
-              min={0}
-              value={ttl}
-              title={t("ttlHint")}
-              onChange={(e) => setTtl(Number(e.target.value) || 0)}
-              onBlur={() => void api.proxyConfig({ capture, ttlSeconds: ttl })}
-              className="h-7 w-20 text-xs"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              placeholder={t("searchTraffic")}
+              className="h-8 pl-7 text-xs"
             />
           </div>
-        )}
+          <Button
+            variant="ghost"
+            size="icon"
+            className="h-8 w-8 shrink-0 text-muted-foreground"
+            title={t("exportHar")}
+            onClick={() => downloadURL("/api/proxy/export?format=har")}
+          >
+            <Download className="h-3.5 w-3.5" />
+          </Button>
+          <Button
+            variant="ghost"
+            size="xs"
+            className="h-8 shrink-0 shrink-0 text-muted-foreground"
+            title={t("exportCurl")}
+            onClick={() => downloadURL("/api/proxy/export?format=curl")}
+          >
+            cURL
+          </Button>
+        </div>
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-1">
-        {entries.length === 0 && (
+        {shown.length === 0 && (
           <div className="px-3 py-8 text-center text-xs text-muted-foreground">{t("noCaptures")}</div>
         )}
-        {entries.map((e) => (
+        {shown.map((e) => (
           <div
             key={e.id}
             onClick={() => setSelected(e)}

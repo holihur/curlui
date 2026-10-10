@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -78,7 +79,11 @@ func main() {
 			}
 		}
 		p := proxy.New(*proxyAddr, func(c models.CaptureEntry) {
-			if st.Settings()["proxyCapture"] == "0" {
+			settings := st.Settings()
+			if settings["proxyCapture"] == "0" {
+				return
+			}
+			if !matchCaptureFilter(settings["proxyCaptureFilter"], c.URL) {
 				return
 			}
 			_ = st.AddCapture(c)
@@ -186,6 +191,27 @@ func spaHandler(dir string) http.Handler {
 		}
 		http.ServeFile(w, r, index)
 	})
+}
+
+// matchCaptureFilter reports whether url passes the capture filter. The filter
+// is a newline-separated list of patterns ('*' wildcards, case-insensitive); an
+// empty filter captures everything.
+func matchCaptureFilter(patterns, url string) bool {
+	patterns = strings.TrimSpace(patterns)
+	if patterns == "" {
+		return true
+	}
+	for _, line := range strings.Split(patterns, "\n") {
+		p := strings.TrimSpace(line)
+		if p == "" {
+			continue
+		}
+		expr := "(?i)" + strings.ReplaceAll(regexp.QuoteMeta(p), `\*`, ".*")
+		if re, err := regexp.Compile(expr); err == nil && re.MatchString(url) {
+			return true
+		}
+	}
+	return false
 }
 
 func envOr(key, fallback string) string {

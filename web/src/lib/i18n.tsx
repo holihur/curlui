@@ -346,6 +346,10 @@ const en = {
   captureOff: "Proxy only",
   ttl: "TTL (s)",
   ttlHint: "0 = keep forever",
+  captureFilter: "Capture filter",
+  captureFilterHint: "One pattern per line (* wildcards). Empty = capture all.",
+  searchTraffic: "Search captured traffic…",
+  exportHar: "Export HAR",
 
   // toasts
   requestFailed: "Request failed",
@@ -682,6 +686,10 @@ const zh: Record<MessageKey, string> = {
   captureOff: "仅代理",
   ttl: "有效期 (秒)",
   ttlHint: "0 = 永久保留",
+  captureFilter: "抓包过滤",
+  captureFilterHint: "每行一个规则（支持 * 通配），留空抓取全部。",
+  searchTraffic: "搜索抓包记录…",
+  exportHar: "导出 HAR",
 
   requestFailed: "请求失败",
   urlRequiredToast: "URL 不能为空",
@@ -1013,6 +1021,10 @@ const ja: Record<MessageKey, string> = {
   captureOff: "プロキシのみ",
   ttl: "TTL (秒)",
   ttlHint: "0 = 永続",
+  captureFilter: "キャプチャフィルタ",
+  captureFilterHint: "1行に1パターン（* ワイルドカード）。空 = すべて取得。",
+  searchTraffic: "キャプチャを検索…",
+  exportHar: "HAR をエクスポート",
 
   requestFailed: "リクエストに失敗しました",
   urlRequiredToast: "URL は必須です",

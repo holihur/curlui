@@ -63,8 +63,10 @@ internal/private endpoints, and you get precise per-phase network timings.
 - **Capture proxy** — run with `-proxy :8899` and point any client at it to
   record requests/responses; **HTTPS is decrypted** via a generated CA
   (download it from the Traffic tab). Capture can be toggled off (proxy-only
-  mode) and captured traffic auto-expires after a configurable **TTL**.
-  Inspect, **replay**, or open a capture in the editor to modify and resend.
+  mode) and captured traffic auto-expires after a configurable **TTL**. A
+  newline-separated **filter** (* wildcards) limits what is captured, entries are
+  searchable, and the capture list **exports to HAR or cURL**. Inspect,
+  **replay**, or open a capture in the editor to modify and resend.
 - **Fuzzing** — mutate params/headers/JSON body with a payload list, send them
   concurrently, and flag anomalies (5xx, status changes, size shifts).
 - **MCP server** — `curlui -mcp` speaks the Model Context Protocol over stdio,
@@ -251,7 +253,8 @@ web/
 | `GET`    | `/api/proxy`                  | Captured proxy traffic           |
 | `DELETE` | `/api/proxy`                  | Clear captures                   |
 | `POST`   | `/api/proxy/{id}/replay`      | Replay a capture                 |
-| `POST`   | `/api/proxy/config`           | Toggle capture + set capture TTL |
+| `POST`   | `/api/proxy/config`           | Toggle capture, set TTL + filter |
+| `GET`    | `/api/proxy/export?format=`   | Export captures (HAR or cURL)    |
 | `GET`    | `/api/proxy/ca`               | Download the MITM CA certificate |
 | `POST`   | `/api/fuzz`                   | Fuzz a request and flag anomalies |
 | `GET`    | `/api/export?id=&format=`     | Export collection (JSON or cURL) |

@@ -241,10 +241,11 @@ export const api = {
       addr: string;
       capture: boolean;
       ttlSeconds: number;
+      filter: string;
       entries: CaptureEntry[];
     }>("/proxy");
   },
-  proxyConfig(payload: { capture: boolean; ttlSeconds: number }) {
+  proxyConfig(payload: { capture: boolean; ttlSeconds: number; filter: string }) {
     return request<{ ok: boolean }>("/proxy/config", {
       method: "POST",
       body: JSON.stringify(payload),

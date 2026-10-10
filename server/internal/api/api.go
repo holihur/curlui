@@ -156,6 +156,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/proxy", s.listProxy)
 	mux.HandleFunc("POST /api/proxy/config", s.proxyConfig)
+	mux.HandleFunc("GET /api/proxy/export", s.exportCaptures)
 	mux.HandleFunc("GET /api/proxy/ca", s.proxyCAHandler)
 	mux.HandleFunc("DELETE /api/proxy", s.clearProxy)
 	mux.HandleFunc("POST /api/proxy/{id}/replay", s.replayCapture)
@@ -1154,14 +1155,16 @@ func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
 		"addr":       addr,
 		"capture":    settings["proxyCapture"] != "0",
 		"ttlSeconds": ttl,
+		"filter":     settings["proxyCaptureFilter"],
 		"entries":    s.store.Captures(),
 	})
 }
 
 func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Capture    bool `json:"capture"`
-		TTLSeconds int  `json:"ttlSeconds"`
+		Capture    bool   `json:"capture"`
+		TTLSeconds int    `json:"ttlSeconds"`
+		Filter     string `json:"filter"`
 	}
 	if err := decode(r, &payload); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -1175,18 +1178,91 @@ func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 		payload.TTLSeconds = 0
 	}
 	if err := s.store.SaveSettings(map[string]string{
-		"proxyCapture": capture,
-		"proxyTTL":     strconv.Itoa(payload.TTLSeconds),
+		"proxyCapture":       capture,
+		"proxyTTL":           strconv.Itoa(payload.TTLSeconds),
+		"proxyCaptureFilter": payload.Filter,
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "capture": payload.Capture, "ttlSeconds": payload.TTLSeconds})
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 func atoiSafe(s string) int {
 	n, _ := strconv.Atoi(s)
 	return n
+}
+
+// --- capture export --------------------------------------------------------
+
+func (s *Server) exportCaptures(w http.ResponseWriter, r *http.Request) {
+	entries := s.store.Captures()
+	if r.URL.Query().Get("format") == "curl" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.Header().Set("Content-Disposition", `attachment; filename="curlui-captures.sh"`)
+		for _, c := range entries {
+			fmt.Fprintf(w, "# %s %s\n%s\n\n", c.Method, c.URL, curlpkg.Generate(captureToRequest(c)))
+		}
+		return
+	}
+
+	w.Header().Set("Content-Type", "application/json; charset=utf-8")
+	w.Header().Set("Content-Disposition", `attachment; filename="curlui-captures.har"`)
+	harEntries := make([]map[string]any, 0, len(entries))
+	for _, c := range entries {
+		harEntries = append(harEntries, harEntry(c))
+	}
+	_ = json.NewEncoder(w).Encode(map[string]any{
+		"log": map[string]any{
+			"version": "1.2",
+			"creator": map[string]any{"name": "curlui", "version": s.version},
+			"entries": harEntries,
+		},
+	})
+}
+
+func harEntry(c models.CaptureEntry) map[string]any {
+	req := map[string]any{
+		"method": c.Method, "url": c.URL, "httpVersion": "HTTP/1.1",
+		"headers": headerList(c.RequestHeaders), "queryString": []any{}, "cookies": []any{},
+		"headersSize": -1, "bodySize": len(c.RequestBody),
+	}
+	if c.RequestBody != "" {
+		req["postData"] = map[string]any{"mimeType": headerVal(c.RequestHeaders, "Content-Type"), "text": c.RequestBody}
+	}
+	resp := map[string]any{
+		"status": c.Status, "statusText": "", "httpVersion": "HTTP/1.1",
+		"headers": headerList(c.ResponseHeaders), "cookies": []any{},
+		"content":     map[string]any{"size": len(c.ResponseBody), "mimeType": c.ContentType, "text": c.ResponseBody},
+		"redirectURL": "", "headersSize": -1, "bodySize": len(c.ResponseBody),
+	}
+	return map[string]any{
+		"startedDateTime": time.UnixMilli(c.At).UTC().Format(time.RFC3339Nano),
+		"time":            c.Duration,
+		"request":         req,
+		"response":        resp,
+		"cache":           map[string]any{},
+		"timings":         map[string]any{"send": 0, "wait": c.Duration, "receive": 0},
+	}
+}
+
+func headerList(h map[string][]string) []map[string]string {
+	out := []map[string]string{}
+	for k, values := range h {
+		for _, v := range values {
+			out = append(out, map[string]string{"name": k, "value": v})
+		}
+	}
+	return out
+}
+
+func headerVal(h map[string][]string, name string) string {
+	for k, values := range h {
+		if strings.EqualFold(k, name) && len(values) > 0 {
+			return values[0]
+		}
+	}
+	return ""
 }
 
 func (s *Server) proxyCAHandler(w http.ResponseWriter, _ *http.Request) {
