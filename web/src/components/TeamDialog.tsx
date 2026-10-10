@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Trash2, UserPlus, Users } from "lucide-react";
+import { Loader2, Trash2, UserPlus, Users, History } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -37,6 +37,9 @@ export function TeamDialog({
   const refreshProjects = useStore((s) => s.refreshProjects);
 
   const [users, setUsers] = useState<User[]>([]);
+  const [audit, setAudit] = useState<
+    { id: string; at: string; user: string; action: string; target?: string; detail?: string }[]
+  >([]);
   const [busy, setBusy] = useState(false);
   const [nu, setNu] = useState({ username: "", password: "", name: "", role: "member" });
   const [memberRole, setMemberRole] = useState("member");
@@ -52,6 +55,12 @@ export function TeamDialog({
     try {
       const r = await api.listUsers();
       setUsers(r.users ?? []);
+    } catch {
+      /* ignore */
+    }
+    try {
+      const a = await api.listAudit();
+      setAudit(a.entries ?? []);
     } catch {
       /* ignore */
     }
@@ -264,6 +273,35 @@ export function TeamDialog({
             </div>
           )}
         </div>
+
+        {isAdmin && (
+          <div className="mt-4 border-t pt-3">
+            <div className="mb-2 flex items-center gap-2 text-sm font-medium">
+              <History className="h-3.5 w-3.5" /> {t("auditLog")}
+            </div>
+            <div className="max-h-56 overflow-auto rounded-md border">
+              {audit.length === 0 ? (
+                <p className="px-2 py-3 text-xs text-muted-foreground">{t("noAudit")}</p>
+              ) : (
+                audit.map((e) => (
+                  <div
+                    key={e.id}
+                    className="flex items-center gap-2 border-b px-2 py-1.5 text-xs last:border-0"
+                  >
+                    <span className="w-16 shrink-0 font-mono text-muted-foreground">
+                      {new Date(e.at).toLocaleTimeString()}
+                    </span>
+                    <span className="w-24 shrink-0 truncate">{e.user}</span>
+                    <span className="w-28 shrink-0 truncate font-medium">{e.action}</span>
+                    <span className="min-w-0 flex-1 truncate text-muted-foreground">
+                      {e.detail || e.target || ""}
+                    </span>
+                  </div>
+                ))
+              )}
+            </div>
+          </div>
+        )}
       </DialogContent>
     </Dialog>
   );

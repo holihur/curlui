@@ -500,6 +500,7 @@ func (s *Server) updateUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	s.store.AddAudit(store.AuditEntry{User: userFrom(r).Username, Action: "user.update", Target: u.ID, Detail: u.Username})
 	writeJSON(w, http.StatusOK, u)
 }
 
@@ -511,6 +512,7 @@ func (s *Server) deleteUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	s.store.AddAudit(store.AuditEntry{User: userFrom(r).Username, Action: "user.delete", Target: r.PathValue("id")})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -557,6 +559,7 @@ func (s *Server) updateProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	s.store.AddAudit(store.AuditEntry{User: userFrom(r).Username, Action: "project.rename", Target: id, Detail: in.Name})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -570,6 +573,7 @@ func (s *Server) deleteProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.store.AddAudit(store.AuditEntry{User: userFrom(r).Username, Action: "project.delete", Target: id})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -612,6 +616,7 @@ func (s *Server) removeProjectMember(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	s.store.AddAudit(store.AuditEntry{User: userFrom(r).Username, Action: "member.remove", Target: id, Detail: r.PathValue("userId")})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
