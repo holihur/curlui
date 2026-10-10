@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useState, type ReactNode } from "react";
 import { Check, FlaskConical, GitBranch, ListChecks, Play, Plus, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -12,7 +12,8 @@ import {
 } from "@/components/ui/select";
 import { CodeEditor } from "@/components/CodeEditor";
 import { KeyValueEditor } from "@/components/KeyValueEditor";
-import { cn, copyText } from "@/lib/utils";
+import { cn, copyText, relativeTime } from "@/lib/utils";
+import { api } from "@/lib/api";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { buildChain, useActiveTab, useStore } from "@/store";
 import type { Assertion, AssertionSource, CollectionNode, Hook, RequestDef } from "@/lib/types";
@@ -119,7 +120,24 @@ function MockEditor({
 }) {
   const { t } = useI18n();
   const [copied, setCopied] = useState(false);
+  const [hits, setHits] = useState<{ count: number; lastAt: number }>({ count: 0, lastAt: 0 });
   const mockUrl = `${location.origin}/mock/${req.id}`;
+
+  useEffect(() => {
+    if (!req.id) return;
+    let active = true;
+    const load = () =>
+      api
+        .mockHits(req.id)
+        .then((h) => active && setHits({ count: h.count, lastAt: h.lastAt }))
+        .catch(() => {});
+    load();
+    const id = setInterval(load, 3000);
+    return () => {
+      active = false;
+      clearInterval(id);
+    };
+  }, [req.id]);
 
   const update = (id: string, patch: Partial<RequestDef["mocks"][number]>) =>
     onChange({ mocks: req.mocks.map((m) => (m.id === id ? { ...m, ...patch } : m)) });
@@ -158,6 +176,19 @@ function MockEditor({
           >
             {copied ? t("copied") : t("copyMockUrl")}
           </Button>
+        </div>
+      )}
+
+      {req.id && (
+        <div className="flex items-center gap-2 text-[11px] text-muted-foreground">
+          <span>
+            {t("mockHits")}: {hits.count}
+          </span>
+          {hits.lastAt ? (
+            <span>
+              · {t("lastRun")}: {relativeTime(hits.lastAt)}
+            </span>
+          ) : null}
         </div>
       )}
 

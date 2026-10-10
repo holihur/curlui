@@ -1,5 +1,6 @@
 // Package scheduler runs requests on a delay, at a specific time, or on a
-// repeating interval (like Postman's collection runner / monitors).
+// repeating interval (like Postman's collection runner / monitors). Jobs are
+// persisted through a callback so they survive restarts.
 package scheduler
 
 import (
@@ -21,49 +22,42 @@ type Runner func(
 	mock bool,
 ) models.Response
 
-// Job is a scheduled request.
-type Job struct {
-	ID         string              `json:"id"`
-	Name       string              `json:"name"`
-	Request    models.RequestDef   `json:"request"`
-	EnvID      string              `json:"envId,omitempty"`
-	Variables  map[string]string   `json:"variables,omitempty"`
-	Parents    []models.RequestDef `json:"parents,omitempty"`
-	Mock       bool                `json:"mock,omitempty"`
-	StartAt    int64               `json:"startAt,omitempty"`    // unix ms
-	IntervalMs int64               `json:"intervalMs,omitempty"` // 0 = one-shot
-	Total      int                 `json:"count,omitempty"`      // 0 = unlimited (interval only)
-
-	Runs       int    `json:"runs"`
-	LastStatus int    `json:"lastStatus"`
-	LastError  string `json:"lastError,omitempty"`
-	LastRun    int64  `json:"lastRun,omitempty"`
-	NextRun    int64  `json:"nextRun,omitempty"`
-	Active     bool   `json:"active"`
-	CreatedAt  int64  `json:"createdAt"`
-}
-
-// Result is one execution outcome.
-type Result struct {
-	At       int64  `json:"at"`
-	Status   int    `json:"status"`
-	Duration int64  `json:"duration"`
-	Error    string `json:"error,omitempty"`
-}
+// Persist is called with the full job list whenever it changes.
+type Persist func([]models.ScheduleJob)
 
 // Scheduler manages jobs with a background ticker.
 type Scheduler struct {
 	mu      sync.Mutex
-	jobs    map[string]*Job
-	results map[string][]Result
+	jobs    map[string]*models.ScheduleJob
+	results map[string][]models.ScheduleResult
 	run     Runner
+	persist Persist
 }
 
 // New creates a scheduler and starts its background loop.
-func New(run Runner) *Scheduler {
-	s := &Scheduler{jobs: map[string]*Job{}, results: map[string][]Result{}, run: run}
+func New(run Runner, persist Persist) *Scheduler {
+	s := &Scheduler{jobs: map[string]*models.ScheduleJob{}, results: map[string][]models.ScheduleResult{}, run: run, persist: persist}
 	go s.loop()
 	return s
+}
+
+// Load restores persisted jobs (called once at startup).
+func (s *Scheduler) Load(jobs []models.ScheduleJob) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	now := time.Now().UnixMilli()
+	for i := range jobs {
+		job := jobs[i]
+		if !job.Active {
+			continue
+		}
+		// Missed while the server was down: run soon rather than never.
+		if job.NextRun == 0 || job.NextRun < now {
+			job.NextRun = now
+			job.StartAt = now
+		}
+		s.jobs[job.ID] = &job
+	}
 }
 
 func (s *Scheduler) loop() {
@@ -117,21 +111,21 @@ func (s *Scheduler) execute(id string, scheduled bool) {
 	resp := s.run(context.Background(), req, envID, vars, parents, mock)
 
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	now := time.Now().UnixMilli()
 	j.LastRun = now
 	j.LastStatus = resp.Status
 	j.LastError = resp.Error
-	s.results[id] = append([]Result{{At: now, Status: resp.Status, Duration: resp.Duration, Error: resp.Error}}, s.results[id]...)
+	s.results[id] = append([]models.ScheduleResult{{At: now, Status: resp.Status, Duration: resp.Duration, Error: resp.Error}}, s.results[id]...)
 	if len(s.results[id]) > 50 {
 		s.results[id] = s.results[id][:50]
 	}
+	s.mu.Unlock()
+	s.save()
 }
 
 // Add registers a new job.
-func (s *Scheduler) Add(job Job) *Job {
+func (s *Scheduler) Add(job models.ScheduleJob) models.ScheduleJob {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if job.ID == "" {
 		job.ID = models.NewID()
 	}
@@ -149,18 +143,18 @@ func (s *Scheduler) Add(job Job) *Job {
 	job.Active = true
 	stored := job
 	s.jobs[job.ID] = &stored
-	out := stored
-	return &out
+	s.mu.Unlock()
+	s.save()
+	return job
 }
 
 // List returns all jobs newest-first.
-func (s *Scheduler) List() []*Job {
+func (s *Scheduler) List() []models.ScheduleJob {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]*Job, 0, len(s.jobs))
+	out := make([]models.ScheduleJob, 0, len(s.jobs))
 	for _, j := range s.jobs {
-		cp := *j
-		out = append(out, &cp)
+		out = append(out, *j)
 	}
 	sort.Slice(out, func(i, k int) bool { return out[i].CreatedAt > out[k].CreatedAt })
 	return out
@@ -169,25 +163,29 @@ func (s *Scheduler) List() []*Job {
 // Cancel stops a job's future runs.
 func (s *Scheduler) Cancel(id string) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	j := s.jobs[id]
 	if j == nil {
+		s.mu.Unlock()
 		return false
 	}
 	j.Active = false
 	j.NextRun = 0
+	s.mu.Unlock()
+	s.save()
 	return true
 }
 
 // Remove deletes a job and its results.
 func (s *Scheduler) Remove(id string) bool {
 	s.mu.Lock()
-	defer s.mu.Unlock()
 	if _, ok := s.jobs[id]; !ok {
+		s.mu.Unlock()
 		return false
 	}
 	delete(s.jobs, id)
 	delete(s.results, id)
+	s.mu.Unlock()
+	s.save()
 	return true
 }
 
@@ -204,10 +202,17 @@ func (s *Scheduler) RunNow(id string) bool {
 }
 
 // Results returns recent results for a job.
-func (s *Scheduler) Results(id string) []Result {
+func (s *Scheduler) Results(id string) []models.ScheduleResult {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	out := make([]Result, len(s.results[id]))
+	out := make([]models.ScheduleResult, len(s.results[id]))
 	copy(out, s.results[id])
 	return out
+}
+
+func (s *Scheduler) save() {
+	if s.persist == nil {
+		return
+	}
+	s.persist(s.List())
 }

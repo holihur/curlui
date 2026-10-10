@@ -79,6 +79,13 @@ export type ScheduleResult = {
   error?: string;
 };
 
+export type MockHit = {
+  at: number;
+  method: string;
+  path: string;
+  source: string;
+};
+
 export type Hook = {
   enabled: boolean;
   command: string;

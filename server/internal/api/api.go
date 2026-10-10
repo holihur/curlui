@@ -9,6 +9,7 @@ import (
 	"net/http"
 	"strconv"
 	"strings"
+	"sync"
 	"time"
 
 	curlpkg "curlui/server/internal/curl"
@@ -25,15 +26,22 @@ type Server struct {
 	store     *store.Store
 	executor  *curlpkg.Executor
 	scheduler *scheduler.Scheduler
+
+	mu       sync.Mutex
+	mockHits map[string][]models.MockHit
 }
 
 // New returns a new API server.
 func New(st *store.Store) *Server {
-	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}}
-	s.scheduler = scheduler.New(func(ctx context.Context, req models.RequestDef, envID string, vars map[string]string, parents []models.RequestDef, mock bool) models.Response {
-		resp, _ := s.runRequest(ctx, sendPayload{Request: req, EnvID: envID, Variables: vars, Parents: parents, Mock: mock})
-		return resp
-	})
+	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}, mockHits: map[string][]models.MockHit{}}
+	s.scheduler = scheduler.New(
+		func(ctx context.Context, req models.RequestDef, envID string, vars map[string]string, parents []models.RequestDef, mock bool) models.Response {
+			resp, _ := s.runRequest(ctx, sendPayload{Request: req, EnvID: envID, Variables: vars, Parents: parents, Mock: mock})
+			return resp
+		},
+		func(jobs []models.ScheduleJob) { _ = st.SaveSchedules(jobs) },
+	)
+	s.scheduler.Load(st.Schedules())
 	return s
 }
 
@@ -78,6 +86,7 @@ func (s *Server) Handler() http.Handler {
 
 	// Public mock server: GET/POST/… /mock/{nodeId}
 	mux.HandleFunc("/mock/", s.mockServer)
+	mux.HandleFunc("GET /api/mock/{id}/hits", s.mockHitsHandler)
 
 	return withCORS(withLogging(mux))
 }
@@ -205,6 +214,9 @@ func (s *Server) runRequest(ctx context.Context, payload sendPayload) (models.Re
 	}
 
 	resp := s.executor.Execute(ctx, payload.Request, envSet, payload.Mock)
+	if payload.Mock {
+		s.recordMockHit(payload.Request.ID, payload.Request.Method, payload.Request.URL, "editor")
+	}
 
 	entry := models.HistoryEntry{
 		ID:         models.NewID(),
@@ -371,6 +383,30 @@ func (s *Server) mockServer(w http.ResponseWriter, r *http.Request) {
 	}
 	w.WriteHeader(status)
 	_, _ = io.WriteString(w, mock.Body)
+	s.recordMockHit(id, r.Method, r.URL.Path, "server")
+}
+
+func (s *Server) recordMockHit(id, method, path, source string) {
+	if id == "" {
+		return
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.mockHits[id] = append([]models.MockHit{{At: time.Now().UnixMilli(), Method: method, Path: path, Source: source}}, s.mockHits[id]...)
+	if len(s.mockHits[id]) > 100 {
+		s.mockHits[id] = s.mockHits[id][:100]
+	}
+}
+
+func (s *Server) mockHitsHandler(w http.ResponseWriter, r *http.Request) {
+	s.mu.Lock()
+	hits := append([]models.MockHit{}, s.mockHits[r.PathValue("id")]...)
+	s.mu.Unlock()
+	var lastAt int64
+	if len(hits) > 0 {
+		lastAt = hits[0].At
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"count": len(hits), "hits": hits, "lastAt": lastAt})
 }
 
 func firstMockOf(mocks []models.MockResponse, name string) *models.MockResponse {
@@ -538,7 +574,7 @@ func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
 	if startAt <= 0 && payload.DelayMs > 0 {
 		startAt = time.Now().UnixMilli() + payload.DelayMs
 	}
-	job := s.scheduler.Add(scheduler.Job{
+	job := s.scheduler.Add(models.ScheduleJob{
 		Name:       payload.Name,
 		Request:    payload.Request,
 		EnvID:      payload.EnvID,

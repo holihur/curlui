@@ -33,6 +33,9 @@ const en = {
   collections: "Collections",
   history: "History",
   environments: "Environments",
+  apis: "APIs",
+  envShort: "Env",
+  jobsShort: "Jobs",
 
   // collections
   searchRequests: "Search requests…",
@@ -261,6 +264,7 @@ const en = {
   sendAsMock: "Send as mock",
   mockUrl: "Mock URL",
   copyMockUrl: "Copy mock URL",
+  mockHits: "Hits",
   sendVia: "Send via",
   viaServer: "Server (Go)",
   viaBrowser: "Browser",
@@ -321,6 +325,9 @@ const zh: Record<MessageKey, string> = {
   collections: "集合",
   history: "历史",
   environments: "环境",
+  apis: "接口",
+  envShort: "环境",
+  jobsShort: "调度",
 
   searchRequests: "搜索请求…",
   newRequest: "新建请求",
@@ -533,6 +540,7 @@ const zh: Record<MessageKey, string> = {
   sendAsMock: "以 Mock 发送",
   mockUrl: "Mock 地址",
   copyMockUrl: "复制 Mock 地址",
+  mockHits: "命中次数",
   sendVia: "发送方式",
   viaServer: "服务端 (Go)",
   viaBrowser: "浏览器",

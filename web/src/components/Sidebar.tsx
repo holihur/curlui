@@ -9,10 +9,10 @@ import { SchedulePanel } from "@/components/SchedulePanel";
 type TabKey = "collections" | "history" | "env" | "schedules";
 
 const TABS: { key: TabKey; label: MessageKey; icon: typeof FolderTree }[] = [
-  { key: "collections", label: "collections", icon: FolderTree },
+  { key: "collections", label: "apis", icon: FolderTree },
   { key: "history", label: "history", icon: Clock },
-  { key: "env", label: "environments", icon: Settings2 },
-  { key: "schedules", label: "schedules", icon: Timer },
+  { key: "env", label: "envShort", icon: Settings2 },
+  { key: "schedules", label: "jobsShort", icon: Timer },
 ];
 
 export function Sidebar() {

@@ -62,6 +62,14 @@ type Options struct {
 	SendVia string `json:"sendVia,omitempty"`
 }
 
+// MockHit records one access to a request's mock.
+type MockHit struct {
+	At     int64  `json:"at"`
+	Method string `json:"method"`
+	Path   string `json:"path"`
+	Source string `json:"source"` // server | editor
+}
+
 // MockResponse is a canned response returned instead of hitting the network.
 type MockResponse struct {
 	ID      string     `json:"id"`
@@ -187,6 +195,35 @@ type HistoryEntry struct {
 	Error      string     `json:"error,omitempty"`
 	EnvID      string     `json:"envId,omitempty"`
 	CreatedAt  int64      `json:"createdAt"`
+}
+
+// ScheduleJob is a delayed or periodic request kept by the scheduler.
+type ScheduleJob struct {
+	ID         string            `json:"id"`
+	Name       string            `json:"name"`
+	Request    RequestDef        `json:"request"`
+	EnvID      string            `json:"envId,omitempty"`
+	Variables  map[string]string `json:"variables,omitempty"`
+	Parents    []RequestDef      `json:"parents,omitempty"`
+	Mock       bool              `json:"mock,omitempty"`
+	StartAt    int64             `json:"startAt,omitempty"`
+	IntervalMs int64             `json:"intervalMs,omitempty"`
+	Total      int               `json:"count,omitempty"`
+	Runs       int               `json:"runs"`
+	LastStatus int               `json:"lastStatus"`
+	LastError  string            `json:"lastError,omitempty"`
+	LastRun    int64             `json:"lastRun,omitempty"`
+	NextRun    int64             `json:"nextRun,omitempty"`
+	Active     bool              `json:"active"`
+	CreatedAt  int64             `json:"createdAt"`
+}
+
+// ScheduleResult is one execution outcome of a schedule job.
+type ScheduleResult struct {
+	At       int64  `json:"at"`
+	Status   int    `json:"status"`
+	Duration int64  `json:"duration"`
+	Error    string `json:"error,omitempty"`
 }
 
 // Timing holds phase durations in milliseconds.

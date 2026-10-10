@@ -19,6 +19,7 @@ type Data struct {
 	Collections  []*models.Node        `json:"collections"`
 	Environments []models.Environment  `json:"environments"`
 	History      []models.HistoryEntry `json:"history"`
+	Schedules    []models.ScheduleJob  `json:"schedules,omitempty"`
 	Settings     map[string]string     `json:"settings"`
 }
 
@@ -457,6 +458,23 @@ func (s *Store) DeleteEnvironment(id string) error {
 		}
 	}
 	return ErrNotFound
+}
+
+// Schedules returns persisted schedule jobs.
+func (s *Store) Schedules() []models.ScheduleJob {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]models.ScheduleJob, len(s.data.Schedules))
+	copy(out, s.data.Schedules)
+	return out
+}
+
+// SaveSchedules replaces the persisted schedule jobs.
+func (s *Store) SaveSchedules(jobs []models.ScheduleJob) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.data.Schedules = jobs
+	return s.persist()
 }
 
 // --- Settings --------------------------------------------------------------

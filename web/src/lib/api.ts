@@ -5,6 +5,7 @@ import type {
   ExtractRule,
   HistoryEntry,
   KeyValue,
+  MockHit,
   OpenAPIResult,
   RequestDef,
   ScheduleJob,
@@ -199,5 +200,8 @@ export const api = {
   },
   scheduleResults(id: string) {
     return request<{ results: ScheduleResult[] }>(`/schedule/${id}/results`);
+  },
+  mockHits(id: string) {
+    return request<{ count: number; lastAt: number; hits: MockHit[] }>(`/mock/${id}/hits`);
   },
 };

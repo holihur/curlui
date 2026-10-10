@@ -5,6 +5,13 @@ send, inspect and organize HTTP requests. The twist: every request is actually
 executed **by the Go backend**, so the browser never hits CORS, you can call
 internal/private endpoints, and you get precise per-phase network timings.
 
+![curlui](docs/screenshots/hero.png)
+
+> **One binary, zero dependencies.** Mock server, request chaining, response
+> assertions with a live pass/fail indicator, pre/post hooks, an OpenAPI
+> importer and a scheduler — all in a single ~8 MB file.
+
+
 ```
 ┌──────────────┐   JSON over /api   ┌────────────────────┐   net/http   ┌────────────┐
 │  React + UI  │ ─────────────────► │  Go API + executor │ ───────────► │  any HTTP  │
@@ -56,6 +63,21 @@ internal/private endpoints, and you get precise per-phase network timings.
 - **Response viewer** — pretty/raw body, headers, cookies, timing waterfall and
   the exact request that was sent. Binary responses can be downloaded.
 - **Dark / light themes**, keyboard shortcuts, multi-tab editing.
+
+## Screenshots
+
+| Import OpenAPI / Swagger | Automation (hooks, assertions, chaining, mock) |
+| --- | --- |
+| ![Import OpenAPI](docs/screenshots/openapi-import.png) | ![Automation](docs/screenshots/automation.png) |
+| **Mock server with hit stats** | **Scheduler (delayed / periodic)** |
+| ![Mock](docs/screenshots/mock.png) | ![Scheduler](docs/screenshots/scheduler.png) |
+
+<details>
+<summary>Light theme</summary>
+
+![Light theme](docs/screenshots/hero-light.png)
+
+</details>
 
 ## Tech stack
 

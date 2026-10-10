@@ -13,6 +13,7 @@ import {
 import { uid } from "@/lib/utils";
 import { translate } from "@/lib/i18n";
 import { browserSend } from "@/lib/browserClient";
+import { evaluateAssertions } from "@/lib/browserAssert";
 
 export type Tab = {
   id: string;
@@ -375,7 +376,8 @@ export const useStore = create<State>((set, get) => ({
           ...chain.folderVars,
           ...get().runtimeVars,
         });
-        const status = response.error ? "fail" : undefined;
+        response.assertions = evaluateAssertions(response, tab.request.assertions ?? []);
+        const status = computeStatus(response);
         set((s) => ({
           tabs: s.tabs.map((t) =>
             t.id === tab.id ? { ...t, sending: false, response, error: response.error } : t,
