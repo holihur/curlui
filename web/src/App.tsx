@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { RequestTabs } from "@/components/RequestTabs";
 import { RequestEditor } from "@/components/RequestEditor";
 import { Toaster } from "@/components/Toaster";
+import { InterceptDialog } from "@/components/InterceptDialog";
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 
@@ -50,6 +51,7 @@ export default function App() {
           </main>
         </div>
         <Toaster />
+        <InterceptDialog />
       </div>
     </TooltipProvider>
   );

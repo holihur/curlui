@@ -138,6 +138,15 @@ export type FuzzResult = {
   summary: { total: number; issues: number };
 };
 
+export type PendingIntercept = {
+  id: string;
+  method: string;
+  url: string;
+  headers: Record<string, string[]>;
+  body: string;
+  createdAt: number;
+};
+
 export type Hook = {
   enabled: boolean;
   command: string;

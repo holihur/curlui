@@ -17,6 +17,7 @@ import (
 	"curlui/server/internal/jsonpath"
 	"curlui/server/internal/models"
 	"curlui/server/internal/openapi"
+	"curlui/server/internal/proxy"
 	"curlui/server/internal/scheduler"
 	"curlui/server/internal/store"
 	"curlui/server/internal/update"
@@ -35,6 +36,14 @@ type Server struct {
 	proxyAddr    string
 	proxyRunning bool
 	proxyCA      []byte
+	interceptor  *proxy.Interceptor
+}
+
+// SetInterceptor wires the proxy breakpoint controller.
+func (s *Server) SetInterceptor(i *proxy.Interceptor) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.interceptor = i
 }
 
 // SetProxy records whether the capture proxy is running.
@@ -157,6 +166,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/proxy", s.listProxy)
 	mux.HandleFunc("POST /api/proxy/config", s.proxyConfig)
 	mux.HandleFunc("GET /api/proxy/export", s.exportCaptures)
+	mux.HandleFunc("POST /api/proxy/save", s.saveCaptures)
+	mux.HandleFunc("GET /api/intercept", s.listIntercepts)
+	mux.HandleFunc("POST /api/intercept/{id}", s.resolveIntercept)
 	mux.HandleFunc("GET /api/proxy/ca", s.proxyCAHandler)
 	mux.HandleFunc("DELETE /api/proxy", s.clearProxy)
 	mux.HandleFunc("POST /api/proxy/{id}/replay", s.replayCapture)
@@ -1139,6 +1151,53 @@ func replaceStrings(v any, payload string) any {
 	}
 }
 
+// --- save captures as a collection -----------------------------------------
+
+func (s *Server) saveCaptures(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		IDs  []string `json:"ids"`
+		Name string   `json:"name"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	set := map[string]bool{}
+	for _, id := range payload.IDs {
+		set[id] = true
+	}
+	var chosen []models.CaptureEntry
+	for _, c := range s.store.Captures() {
+		if len(set) == 0 || set[c.ID] {
+			chosen = append(chosen, c)
+		}
+	}
+	if len(chosen) == 0 {
+		writeErr(w, http.StatusBadRequest, "no captures to save")
+		return
+	}
+	name := strings.TrimSpace(payload.Name)
+	if name == "" {
+		name = "Captured " + time.Now().Format("2006-01-02 15:04:05")
+	}
+	folder := &models.Node{ID: models.NewID(), Type: "folder", Name: name}
+	for i := len(chosen) - 1; i >= 0; i-- { // keep chronological order
+		req := captureToRequest(chosen[i])
+		node := &models.Node{ID: models.NewID(), Type: "request", Name: req.Name, Request: &req}
+		folder.Children = append(folder.Children, node)
+	}
+	saved, count, err := s.store.ImportNodes("", []*models.Node{folder})
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	folderID := ""
+	if len(saved) > 0 {
+		folderID = saved[0].ID
+	}
+	writeJSON(w, http.StatusCreated, map[string]any{"count": count, "folderId": folderID})
+}
+
 // --- capture proxy ---------------------------------------------------------
 
 func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
@@ -1151,20 +1210,24 @@ func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
 		_ = s.store.PurgeCaptures(time.Duration(ttl) * time.Second)
 	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"running":    running,
-		"addr":       addr,
-		"capture":    settings["proxyCapture"] != "0",
-		"ttlSeconds": ttl,
-		"filter":     settings["proxyCaptureFilter"],
-		"entries":    s.store.Captures(),
+		"running":     running,
+		"addr":        addr,
+		"capture":     settings["proxyCapture"] != "0",
+		"ttlSeconds":  ttl,
+		"filter":      settings["proxyCaptureFilter"],
+		"break":       settings["proxyBreak"] == "1",
+		"breakFilter": settings["proxyBreakFilter"],
+		"entries":     s.store.Captures(),
 	})
 }
 
 func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
-		Capture    bool   `json:"capture"`
-		TTLSeconds int    `json:"ttlSeconds"`
-		Filter     string `json:"filter"`
+		Capture     bool   `json:"capture"`
+		TTLSeconds  int    `json:"ttlSeconds"`
+		Filter      string `json:"filter"`
+		Break       bool   `json:"break"`
+		BreakFilter string `json:"breakFilter"`
 	}
 	if err := decode(r, &payload); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -1174,6 +1237,10 @@ func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 	if payload.Capture {
 		capture = "1"
 	}
+	brk := "0"
+	if payload.Break {
+		brk = "1"
+	}
 	if payload.TTLSeconds < 0 {
 		payload.TTLSeconds = 0
 	}
@@ -1181,11 +1248,61 @@ func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
 		"proxyCapture":       capture,
 		"proxyTTL":           strconv.Itoa(payload.TTLSeconds),
 		"proxyCaptureFilter": payload.Filter,
+		"proxyBreak":         brk,
+		"proxyBreakFilter":   payload.BreakFilter,
 	}); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// --- breakpoints -----------------------------------------------------------
+
+func (s *Server) listIntercepts(w http.ResponseWriter, _ *http.Request) {
+	s.mu.Lock()
+	i := s.interceptor
+	s.mu.Unlock()
+	pending := []proxy.PendingInfo{}
+	if i != nil {
+		if list := i.List(); list != nil {
+			pending = list
+		}
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"pending": pending})
+}
+
+func (s *Server) resolveIntercept(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Action  string              `json:"action"`
+		Method  string              `json:"method"`
+		URL     string              `json:"url"`
+		Headers map[string][]string `json:"headers"`
+		Body    string              `json:"body"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	s.mu.Lock()
+	i := s.interceptor
+	s.mu.Unlock()
+	if i == nil {
+		writeErr(w, http.StatusNotImplemented, "breakpoints are not enabled")
+		return
+	}
+	res := proxy.Resolution{
+		Abort:   payload.Action == "abort",
+		Method:  payload.Method,
+		URL:     payload.URL,
+		Headers: payload.Headers,
+		Body:    []byte(payload.Body),
+	}
+	if !i.Resolve(r.PathValue("id"), res) {
+		writeErr(w, http.StatusNotFound, "intercept not found")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
 }
 
 func atoiSafe(s string) int {

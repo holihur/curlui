@@ -21,19 +21,22 @@ const maxCaptureBody = 2 << 20 // 2 MiB per side
 
 // Proxy is a recording forward proxy.
 type Proxy struct {
-	addr      string
-	record    func(models.CaptureEntry)
-	transport *http.Transport
-	ca        *mitm.CA
+	addr        string
+	record      func(models.CaptureEntry)
+	transport   *http.Transport
+	ca          *mitm.CA
+	interceptor *Interceptor
 }
 
 // New creates a proxy that reports captures through record. When ca is nil,
-// HTTPS/CONNECT is tunnelled instead of intercepted.
-func New(addr string, record func(models.CaptureEntry), ca *mitm.CA) *Proxy {
+// HTTPS/CONNECT is tunnelled instead of intercepted. breakEnabled/breakFilter
+// control request breakpoints.
+func New(addr string, record func(models.CaptureEntry), ca *mitm.CA, breakEnabled func() bool, breakFilter func(string) bool) *Proxy {
 	return &Proxy{
-		addr:   addr,
-		record: record,
-		ca:     ca,
+		addr:        addr,
+		record:      record,
+		ca:          ca,
+		interceptor: NewInterceptor(breakEnabled, breakFilter),
 		transport: &http.Transport{
 			DialContext: (&net.Dialer{
 				Timeout:   20 * time.Second,
@@ -55,6 +58,9 @@ func (p *Proxy) CAPEM() []byte {
 	}
 	return p.ca.CertPEM()
 }
+
+// Interceptor exposes the request breakpoint controller.
+func (p *Proxy) Interceptor() *Interceptor { return p.interceptor }
 
 // ListenAndServe blocks serving the proxy.
 func (p *Proxy) ListenAndServe() error {
@@ -84,12 +90,29 @@ func (p *Proxy) forward(w http.ResponseWriter, r *http.Request) {
 	reqBody, _ := io.ReadAll(io.LimitReader(r.Body, maxCaptureBody))
 	_ = r.Body.Close()
 
-	outReq, err := http.NewRequest(r.Method, r.URL.String(), bytes.NewReader(reqBody))
+	// Breakpoint: pause and let the UI review/modify before forwarding.
+	method, target, hdr, body := r.Method, r.URL.String(), r.Header, reqBody
+	if res, intercepted := p.interceptor.Intercept(r.Context(), method, target, cloneHeader(r.Header), reqBody, 10*time.Minute); intercepted {
+		if res.Abort {
+			p.recordCapture(r, reqBody, http.StatusForbidden, nil, []byte("blocked by curlui breakpoint"), start, nil)
+			http.Error(w, "request blocked by curlui breakpoint", http.StatusForbidden)
+			return
+		}
+		method, target, body = res.Method, res.URL, res.Body
+		hdr = http.Header{}
+		for k, values := range res.Headers {
+			for _, v := range values {
+				hdr.Add(k, v)
+			}
+		}
+	}
+
+	outReq, err := http.NewRequest(method, target, bytes.NewReader(body))
 	if err != nil {
 		http.Error(w, err.Error(), http.StatusBadGateway)
 		return
 	}
-	copyHeaders(outReq.Header, r.Header)
+	copyHeaders(outReq.Header, hdr)
 	for _, h := range hopHeaders {
 		outReq.Header.Del(h)
 	}

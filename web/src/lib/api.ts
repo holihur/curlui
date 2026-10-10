@@ -14,6 +14,7 @@ import type {
   BatchSummary,
   CaptureEntry,
   FuzzResult,
+  PendingIntercept,
 } from "./types";
 
 const BASE = "/api";
@@ -242,11 +243,37 @@ export const api = {
       capture: boolean;
       ttlSeconds: number;
       filter: string;
+      break: boolean;
+      breakFilter: string;
       entries: CaptureEntry[];
     }>("/proxy");
   },
-  proxyConfig(payload: { capture: boolean; ttlSeconds: number; filter: string }) {
+  proxyConfig(payload: {
+    capture: boolean;
+    ttlSeconds: number;
+    filter: string;
+    break: boolean;
+    breakFilter: string;
+  }) {
     return request<{ ok: boolean }>("/proxy/config", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  saveCaptures(ids: string[], name?: string) {
+    return request<{ count: number; folderId: string }>("/proxy/save", {
+      method: "POST",
+      body: JSON.stringify({ ids, name }),
+    });
+  },
+  listIntercepts() {
+    return request<{ pending: PendingIntercept[] }>("/intercept");
+  },
+  resolveIntercept(
+    id: string,
+    payload: { action: "continue" | "abort"; method?: string; url?: string; headers?: Record<string, string[]>; body?: string },
+  ) {
+    return request<{ ok: boolean }>(`/intercept/${id}`, {
       method: "POST",
       body: JSON.stringify(payload),
     });

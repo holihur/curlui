@@ -87,7 +87,11 @@ func main() {
 				return
 			}
 			_ = st.AddCapture(c)
-		}, ca)
+		}, ca,
+			func() bool { return st.Settings()["proxyBreak"] == "1" },
+			func(url string) bool { return matchCaptureFilter(st.Settings()["proxyBreakFilter"], url) },
+		)
+		apiServer.SetInterceptor(p.Interceptor())
 		go func() {
 			log.Printf("capture proxy listening on %s (HTTPS interception: %v)", *proxyAddr, ca != nil)
 			if err := p.ListenAndServe(); err != nil {
