@@ -439,7 +439,7 @@ function TreeNode(props: TreeNodeProps) {
         <DropdownMenu>
           <DropdownMenuTrigger asChild>
             <button
-              className="flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-0 hover:bg-accent group-hover:opacity-100"
+              className="flex h-6 w-6 shrink-0 items-center justify-center rounded opacity-100 hover:bg-accent sm:opacity-0 sm:group-hover:opacity-100"
               onClick={(e) => e.stopPropagation()}
             >
               <MoreVertical className="h-3.5 w-3.5" />

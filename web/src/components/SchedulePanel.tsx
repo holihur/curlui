@@ -94,7 +94,7 @@ export function SchedulePanel() {
                 </span>
               ) : null}
             </div>
-            <div className="mt-1 flex items-center gap-1 pl-7 opacity-0 transition-opacity group-hover:opacity-100">
+            <div className="mt-1 flex items-center gap-1 pl-7 opacity-100 transition-opacity sm:opacity-0 sm:group-hover:opacity-100">
               <Button variant="ghost" size="xs" className="gap-1" onClick={() => void act(() => api.runSchedule(job.id))}>
                 <Play className="h-3 w-3" /> {t("runNow")}
               </Button>

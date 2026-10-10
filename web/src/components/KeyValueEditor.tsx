@@ -118,7 +118,7 @@ export function KeyValueEditor({ items: rawItems, onChange, showDescription, sho
                 type="button"
                 onClick={() => !isBlank && remove(i)}
                 className={cn(
-                  "flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 transition-opacity hover:text-destructive group-hover:opacity-100",
+                  "flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-100 transition-opacity hover:text-destructive sm:opacity-0 sm:group-hover:opacity-100",
                   isBlank && "pointer-events-none",
                 )}
               >

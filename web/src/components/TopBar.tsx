@@ -3,6 +3,7 @@ import {
   Check,
   ChevronDown,
   FileJson2,
+  FileText,
   FileUp,
   FolderInput,
   Globe,
@@ -28,6 +29,7 @@ import {
 import { ImportCurlDialog } from "@/components/ImportCurlDialog";
 import { OpenAPIDialog } from "@/components/OpenAPIDialog";
 import { SettingsDialog } from "@/components/SettingsDialog";
+import { DocExportDialog } from "@/components/DocExportDialog";
 import { LOCALES, useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
@@ -49,6 +51,7 @@ export function TopBar() {
   const [importOpen, setImportOpen] = useState(false);
   const [openapiOpen, setOpenapiOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
+  const [docOpen, setDocOpen] = useState(false);
   const collectionFileRef = useRef<HTMLInputElement>(null);
 
   const importCollection = async (file: File) => {
@@ -158,6 +161,9 @@ export function TopBar() {
               </DropdownMenuItem>
             ))}
             <DropdownMenuSeparator />
+            <DropdownMenuItem onClick={() => setDocOpen(true)}>
+              <FileText /> {t("exportDocs")}
+            </DropdownMenuItem>
             <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
               <SettingsIcon /> {t("settings")}
             </DropdownMenuItem>
@@ -168,6 +174,7 @@ export function TopBar() {
       <ImportCurlDialog open={importOpen} onOpenChange={setImportOpen} />
       <OpenAPIDialog open={openapiOpen} onOpenChange={setOpenapiOpen} />
       <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
+      <DocExportDialog open={docOpen} onOpenChange={setDocOpen} node={null} />
       <input
         ref={collectionFileRef}
         type="file"
