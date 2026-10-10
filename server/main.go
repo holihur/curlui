@@ -14,6 +14,7 @@ import (
 	"os"
 	"path"
 	"path/filepath"
+	"strconv"
 	"strings"
 	"time"
 
@@ -76,7 +77,12 @@ func main() {
 				apiServer.SetProxyCA(c.CertPEM())
 			}
 		}
-		p := proxy.New(*proxyAddr, func(c models.CaptureEntry) { _ = st.AddCapture(c) }, ca)
+		p := proxy.New(*proxyAddr, func(c models.CaptureEntry) {
+			if st.Settings()["proxyCapture"] == "0" {
+				return
+			}
+			_ = st.AddCapture(c)
+		}, ca)
 		go func() {
 			log.Printf("capture proxy listening on %s (HTTPS interception: %v)", *proxyAddr, ca != nil)
 			if err := p.ListenAndServe(); err != nil {
@@ -84,6 +90,17 @@ func main() {
 			}
 		}()
 		apiServer.SetProxy(*proxyAddr, true)
+
+		// Expire captures past the configured TTL.
+		go func() {
+			ticker := time.NewTicker(30 * time.Second)
+			defer ticker.Stop()
+			for range ticker.C {
+				if secs, _ := strconv.Atoi(st.Settings()["proxyTTL"]); secs > 0 {
+					_ = st.PurgeCaptures(time.Duration(secs) * time.Second)
+				}
+			}
+		}()
 	}
 
 	mux := http.NewServeMux()

@@ -341,6 +341,11 @@ const en = {
   openInEditor: "Open in editor",
   clearTraffic: "Clear",
   tunnel: "tunnel",
+  capture: "Capture",
+  captureOn: "Capturing",
+  captureOff: "Proxy only",
+  ttl: "TTL (s)",
+  ttlHint: "0 = keep forever",
 
   // toasts
   requestFailed: "Request failed",
@@ -672,6 +677,11 @@ const zh: Record<MessageKey, string> = {
   openInEditor: "在编辑器中打开",
   clearTraffic: "清空",
   tunnel: "隧道",
+  capture: "抓包",
+  captureOn: "抓包中",
+  captureOff: "仅代理",
+  ttl: "有效期 (秒)",
+  ttlHint: "0 = 永久保留",
 
   requestFailed: "请求失败",
   urlRequiredToast: "URL 不能为空",
@@ -998,6 +1008,11 @@ const ja: Record<MessageKey, string> = {
   openInEditor: "エディタで開く",
   clearTraffic: "クリア",
   tunnel: "トンネル",
+  capture: "キャプチャ",
+  captureOn: "キャプチャ中",
+  captureOff: "プロキシのみ",
+  ttl: "TTL (秒)",
+  ttlHint: "0 = 永続",
 
   requestFailed: "リクエストに失敗しました",
   urlRequiredToast: "URL は必須です",

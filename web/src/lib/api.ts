@@ -236,7 +236,19 @@ export const api = {
 
   // Capture proxy
   listProxy() {
-    return request<{ running: boolean; addr: string; entries: CaptureEntry[] }>("/proxy");
+    return request<{
+      running: boolean;
+      addr: string;
+      capture: boolean;
+      ttlSeconds: number;
+      entries: CaptureEntry[];
+    }>("/proxy");
+  },
+  proxyConfig(payload: { capture: boolean; ttlSeconds: number }) {
+    return request<{ ok: boolean }>("/proxy/config", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
   },
   clearProxy() {
     return request<{ ok: boolean }>("/proxy", { method: "DELETE" });

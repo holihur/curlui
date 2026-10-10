@@ -155,6 +155,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/fuzz", s.runFuzz)
 
 	mux.HandleFunc("GET /api/proxy", s.listProxy)
+	mux.HandleFunc("POST /api/proxy/config", s.proxyConfig)
 	mux.HandleFunc("GET /api/proxy/ca", s.proxyCAHandler)
 	mux.HandleFunc("DELETE /api/proxy", s.clearProxy)
 	mux.HandleFunc("POST /api/proxy/{id}/replay", s.replayCapture)
@@ -1143,11 +1144,49 @@ func (s *Server) listProxy(w http.ResponseWriter, _ *http.Request) {
 	s.mu.Lock()
 	running, addr := s.proxyRunning, s.proxyAddr
 	s.mu.Unlock()
+	settings := s.store.Settings()
+	ttl := atoiSafe(settings["proxyTTL"])
+	if ttl > 0 {
+		_ = s.store.PurgeCaptures(time.Duration(ttl) * time.Second)
+	}
 	writeJSON(w, http.StatusOK, map[string]any{
-		"running": running,
-		"addr":    addr,
-		"entries": s.store.Captures(),
+		"running":    running,
+		"addr":       addr,
+		"capture":    settings["proxyCapture"] != "0",
+		"ttlSeconds": ttl,
+		"entries":    s.store.Captures(),
 	})
+}
+
+func (s *Server) proxyConfig(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Capture    bool `json:"capture"`
+		TTLSeconds int  `json:"ttlSeconds"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	capture := "0"
+	if payload.Capture {
+		capture = "1"
+	}
+	if payload.TTLSeconds < 0 {
+		payload.TTLSeconds = 0
+	}
+	if err := s.store.SaveSettings(map[string]string{
+		"proxyCapture": capture,
+		"proxyTTL":     strconv.Itoa(payload.TTLSeconds),
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "capture": payload.Capture, "ttlSeconds": payload.TTLSeconds})
+}
+
+func atoiSafe(s string) int {
+	n, _ := strconv.Atoi(s)
+	return n
 }
 
 func (s *Server) proxyCAHandler(w http.ResponseWriter, _ *http.Request) {

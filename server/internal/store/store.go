@@ -7,6 +7,7 @@ import (
 	"path/filepath"
 	"sort"
 	"sync"
+	"time"
 
 	"curlui/server/internal/models"
 )
@@ -509,6 +510,30 @@ func (s *Store) ClearCaptures() error {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	s.data.Captures = nil
+	return s.persist()
+}
+
+// PurgeCaptures deletes captures older than ttl (ttl <= 0 disables expiry).
+func (s *Store) PurgeCaptures(ttl time.Duration) error {
+	if ttl <= 0 {
+		return nil
+	}
+	cutoff := time.Now().Add(-ttl).UnixMilli()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	kept := make([]models.CaptureEntry, 0, len(s.data.Captures))
+	changed := false
+	for _, c := range s.data.Captures {
+		if c.At >= cutoff {
+			kept = append(kept, c)
+		} else {
+			changed = true
+		}
+	}
+	if !changed {
+		return nil
+	}
+	s.data.Captures = kept
 	return s.persist()
 }
 

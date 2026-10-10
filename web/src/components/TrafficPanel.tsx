@@ -1,6 +1,8 @@
 import { useCallback, useEffect, useState } from "react";
 import { ArrowUpRight, Play, RefreshCw, Trash2 } from "lucide-react";
 import { Button } from "@/components/ui/button";
+import { Input } from "@/components/ui/input";
+import { Switch } from "@/components/ui/switch";
 import { cn, formatMs, shortMethod, statusColor, uid } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
@@ -31,6 +33,8 @@ export function TrafficPanel() {
 
   const [running, setRunning] = useState(false);
   const [addr, setAddr] = useState("");
+  const [capture, setCapture] = useState(true);
+  const [ttl, setTtl] = useState(0);
   const [entries, setEntries] = useState<CaptureEntry[]>([]);
   const [selected, setSelected] = useState<CaptureEntry | null>(null);
 
@@ -39,6 +43,8 @@ export function TrafficPanel() {
       const d = await api.listProxy();
       setRunning(d.running);
       setAddr(d.addr);
+      setCapture(d.capture ?? true);
+      setTtl(d.ttlSeconds ?? 0);
       setEntries(d.entries ?? []);
     } catch {
       /* ignore */
@@ -80,6 +86,28 @@ export function TrafficPanel() {
           </Button>
         </div>
         {!running && <div className="mt-1.5 text-[11px] text-muted-foreground">{t("proxyHint")}</div>}
+        {running && (
+          <div className="mt-2 flex items-center gap-2 text-[11px]">
+            <Switch
+              checked={capture}
+              onCheckedChange={(v) => {
+                setCapture(v);
+                void api.proxyConfig({ capture: v, ttlSeconds: ttl });
+              }}
+            />
+            <span className="text-muted-foreground">{capture ? t("captureOn") : t("captureOff")}</span>
+            <span className="ml-auto text-muted-foreground">{t("ttl")}</span>
+            <Input
+              type="number"
+              min={0}
+              value={ttl}
+              title={t("ttlHint")}
+              onChange={(e) => setTtl(Number(e.target.value) || 0)}
+              onBlur={() => void api.proxyConfig({ capture, ttlSeconds: ttl })}
+              className="h-7 w-20 text-xs"
+            />
+          </div>
+        )}
       </div>
 
       <div className="min-h-0 flex-1 overflow-y-auto p-1">
