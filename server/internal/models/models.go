@@ -44,7 +44,7 @@ type Body struct {
 
 // Auth describes request authentication.
 type Auth struct {
-	// Type is one of: none, basic, bearer, apikey.
+	// Type is one of: none, basic, bearer, apikey, oauth2, jwt, aws, digest.
 	Type     string `json:"type"`
 	Username string `json:"username,omitempty"`
 	Password string `json:"password,omitempty"`
@@ -53,6 +53,28 @@ type Auth struct {
 	Value    string `json:"value,omitempty"`
 	// AddTo is "header" (default) or "query" for apikey.
 	AddTo string `json:"addTo,omitempty"`
+
+	// OAuth2
+	GrantType    string `json:"grantType,omitempty"` // client_credentials | password | refresh_token
+	TokenURL     string `json:"tokenUrl,omitempty"`
+	AuthURL      string `json:"authUrl,omitempty"`
+	ClientID     string `json:"clientId,omitempty"`
+	ClientSecret string `json:"clientSecret,omitempty"`
+	Scope        string `json:"scope,omitempty"`
+	RefreshToken string `json:"refreshToken,omitempty"`
+	ClientAuth   string `json:"clientAuth,omitempty"` // basic (default) | body
+
+	// JWT (HS256/HS384/HS512)
+	JWTAlg    string `json:"jwtAlg,omitempty"`
+	JWTSecret string `json:"jwtSecret,omitempty"`
+	JWTClaims string `json:"jwtClaims,omitempty"`
+
+	// AWS Signature v4
+	AWSAccessKey    string `json:"awsAccessKey,omitempty"`
+	AWSSecretKey    string `json:"awsSecretKey,omitempty"`
+	AWSRegion       string `json:"awsRegion,omitempty"`
+	AWSService      string `json:"awsService,omitempty"`
+	AWSSessionToken string `json:"awsSessionToken,omitempty"`
 }
 
 // Options controls how the request is executed.
@@ -64,6 +86,11 @@ type Options struct {
 	MaxRedirects    int    `json:"maxRedirects,omitempty"`
 	// SendVia is "server" (Go, default) or "browser" (fetch from the UI).
 	SendVia string `json:"sendVia,omitempty"`
+	// UseCookieJar keeps cookies between requests (per executor).
+	UseCookieJar bool `json:"useCookieJar,omitempty"`
+	// ClientCert / ClientKey are PEM blobs for mutual TLS.
+	ClientCert string `json:"clientCert,omitempty"`
+	ClientKey  string `json:"clientKey,omitempty"`
 }
 
 // MockHit records one access to a request's mock.

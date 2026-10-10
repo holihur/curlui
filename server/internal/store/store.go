@@ -68,6 +68,16 @@ type Session struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
+// AuditEntry records a team action for the audit trail.
+type AuditEntry struct {
+	ID     string    `json:"id"`
+	At     time.Time `json:"at"`
+	User   string    `json:"user"`
+	Action string    `json:"action"`
+	Target string    `json:"target,omitempty"`
+	Detail string    `json:"detail,omitempty"`
+}
+
 // ProjectMeta describes a project (workspace) and its membership.
 type ProjectMeta struct {
 	ID        string            `json:"id"`
@@ -86,6 +96,7 @@ type Root struct {
 	Users    map[string]*User
 	Sessions map[string]*Session
 	Global   map[string]string
+	Audit    []AuditEntry
 	Version  int64
 }
 
@@ -156,6 +167,17 @@ type settingRow struct {
 
 func (settingRow) TableName() string { return "settings" }
 
+type auditRow struct {
+	ID     string `gorm:"primaryKey"`
+	At     time.Time
+	User   string `gorm:"index"`
+	Action string
+	Target string
+	Detail string
+}
+
+func (auditRow) TableName() string { return "audit_logs" }
+
 // Open loads (or creates) the store. With a DSN it uses PostgreSQL via GORM,
 // otherwise it falls back to a JSON file.
 func Open(opts Options) (*Store, error) {
@@ -167,7 +189,7 @@ func Open(opts Options) (*Store, error) {
 		if err != nil {
 			return nil, err
 		}
-		if err := db.AutoMigrate(&userRow{}, &sessionRow{}, &projectRow{}, &memberRow{}, &settingRow{}); err != nil {
+		if err := db.AutoMigrate(&userRow{}, &sessionRow{}, &projectRow{}, &memberRow{}, &settingRow{}, &auditRow{}); err != nil {
 			return nil, err
 		}
 		s.db = db
@@ -383,6 +405,13 @@ func (s *Store) loadPG() error {
 	for _, st := range sets {
 		s.root.Global[st.Key] = st.Value
 	}
+	var audits []auditRow
+	if err := s.db.Order("at desc").Limit(500).Find(&audits).Error; err != nil {
+		return err
+	}
+	for _, a := range audits {
+		s.root.Audit = append(s.root.Audit, AuditEntry{ID: a.ID, At: a.At, User: a.User, Action: a.Action, Target: a.Target, Detail: a.Detail})
+	}
 	return nil
 }
 
@@ -413,6 +442,7 @@ func (s *Store) dumpRoot() map[string]any {
 		"users":       s.root.Users,
 		"sessions":    s.root.Sessions,
 		"global":      s.root.Global,
+		"audit":       s.root.Audit,
 	}
 }
 
@@ -762,6 +792,37 @@ func (s *Store) Authenticate(username, password string) (*User, bool) {
 		}
 	}
 	return nil, false
+}
+
+// AddAudit records an audit-trail entry (newest kept).
+func (s *Store) AddAudit(e AuditEntry) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if e.ID == "" {
+		e.ID = models.NewID()
+	}
+	if e.At.IsZero() {
+		e.At = time.Now()
+	}
+	s.root.Audit = append([]AuditEntry{e}, s.root.Audit...)
+	if len(s.root.Audit) > 500 {
+		s.root.Audit = s.root.Audit[:500]
+	}
+	if s.db != nil {
+		_ = s.db.Create(&auditRow{ID: e.ID, At: e.At, User: e.User, Action: e.Action, Target: e.Target, Detail: e.Detail}).Error
+	}
+}
+
+// Audit returns recent audit entries, newest first.
+func (s *Store) Audit(limit int) []AuditEntry {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if limit <= 0 || limit > len(s.root.Audit) {
+		limit = len(s.root.Audit)
+	}
+	out := make([]AuditEntry, limit)
+	copy(out, s.root.Audit[:limit])
+	return out
 }
 
 // --- Sessions --------------------------------------------------------------

@@ -1,9 +1,9 @@
 # curlui
 
-A self-hosted HTTP client in the spirit of **Postman** and **Navicat** — build,
-send, inspect and organize HTTP requests. The twist: every request is actually
-executed **by the Go backend**, so the browser never hits CORS, you can call
-internal/private endpoints, and you get precise per-phase network timings.
+A self-hosted HTTP client — build, send, inspect and organize HTTP requests.
+The twist: every request is actually executed **by the Go backend**, so the
+browser never hits CORS, you can call internal/private endpoints, and you get
+precise per-phase network timings.
 
 ![curlui](docs/screenshots/hero.png)
 
@@ -29,8 +29,8 @@ internal/private endpoints, and you get precise per-phase network timings.
   targets work, and you get a real `User-Agent` of `curlui/1.0`.
 - **Detailed timings** — DNS, TCP connect, TLS handshake, TTFB and total,
   measured with `httptrace` and rendered as a waterfall.
-- **Collections** — nested folders to organize and save requests (Navicat-style
-  tree), rename/move/delete.
+- **Collections** — nested folders to organize and save requests
+  (rename/move/delete).
 - **History** — every executed request is recorded and can be re-opened.
 - **Environments & variables** — `{{baseUrl}}`, plus dynamic values
   `{{$timestamp}}`, `{{$isoTimestamp}}`, `{{$uuid}}`, `{{$randomInt}}`.

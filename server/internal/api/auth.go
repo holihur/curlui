@@ -2,10 +2,15 @@ package api
 
 import (
 	"context"
+	"crypto/rand"
+	"encoding/hex"
+	"encoding/json"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
+	"curlui/server/internal/oidc"
 	"curlui/server/internal/store"
 )
 
@@ -62,6 +67,216 @@ func tokenFrom(r *http.Request) string {
 
 func isAdmin(r *http.Request) bool {
 	return userFrom(r).Role == "admin"
+}
+
+// listAudit returns the audit trail (admins only).
+func (s *Server) listAudit(w http.ResponseWriter, r *http.Request) {
+	if !s.requireAdmin(w, r) {
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"entries": s.store.Audit(200)})
+}
+
+func isWriteMethod(m string) bool {
+	switch m {
+	case http.MethodPost, http.MethodPut, http.MethodPatch, http.MethodDelete:
+		return true
+	}
+	return false
+}
+
+func randToken(n int) string {
+	b := make([]byte, n)
+	_, _ = rand.Read(b)
+	return hex.EncodeToString(b)
+}
+
+// --- OpenID Connect (SSO) --------------------------------------------------
+
+type oidcState struct {
+	nonce   string
+	created time.Time
+}
+
+var oidcStates = struct {
+	sync.Mutex
+	m map[string]oidcState
+}{m: map[string]oidcState{}}
+
+func (s *Server) oidcConfigured() (issuer, clientID, clientSecret, scopes, label string, ok bool) {
+	st := s.store.Settings()
+	issuer = strings.TrimSpace(st["oidcIssuer"])
+	clientID = strings.TrimSpace(st["oidcClientId"])
+	clientSecret = st["oidcClientSecret"]
+	scopes = strings.TrimSpace(st["oidcScopes"])
+	if scopes == "" {
+		scopes = "openid email profile"
+	}
+	label = strings.TrimSpace(st["oidcButtonLabel"])
+	if label == "" {
+		label = "SSO"
+	}
+	ok = st["oidcEnabled"] == "1" && issuer != "" && clientID != ""
+	return
+}
+
+// oidcConfig is public so the login screen can show the SSO button.
+func (s *Server) oidcConfig(w http.ResponseWriter, r *http.Request) {
+	_, _, _, _, label, ok := s.oidcConfigured()
+	writeJSON(w, http.StatusOK, map[string]any{"enabled": ok, "label": label})
+}
+
+func (s *Server) oidcStart(w http.ResponseWriter, r *http.Request) {
+	issuer, clientID, _, scopes, _, ok := s.oidcConfigured()
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "oidc is not configured")
+		return
+	}
+	p, err := oidc.Discover(r.Context(), issuer)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	state := randToken(16)
+	nonce := randToken(16)
+	oidcStates.Lock()
+	for k, v := range oidcStates.m {
+		if time.Since(v.created) > 10*time.Minute {
+			delete(oidcStates.m, k)
+		}
+	}
+	oidcStates.m[state] = oidcState{nonce: nonce, created: time.Now()}
+	oidcStates.Unlock()
+
+	http.Redirect(w, r, p.AuthURL(clientID, baseURL(r)+"/api/auth/oidc/callback", scopes, state, nonce), http.StatusFound)
+}
+
+func (s *Server) oidcCallback(w http.ResponseWriter, r *http.Request) {
+	issuer, clientID, clientSecret, scopes, _, ok := s.oidcConfigured()
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "oidc is not configured")
+		return
+	}
+	_ = scopes
+	state := r.URL.Query().Get("state")
+	oidcStates.Lock()
+	st, found := oidcStates.m[state]
+	delete(oidcStates.m, state)
+	oidcStates.Unlock()
+	if !found || time.Since(st.created) > 10*time.Minute {
+		writeErr(w, http.StatusBadRequest, "invalid or expired state")
+		return
+	}
+	code := r.URL.Query().Get("code")
+	if code == "" {
+		writeErr(w, http.StatusBadRequest, "missing authorization code")
+		return
+	}
+	p, err := oidc.Discover(r.Context(), issuer)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	tokens, err := p.Exchange(r.Context(), clientID, clientSecret, baseURL(r)+"/api/auth/oidc/callback", code)
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+
+	claims := &oidc.Claims{}
+	if tokens.IDToken != "" {
+		claims, err = oidc.ParseIDToken(r.Context(), p, tokens.IDToken, clientID)
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	} else if tokens.AccessToken != "" && p.UserinfoEndpoint != "" {
+		// Fall back to the userinfo endpoint when there is no ID token.
+		claims, err = userinfo(r.Context(), p.UserinfoEndpoint, tokens.AccessToken)
+		if err != nil {
+			writeErr(w, http.StatusBadGateway, err.Error())
+			return
+		}
+	}
+
+	username := firstNonEmpty(claims.PreferredUsername, claims.Email, claims.Sub)
+	if username == "" {
+		writeErr(w, http.StatusBadGateway, "oidc: no username claim")
+		return
+	}
+	settings := s.store.Settings()
+	user, found := s.store.FindByUsername(username)
+	if !found && claims.Email != "" {
+		user, found = s.store.FindByUsername(claims.Email)
+	}
+	if !found {
+		if settings["oidcAutoCreate"] == "0" {
+			writeErr(w, http.StatusForbidden, "no account for "+username)
+			return
+		}
+		role := settings["oidcDefaultRole"]
+		if role == "" {
+			role = "member"
+		}
+		created, cerr := s.store.CreateUser(username, firstNonEmpty(claims.Name, username), "oidc!"+randToken(12), role)
+		if cerr != nil {
+			writeErr(w, http.StatusBadRequest, cerr.Error())
+			return
+		}
+		user = &created
+	}
+
+	se, err := s.store.CreateSession(user.ID, sessionTTL)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: se.Token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(sessionTTL.Seconds())})
+	s.store.AddAudit(store.AuditEntry{User: user.Username, Action: "login.oidc", Target: user.ID})
+	http.Redirect(w, r, "/", http.StatusFound)
+}
+
+func userinfo(ctx context.Context, endpoint, accessToken string) (*oidc.Claims, error) {
+	req, err := http.NewRequestWithContext(ctx, http.MethodGet, endpoint, nil)
+	if err != nil {
+		return nil, err
+	}
+	req.Header.Set("Authorization", "Bearer "+accessToken)
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		return nil, err
+	}
+	defer resp.Body.Close()
+	var claims oidc.Claims
+	if err := json.NewDecoder(resp.Body).Decode(&claims); err != nil {
+		return nil, err
+	}
+	return &claims, nil
+}
+
+func firstNonEmpty(vals ...string) string {
+	for _, v := range vals {
+		if strings.TrimSpace(v) != "" {
+			return v
+		}
+	}
+	return ""
+}
+
+// baseURL reconstructs the externally visible base URL for redirects.
+func baseURL(r *http.Request) string {
+	scheme := "http"
+	if r.TLS != nil {
+		scheme = "https"
+	}
+	if p := r.Header.Get("X-Forwarded-Proto"); p != "" {
+		scheme = strings.Split(p, ",")[0]
+	}
+	host := r.Host
+	if h := r.Header.Get("X-Forwarded-Host"); h != "" {
+		host = strings.Split(h, ",")[0]
+	}
+	return scheme + "://" + host
 }
 
 // requestToken extracts the session token from the Authorization header or
@@ -126,6 +341,15 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			}
 		}
 		ctx = context.WithValue(ctx, ctxProject, pid)
+
+		// Viewers are read-only across the data API.
+		if user != nil && !public && isWriteMethod(r.Method) && strings.HasPrefix(path, "/api/") &&
+			!strings.HasPrefix(path, "/api/auth/") {
+			if role, ok := s.store.Role(pid, user.ID, user.Role == "admin"); ok && role == "viewer" {
+				writeErr(w, http.StatusForbidden, "viewer role is read-only")
+				return
+			}
+		}
 		next.ServeHTTP(w, r.WithContext(ctx))
 	})
 }
@@ -177,6 +401,7 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: se.Token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(sessionTTL.Seconds())})
+	s.store.AddAudit(store.AuditEntry{User: u.Username, Action: "login", Target: u.ID})
 	writeJSON(w, http.StatusOK, map[string]any{"token": se.Token, "user": publicUser(u)})
 }
 
@@ -253,6 +478,7 @@ func (s *Server) createUser(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.store.AddAudit(store.AuditEntry{User: userFrom(r).Username, Action: "user.create", Target: u.ID, Detail: u.Username})
 	writeJSON(w, http.StatusCreated, u)
 }
 
@@ -310,6 +536,7 @@ func (s *Server) createProject(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
+	s.store.AddAudit(store.AuditEntry{User: u.Username, Action: "project.create", Target: meta.ID, Detail: meta.Name})
 	writeJSON(w, http.StatusCreated, meta)
 }
 
@@ -371,6 +598,7 @@ func (s *Server) setProjectMember(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
+	s.store.AddAudit(store.AuditEntry{User: userFrom(r).Username, Action: "member.add", Target: id, Detail: in.UserID + ":" + in.Role})
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 

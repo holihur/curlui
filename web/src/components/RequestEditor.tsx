@@ -2,6 +2,7 @@ import { useEffect, useRef, useState, type ReactNode } from "react";
 import { AlertCircle, Bug, CheckCircle2, ChevronDown, Clock, Code2, FlaskConical, Loader2, Play, Save, Send, Wand2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import {
   Select,
@@ -348,6 +349,10 @@ function AuthEditor({
             <SelectItem value="basic">{t("basicAuth")}</SelectItem>
             <SelectItem value="bearer">{t("bearerToken")}</SelectItem>
             <SelectItem value="apikey">{t("apiKey")}</SelectItem>
+            <SelectItem value="oauth2">{t("oauth2")}</SelectItem>
+            <SelectItem value="jwt">{t("jwt")}</SelectItem>
+            <SelectItem value="aws">{t("awsSigV4")}</SelectItem>
+            <SelectItem value="digest">{t("digestAuth")}</SelectItem>
           </SelectContent>
         </Select>
       </Field>
@@ -409,6 +414,196 @@ function AuthEditor({
                 <SelectItem value="query">{t("queryParam")}</SelectItem>
               </SelectContent>
             </Select>
+          </Field>
+        </div>
+      )}
+
+      {req.auth.type === "digest" && (
+        <div className="grid grid-cols-2 gap-3">
+          <Field label={t("username")}>
+            <Input value={req.auth.username ?? ""} onChange={(e) => setAuth({ username: e.target.value })} />
+          </Field>
+          <Field label={t("password")}>
+            <Input
+              type="password"
+              value={req.auth.password ?? ""}
+              onChange={(e) => setAuth({ password: e.target.value })}
+            />
+          </Field>
+        </div>
+      )}
+
+      {req.auth.type === "oauth2" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("grantType")}>
+              <Select
+                value={req.auth.grantType ?? "client_credentials"}
+                onValueChange={(v) => setAuth({ grantType: v })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="client_credentials">{t("clientCredentials")}</SelectItem>
+                  <SelectItem value="password">{t("passwordGrant")}</SelectItem>
+                  <SelectItem value="refresh_token">{t("refreshTokenGrant")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label={t("clientAuth")}>
+              <Select
+                value={req.auth.clientAuth ?? "basic"}
+                onValueChange={(v) => setAuth({ clientAuth: v as "basic" | "body" })}
+              >
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="basic">{t("clientAuthBasic")}</SelectItem>
+                  <SelectItem value="body">{t("clientAuthBody")}</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+          </div>
+          <Field label={t("tokenUrl")}>
+            <Input
+              value={req.auth.tokenUrl ?? ""}
+              placeholder="https://id.example.com/oauth/token"
+              onChange={(e) => setAuth({ tokenUrl: e.target.value })}
+              className="font-mono text-xs"
+            />
+          </Field>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("clientId")}>
+              <Input
+                value={req.auth.clientId ?? ""}
+                onChange={(e) => setAuth({ clientId: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+            <Field label={t("clientSecret")}>
+              <Input
+                type="password"
+                value={req.auth.clientSecret ?? ""}
+                onChange={(e) => setAuth({ clientSecret: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+          </div>
+          {req.auth.grantType === "password" && (
+            <div className="grid grid-cols-2 gap-3">
+              <Field label={t("username")}>
+                <Input value={req.auth.username ?? ""} onChange={(e) => setAuth({ username: e.target.value })} />
+              </Field>
+              <Field label={t("password")}>
+                <Input
+                  type="password"
+                  value={req.auth.password ?? ""}
+                  onChange={(e) => setAuth({ password: e.target.value })}
+                />
+              </Field>
+            </div>
+          )}
+          {req.auth.grantType === "refresh_token" && (
+            <Field label={t("refreshTokenGrant")}>
+              <Input
+                value={req.auth.refreshToken ?? ""}
+                onChange={(e) => setAuth({ refreshToken: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+          )}
+          <Field label={t("scope")}>
+            <Input
+              value={req.auth.scope ?? ""}
+              placeholder="read write"
+              onChange={(e) => setAuth({ scope: e.target.value })}
+              className="font-mono text-xs"
+            />
+          </Field>
+        </div>
+      )}
+
+      {req.auth.type === "jwt" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("jwtAlg")}>
+              <Select value={req.auth.jwtAlg ?? "HS256"} onValueChange={(v) => setAuth({ jwtAlg: v })}>
+                <SelectTrigger>
+                  <SelectValue />
+                </SelectTrigger>
+                <SelectContent>
+                  <SelectItem value="HS256">HS256</SelectItem>
+                  <SelectItem value="HS384">HS384</SelectItem>
+                  <SelectItem value="HS512">HS512</SelectItem>
+                </SelectContent>
+              </Select>
+            </Field>
+            <Field label={t("jwtSecret")}>
+              <Input
+                type="password"
+                value={req.auth.jwtSecret ?? ""}
+                onChange={(e) => setAuth({ jwtSecret: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+          </div>
+          <Field label={t("jwtClaims")}>
+            <Textarea
+              value={req.auth.jwtClaims ?? ""}
+              placeholder={'{"sub":"1234567890","name":"John Doe"}'}
+              onChange={(e) => setAuth({ jwtClaims: e.target.value })}
+              className="min-h-[90px] font-mono text-xs"
+              spellCheck={false}
+            />
+          </Field>
+        </div>
+      )}
+
+      {req.auth.type === "aws" && (
+        <div className="space-y-3">
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("awsAccessKey")}>
+              <Input
+                value={req.auth.awsAccessKey ?? ""}
+                onChange={(e) => setAuth({ awsAccessKey: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+            <Field label={t("awsSecretKey")}>
+              <Input
+                type="password"
+                value={req.auth.awsSecretKey ?? ""}
+                onChange={(e) => setAuth({ awsSecretKey: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <Field label={t("awsRegion")}>
+              <Input
+                value={req.auth.awsRegion ?? ""}
+                placeholder="us-east-1"
+                onChange={(e) => setAuth({ awsRegion: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+            <Field label={t("awsService")}>
+              <Input
+                value={req.auth.awsService ?? ""}
+                placeholder="execute-api"
+                onChange={(e) => setAuth({ awsService: e.target.value })}
+                className="font-mono text-xs"
+              />
+            </Field>
+          </div>
+          <Field label={t("awsSessionToken")}>
+            <Input
+              value={req.auth.awsSessionToken ?? ""}
+              onChange={(e) => setAuth({ awsSessionToken: e.target.value })}
+              className="font-mono text-xs"
+            />
           </Field>
         </div>
       )}

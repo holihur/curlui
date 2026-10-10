@@ -38,6 +38,13 @@ export function SettingsDialog({
   const [mcpOn, setMcpOn] = useState(true);
   const [mcpWrite, setMcpWrite] = useState(false);
   const [authOn, setAuthOn] = useState(false);
+  const [oidcOn, setOidcOn] = useState(false);
+  const [oidcIssuer, setOidcIssuer] = useState("");
+  const [oidcClientId, setOidcClientId] = useState("");
+  const [oidcClientSecret, setOidcClientSecret] = useState("");
+  const [oidcLabel, setOidcLabel] = useState("");
+  const [oidcAutoCreate, setOidcAutoCreate] = useState(true);
+  const [oidcRole, setOidcRole] = useState("member");
   const [info, setInfo] = useState<{ current: string; latest: string; hasUpdate: boolean; url: string } | null>(null);
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
@@ -88,6 +95,13 @@ export function SettingsDialog({
         setMcpOn(s.mcpEnabled !== "0");
         setMcpWrite(s.mcpWrite === "1");
         setAuthOn(s.authEnabled === "1");
+        setOidcOn(s.oidcEnabled === "1");
+        setOidcIssuer(s.oidcIssuer ?? "");
+        setOidcClientId(s.oidcClientId ?? "");
+        setOidcClientSecret(s.oidcClientSecret ?? "");
+        setOidcLabel(s.oidcButtonLabel ?? "");
+        setOidcAutoCreate(s.oidcAutoCreate !== "0");
+        setOidcRole(s.oidcDefaultRole || "member");
       })
       .catch(() => {});
   }, [open]);
@@ -100,6 +114,13 @@ export function SettingsDialog({
         mcpEnabled: mcpOn ? "1" : "0",
         mcpWrite: mcpWrite ? "1" : "0",
         authEnabled: authOn ? "1" : "0",
+        oidcEnabled: oidcOn ? "1" : "0",
+        oidcIssuer: oidcIssuer.trim(),
+        oidcClientId: oidcClientId.trim(),
+        oidcClientSecret,
+        oidcButtonLabel: oidcLabel.trim(),
+        oidcAutoCreate: oidcAutoCreate ? "1" : "0",
+        oidcDefaultRole: oidcRole,
       });
       await useStore.getState().loadAuth();
       toast({ title: t("settingsSaved"), variant: "success" });
@@ -154,6 +175,65 @@ export function SettingsDialog({
             </span>
             <Switch checked={authOn} onCheckedChange={setAuthOn} />
           </label>
+
+          <div className="mt-4 flex items-center justify-between gap-3 text-sm">
+            <span className="flex-1">{t("oidcEnable")}</span>
+            <Switch checked={oidcOn} onCheckedChange={setOidcOn} />
+          </div>
+          {oidcOn && (
+            <div className="mt-2 space-y-2 rounded-md border p-2">
+              <div className="flex flex-col gap-1">
+                <span className="text-xs text-muted-foreground">{t("oidcIssuer")}</span>
+                <Input
+                  className="h-8 font-mono text-xs"
+                  placeholder="https://accounts.example.com"
+                  value={oidcIssuer}
+                  onChange={(e) => setOidcIssuer(e.target.value)}
+                  spellCheck={false}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  className="h-8 font-mono text-xs"
+                  placeholder={t("clientId")}
+                  value={oidcClientId}
+                  onChange={(e) => setOidcClientId(e.target.value)}
+                  spellCheck={false}
+                />
+                <Input
+                  className="h-8 font-mono text-xs"
+                  type="password"
+                  placeholder={t("clientSecret")}
+                  value={oidcClientSecret}
+                  onChange={(e) => setOidcClientSecret(e.target.value)}
+                />
+              </div>
+              <div className="grid grid-cols-2 gap-2">
+                <Input
+                  className="h-8 text-xs"
+                  placeholder={t("oidcButtonLabel")}
+                  value={oidcLabel}
+                  onChange={(e) => setOidcLabel(e.target.value)}
+                />
+                <select
+                  className="h-8 rounded-md border bg-background px-2 text-xs"
+                  value={oidcRole}
+                  onChange={(e) => setOidcRole(e.target.value)}
+                >
+                  <option value="member">{t("roleMember")}</option>
+                  <option value="viewer">{t("roleViewer")}</option>
+                  <option value="admin">{t("roleAdmin")}</option>
+                </select>
+              </div>
+              <label className="flex items-center justify-between gap-3 text-xs">
+                <span>{t("oidcAutoCreate")}</span>
+                <Switch checked={oidcAutoCreate} onCheckedChange={setOidcAutoCreate} />
+              </label>
+              <p className="text-[11px] text-muted-foreground">
+                Redirect URI: <code>{"/api/auth/oidc/callback"}</code>
+              </p>
+            </div>
+          )}
         </div>
 
         <div className="border-t pt-4">

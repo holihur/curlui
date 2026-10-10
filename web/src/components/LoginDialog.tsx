@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, LogIn, ShieldPlus } from "lucide-react";
 import {
   Dialog,
@@ -11,6 +11,7 @@ import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Label } from "@/components/ui/label";
 import { useI18n } from "@/lib/i18n";
+import { api } from "@/lib/api";
 import { useStore } from "@/store";
 
 function AuthForm({ onDone }: { onDone?: () => void }) {
@@ -111,6 +112,15 @@ export function LoginDialog({
 // visitor is not signed in.
 export function AuthScreen() {
   const { t } = useI18n();
+  const [sso, setSso] = useState<{ enabled: boolean; label: string } | null>(null);
+
+  useEffect(() => {
+    api
+      .oidcConfig()
+      .then(setSso)
+      .catch(() => setSso(null));
+  }, []);
+
   return (
     <div className="flex min-h-screen items-center justify-center bg-background p-4">
       <div className="w-full max-w-sm rounded-xl border bg-card p-6 shadow-sm">
@@ -119,6 +129,19 @@ export function AuthScreen() {
           <span className="text-xs text-muted-foreground">· {t("team")}</span>
         </div>
         <AuthForm />
+        {sso?.enabled && (
+          <div className="mt-4 border-t pt-4">
+            <Button
+              variant="outline"
+              className="w-full gap-1.5"
+              onClick={() => {
+                window.location.href = "/api/auth/oidc/start";
+              }}
+            >
+              <LogIn className="h-4 w-4" /> {t("signInWith")} {sso.label}
+            </Button>
+          </div>
+        )}
       </div>
     </div>
   );

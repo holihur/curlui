@@ -25,7 +25,7 @@ export type Body = {
   filePath?: string;
 };
 
-export type AuthType = "none" | "basic" | "bearer" | "apikey";
+export type AuthType = "none" | "basic" | "bearer" | "apikey" | "oauth2" | "jwt" | "aws" | "digest";
 
 export type Auth = {
   type: AuthType;
@@ -35,6 +35,25 @@ export type Auth = {
   key?: string;
   value?: string;
   addTo?: "header" | "query";
+  // oauth2
+  grantType?: string;
+  tokenUrl?: string;
+  authUrl?: string;
+  clientId?: string;
+  clientSecret?: string;
+  scope?: string;
+  refreshToken?: string;
+  clientAuth?: "basic" | "body";
+  // jwt
+  jwtAlg?: string;
+  jwtSecret?: string;
+  jwtClaims?: string;
+  // aws sigv4
+  awsAccessKey?: string;
+  awsSecretKey?: string;
+  awsRegion?: string;
+  awsService?: string;
+  awsSessionToken?: string;
 };
 
 export type RequestOptions = {

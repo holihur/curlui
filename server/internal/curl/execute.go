@@ -11,6 +11,7 @@ import (
 	"mime/multipart"
 	"net"
 	"net/http"
+	"net/http/cookiejar"
 	"net/http/httptrace"
 	"net/textproto"
 	"net/url"
@@ -37,6 +38,8 @@ type Executor struct {
 	// UserAgent, when set, provides the default User-Agent header for requests
 	// that don't specify one.
 	UserAgent func() string
+	// Jar keeps cookies between requests when a request opts in.
+	Jar http.CookieJar
 }
 
 // Execute runs the request definition. Variables are resolved internally so
@@ -113,8 +116,12 @@ func (e *Executor) Execute(ctx context.Context, def models.RequestDef, vars vari
 		header.Set("Content-Type", contentType)
 	}
 
-	// Authentication.
-	applyAuth(&def, header, &finalURL)
+	// Authentication (may fetch an OAuth2 token or sign the request).
+	client := e.newClient(def)
+	if err := e.applyRequestAuth(ctx, client, &def, strings.ToUpper(def.Method), header, &finalURL, []byte(def.Body.Raw)); err != nil {
+		resp.Error = err.Error()
+		return resp
+	}
 
 	// Default User-Agent / Accept when not supplied.
 	if header.Get("User-Agent") == "" {
@@ -181,7 +188,6 @@ func (e *Executor) Execute(ctx context.Context, def models.RequestDef, vars vari
 	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
 
 	// Build the HTTP client with the requested options.
-	client := e.newClient(def)
 	resp.Request = models.SentRequest{
 		Method:  req.Method,
 		URL:     finalURL,
@@ -195,6 +201,25 @@ func (e *Executor) Execute(ctx context.Context, def models.RequestDef, vars vari
 	timing.Total = time.Since(start).Milliseconds()
 	resp.Timing = timing
 	resp.Duration = timing.Total
+
+	// Digest auth: retry once with the challenge response.
+	if err == nil && httpResp != nil && httpResp.StatusCode == http.StatusUnauthorized && strings.EqualFold(def.Auth.Type, "digest") {
+		if chal := httpResp.Header.Get("Www-Authenticate"); strings.Contains(strings.ToLower(chal), "digest") {
+			_ = httpResp.Body.Close()
+			header.Set("Authorization", digestAuthorization(def.Auth, req.Method, req.URL.RequestURI(), parseDigestChallenge(chal)))
+			if br, _, berr := buildBody(def); berr == nil {
+				if req2, rerr := http.NewRequestWithContext(ctx, req.Method, finalURL, br); rerr == nil {
+					req2.Header = header
+					req2 = req2.WithContext(httptrace.WithClientTrace(req2.Context(), trace))
+					start = time.Now()
+					httpResp, err = client.Do(req2)
+					timing.Total = time.Since(start).Milliseconds()
+					resp.Timing = timing
+					resp.Duration = timing.Total
+				}
+			}
+		}
+	}
 	if err != nil {
 		resp.Error = friendlyError(err)
 		return resp
@@ -379,8 +404,24 @@ func (e *Executor) newClient(def models.RequestDef) *http.Client {
 			transport.Proxy = http.ProxyURL(pu)
 		}
 	}
+	if def.Options.ClientCert != "" && def.Options.ClientKey != "" {
+		if cert, err := tls.X509KeyPair([]byte(def.Options.ClientCert), []byte(def.Options.ClientKey)); err == nil {
+			if transport.TLSClientConfig == nil {
+				transport.TLSClientConfig = &tls.Config{} //nolint:gosec
+			}
+			transport.TLSClientConfig.Certificates = []tls.Certificate{cert}
+		}
+	}
 
 	client := &http.Client{Transport: transport}
+	if def.Options.UseCookieJar {
+		if e.Jar == nil {
+			if jar, jerr := cookiejar.New(nil); jerr == nil {
+				e.Jar = jar
+			}
+		}
+		client.Jar = e.Jar
+	}
 	if !def.Options.FollowRedirects {
 		client.CheckRedirect = func(*http.Request, []*http.Request) error {
 			return http.ErrUseLastResponse
@@ -484,33 +525,6 @@ func addFilePart(w *multipart.Writer, f models.KeyValue) error {
 	}
 	_, err = part.Write(data)
 	return err
-}
-
-func applyAuth(def *models.RequestDef, header http.Header, finalURL *string) {
-	switch def.Auth.Type {
-	case "basic":
-		token := base64.StdEncoding.EncodeToString([]byte(def.Auth.Username + ":" + def.Auth.Password))
-		header.Set("Authorization", "Basic "+token)
-	case "bearer":
-		if def.Auth.Token != "" {
-			header.Set("Authorization", "Bearer "+def.Auth.Token)
-		}
-	case "apikey":
-		if def.Auth.Key == "" {
-			return
-		}
-		if def.Auth.AddTo == "query" {
-			u, err := url.Parse(*finalURL)
-			if err == nil {
-				q := u.Query()
-				q.Set(def.Auth.Key, def.Auth.Value)
-				u.RawQuery = q.Encode()
-				*finalURL = u.String()
-			}
-		} else {
-			header.Set(def.Auth.Key, def.Auth.Value)
-		}
-	}
 }
 
 func readLimited(r io.Reader, limit int64) ([]byte, bool, error) {

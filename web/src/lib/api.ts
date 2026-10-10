@@ -368,6 +368,14 @@ export const api = {
   logout() {
     return request<{ ok: boolean }>("/auth/logout", { method: "POST" });
   },
+  oidcConfig() {
+    return request<{ enabled: boolean; label: string }>("/auth/oidc/config");
+  },
+  listAudit() {
+    return request<{ entries: { id: string; at: string; user: string; action: string; target?: string; detail?: string }[] }>(
+      "/audit",
+    );
+  },
   listUsers() {
     return request<{ users: User[] }>("/users");
   },
