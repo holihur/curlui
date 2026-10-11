@@ -42,20 +42,24 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p ../dist
+          build() {
+            os=$1; arch=$2; variant=$3; tags=$4; name=$5
+            ext=""; [ "$os" = "windows" ] && ext=".exe"
+            out="../dist/${name}_${VERSION}_${os}_${arch}${ext}"
+            echo "building $out ($variant)"
+            GOOS=$os GOARCH=$arch go build \
+              -trimpath $tags \
+              -ldflags "-s -w -X main.version=${VERSION}" \
+              -o "$out" .
+          }
           for os in linux darwin windows; do
             for arch in amd64 arm64; do
-              ext=""
-              [ "$os" = "windows" ] && ext=".exe"
-              out="../dist/curlui_${VERSION}_${os}_${arch}${ext}"
-              echo "building $out"
-              GOOS=$os GOARCH=$arch go build \
-                -trimpath \
-                -ldflags "-s -w -X main.version=${VERSION}" \
-                -o "$out" .
+              build "$os" "$arch" full "" curlui
+              build "$os" "$arch" core "-tags core" curlui-core
             done
           done
           cd ../dist
-          for f in curlui_*; do
+          for f in curlui*; do
             case "$f" in
               *.exe) zip "${f%.exe}.zip" "$f" ;;
               *) tar -czf "${f}.tar.gz" "$f" ;;

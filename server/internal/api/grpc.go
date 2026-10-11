@@ -1,3 +1,5 @@
+//go:build !core
+
 package api
 
 import (
@@ -6,6 +8,7 @@ import (
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
 	"time"
 
 	"google.golang.org/protobuf/reflect/protoregistry"
@@ -84,7 +87,7 @@ func (s *Server) grpcDescriptor(w http.ResponseWriter, r *http.Request) {
 		source = "file"
 	}
 
-	s.grpcStore(id, files)
+	grpcStore(id, files)
 	_ = db.SaveDescriptor(store.GrpcDescriptor{
 		ID: id, Name: name, Size: len(raw), Source: source,
 		Target: payload.Target, UploadedAt: time.Now().UnixMilli(),
@@ -100,7 +103,7 @@ func (s *Server) listGrpcDescriptors(w http.ResponseWriter, r *http.Request) {
 	db := s.db(r)
 	out := []map[string]any{}
 	for _, d := range db.Descriptors() {
-		files, ok := s.grpcFilesFor(db, d)
+		files, ok := grpcFilesFor(d)
 		if !ok {
 			continue
 		}
@@ -120,7 +123,7 @@ func (s *Server) deleteGrpcDescriptor(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusNotFound, err.Error())
 		return
 	}
-	s.grpcForget(id)
+	grpcForget(id)
 	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
@@ -146,7 +149,7 @@ func (s *Server) grpcCall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown descriptor; import a .pb file or use reflection first")
 		return
 	}
-	files, ok := s.grpcFilesFor(db, d)
+	files, ok := grpcFilesFor(d)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "stored descriptor could not be parsed")
 		return
@@ -187,7 +190,7 @@ func (s *Server) grpcExample(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "unknown descriptor")
 		return
 	}
-	files, ok := s.grpcFilesFor(db, d)
+	files, ok := grpcFilesFor(d)
 	if !ok {
 		writeErr(w, http.StatusBadRequest, "stored descriptor could not be parsed")
 		return
@@ -211,7 +214,7 @@ func (s *Server) invokeGrpc(ctx context.Context, st *store.Store, req models.Req
 	if !ok {
 		return models.Response{}, fmt.Errorf("grpc: descriptor not found — import it in the gRPC tab")
 	}
-	files, ok := s.grpcFilesFor(st, d)
+	files, ok := grpcFilesFor(d)
 	if !ok {
 		return models.Response{}, fmt.Errorf("grpc: stored descriptor could not be parsed")
 	}
@@ -254,15 +257,21 @@ func (s *Server) invokeGrpc(ctx context.Context, st *store.Store, req models.Req
 
 // --- descriptor cache ------------------------------------------------------
 
+// grpcCache holds parsed descriptor registries (keyed by descriptor id).
+var grpcCache = struct {
+	sync.Mutex
+	m map[string]*protoregistry.Files
+}{m: map[string]*protoregistry.Files{}}
+
 // grpcFilesFor returns the parsed registry for a stored descriptor, parsing and
 // caching it on first use (so calls work after a restart).
-func (s *Server) grpcFilesFor(db *store.Store, d store.GrpcDescriptor) (*protoregistry.Files, bool) {
-	s.grpcMu.Lock()
-	if f, ok := s.grpcFiles[d.ID]; ok {
-		s.grpcMu.Unlock()
+func grpcFilesFor(d store.GrpcDescriptor) (*protoregistry.Files, bool) {
+	grpcCache.Lock()
+	if f, ok := grpcCache.m[d.ID]; ok {
+		grpcCache.Unlock()
 		return f, true
 	}
-	s.grpcMu.Unlock()
+	grpcCache.Unlock()
 
 	raw, err := grpcx.DecodeBase64(d.Data)
 	if err != nil {
@@ -272,23 +281,31 @@ func (s *Server) grpcFilesFor(db *store.Store, d store.GrpcDescriptor) (*protore
 	if err != nil {
 		return nil, false
 	}
-	s.grpcStore(d.ID, files)
+	grpcCache.Lock()
+	grpcCache.m[d.ID] = files
+	grpcCache.Unlock()
 	return files, true
 }
 
-func (s *Server) grpcStore(id string, files *protoregistry.Files) {
-	s.grpcMu.Lock()
-	defer s.grpcMu.Unlock()
-	if s.grpcFiles == nil {
-		s.grpcFiles = map[string]*protoregistry.Files{}
-	}
-	s.grpcFiles[id] = files
+func grpcStore(id string, files *protoregistry.Files) {
+	grpcCache.Lock()
+	grpcCache.m[id] = files
+	grpcCache.Unlock()
 }
 
-func (s *Server) grpcForget(id string) {
-	s.grpcMu.Lock()
-	defer s.grpcMu.Unlock()
-	delete(s.grpcFiles, id)
+func grpcForget(id string) {
+	grpcCache.Lock()
+	defer grpcCache.Unlock()
+	delete(grpcCache.m, id)
+}
+
+// registerGrpcRoutes mounts the gRPC endpoints (full build only).
+func (s *Server) registerGrpcRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("POST /api/grpc/descriptor", s.grpcDescriptor)
+	mux.HandleFunc("GET /api/grpc/descriptors", s.listGrpcDescriptors)
+	mux.HandleFunc("DELETE /api/grpc/descriptors/{id}", s.deleteGrpcDescriptor)
+	mux.HandleFunc("POST /api/grpc/example", s.grpcExample)
+	mux.HandleFunc("POST /api/grpc/call", s.grpcCall)
 }
 
 func base64Encode(b []byte) string { return base64.StdEncoding.EncodeToString(b) }

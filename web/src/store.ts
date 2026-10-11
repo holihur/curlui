@@ -76,6 +76,10 @@ type State = {
   projectRole: string;
   projectVersion: number;
   loginOpen: boolean;
+  // Build variant ("full" | "core") and which optional features are compiled in.
+  buildVariant: string;
+  features: Record<string, boolean>;
+  loadBuild: () => Promise<void>;
   setLoginOpen: (v: boolean) => void;
   loadAuth: () => Promise<void>;
   login: (username: string, password: string) => Promise<void>;
@@ -314,6 +318,17 @@ export const useStore = create<State>((set, get) => ({
   projectRole: "member",
   projectVersion: 0,
   loginOpen: false,
+  buildVariant: "full",
+  features: {},
+
+  async loadBuild() {
+    try {
+      const h = await api.health();
+      set({ buildVariant: h.variant || "full", features: h.features ?? {} });
+    } catch {
+      /* keep defaults (assume full) */
+    }
+  },
 
   setLoginOpen(v) {
     set({ loginOpen: v });
@@ -404,6 +419,7 @@ export const useStore = create<State>((set, get) => ({
   },
 
   async loadAll() {
+    await get().loadBuild();
     await get().loadAuth();
     if (get().authEnabled && !get().authenticated) return;
     // Collections are needed for the first paint; history and environments are

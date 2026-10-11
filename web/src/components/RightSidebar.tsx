@@ -24,6 +24,8 @@ export function RightSidebar() {
   const setOpen = useStore((s) => s.setRightOpen);
   const width = useStore((s) => s.rightWidth);
   const setWidth = useStore((s) => s.setRightWidth);
+  const hasJobs = useStore((s) => s.features.scheduler !== false);
+  const tabs = TABS.filter((x) => x.key !== "jobs" || hasJobs);
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -50,7 +52,7 @@ export function RightSidebar() {
       )}
     >
       <div className="flex h-9 shrink-0 items-center gap-1 border-b px-1.5">
-        {TABS.map((item) => (
+        {tabs.map((item) => (
           <button
             key={item.key}
             onClick={() => setTab(item.key)}

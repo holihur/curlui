@@ -36,6 +36,7 @@ export function DocExportDialog({
 }) {
   const { t } = useI18n();
   const toast = useStore((s) => s.toast);
+  const hasPdf = useStore((s) => s.features.pdf !== false);
   const [format, setFormat] = useState<Format>("markdown");
   const [template, setTemplate] = useState("");
   const [preview, setPreview] = useState<string | null>(null);
@@ -122,7 +123,7 @@ export function DocExportDialog({
                 <SelectItem value="markdown">Markdown (.md)</SelectItem>
                 <SelectItem value="html">HTML (.html)</SelectItem>
                 <SelectItem value="word">Word (.doc)</SelectItem>
-                <SelectItem value="pdf">PDF (.pdf)</SelectItem>
+                {hasPdf && <SelectItem value="pdf">PDF (.pdf)</SelectItem>}
               </SelectContent>
             </Select>
             <Button variant="outline" className="mt-1 gap-1.5" onClick={() => void doPreview()} disabled={busy}>

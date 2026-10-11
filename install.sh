@@ -49,6 +49,10 @@ fi
 [ -n "$version" ] || die "could not determine the latest version (set CURLUI_VERSION)"
 
 asset="${BIN}_${version}_${os}_${arch}"
+# core variant: a leaner build without gRPC, PostgreSQL, proxy, MCP, jobs, PDF.
+if [ "${CURLUI_VARIANT:-}" = "core" ]; then
+  asset="${BIN}-core_${version}_${os}_${arch}"
+fi
 url="https://github.com/${REPO}/releases/download/${version}/${asset}"
 
 # --- choose install dir ----------------------------------------------------

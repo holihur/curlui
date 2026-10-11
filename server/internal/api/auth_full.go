@@ -1,3 +1,5 @@
+//go:build !core
+
 package api
 
 import (
@@ -628,4 +630,26 @@ func (s *Server) canManageProject(r *http.Request, id string) bool {
 	}
 	role, ok := s.store.Role(id, u.ID, false)
 	return ok && (role == "owner" || role == "admin")
+}
+
+// registerAuthRoutes mounts auth, user, project and audit endpoints.
+func (s *Server) registerAuthRoutes(mux *http.ServeMux) {
+	mux.HandleFunc("GET /api/auth/status", s.authStatus)
+	mux.HandleFunc("POST /api/auth/login", s.authLogin)
+	mux.HandleFunc("POST /api/auth/logout", s.authLogout)
+	mux.HandleFunc("POST /api/auth/bootstrap", s.authBootstrap)
+	mux.HandleFunc("GET /api/auth/oidc/config", s.oidcConfig)
+	mux.HandleFunc("GET /api/auth/oidc/start", s.oidcStart)
+	mux.HandleFunc("GET /api/auth/oidc/callback", s.oidcCallback)
+	mux.HandleFunc("GET /api/audit", s.listAudit)
+	mux.HandleFunc("GET /api/users", s.listUsers)
+	mux.HandleFunc("POST /api/users", s.createUser)
+	mux.HandleFunc("PUT /api/users/{id}", s.updateUser)
+	mux.HandleFunc("DELETE /api/users/{id}", s.deleteUser)
+	mux.HandleFunc("GET /api/projects", s.listProjects)
+	mux.HandleFunc("POST /api/projects", s.createProject)
+	mux.HandleFunc("PUT /api/projects/{id}", s.updateProject)
+	mux.HandleFunc("DELETE /api/projects/{id}", s.deleteProject)
+	mux.HandleFunc("POST /api/projects/{id}/members", s.setProjectMember)
+	mux.HandleFunc("DELETE /api/projects/{id}/members/{userId}", s.removeProjectMember)
 }

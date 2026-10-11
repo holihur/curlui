@@ -13,14 +13,12 @@ import (
 	"sync"
 	"time"
 
-	"google.golang.org/protobuf/reflect/protoregistry"
-
 	curlpkg "curlui/server/internal/curl"
 	"curlui/server/internal/doc"
 	"curlui/server/internal/graphql"
-	"curlui/server/internal/mitm"
 	"curlui/server/internal/jsonpath"
 	"curlui/server/internal/mcp"
+	"curlui/server/internal/mitm"
 	"curlui/server/internal/models"
 	"curlui/server/internal/openapi"
 	"curlui/server/internal/postman"
@@ -46,9 +44,6 @@ type Server struct {
 	ca           *mitm.CA
 	proxySrv     *proxy.Proxy
 	interceptor  *proxy.Interceptor
-
-	grpcMu    sync.Mutex
-	grpcFiles map[string]*protoregistry.Files
 }
 
 // SetInterceptor wires the proxy breakpoint controller.
@@ -132,7 +127,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 // New returns a new API server.
 func New(st *store.Store, version string) *Server {
-	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}, mockHits: st.MockHits(), version: version, grpcFiles: map[string]*protoregistry.Files{}}
+	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}, mockHits: st.MockHits(), version: version}
 	s.executor.UserAgent = func() string {
 		if ua := strings.TrimSpace(st.Settings()["userAgent"]); ua != "" {
 			return ua
@@ -226,11 +221,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/curl/generate", s.generateCurl)
 	mux.HandleFunc("POST /api/import/postman", s.importPostman)
 	mux.HandleFunc("POST /api/graphql/introspect", s.introspectGraphQL)
-	mux.HandleFunc("POST /api/grpc/descriptor", s.grpcDescriptor)
-	mux.HandleFunc("GET /api/grpc/descriptors", s.listGrpcDescriptors)
-	mux.HandleFunc("DELETE /api/grpc/descriptors/{id}", s.deleteGrpcDescriptor)
-	mux.HandleFunc("POST /api/grpc/example", s.grpcExample)
-	mux.HandleFunc("POST /api/grpc/call", s.grpcCall)
+	s.registerGrpcRoutes(mux)
 
 	mux.HandleFunc("POST /api/openapi/parse", s.parseOpenAPI)
 	mux.HandleFunc("POST /api/collections/import", s.importCollections)
@@ -266,24 +257,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/mock/{id}/hits", s.mockHitsHandler)
 
 	// Team, auth and projects
-	mux.HandleFunc("GET /api/auth/status", s.authStatus)
-	mux.HandleFunc("POST /api/auth/login", s.authLogin)
-	mux.HandleFunc("POST /api/auth/logout", s.authLogout)
-	mux.HandleFunc("POST /api/auth/bootstrap", s.authBootstrap)
-	mux.HandleFunc("GET /api/auth/oidc/config", s.oidcConfig)
-	mux.HandleFunc("GET /api/auth/oidc/start", s.oidcStart)
-	mux.HandleFunc("GET /api/auth/oidc/callback", s.oidcCallback)
-	mux.HandleFunc("GET /api/audit", s.listAudit)
-	mux.HandleFunc("GET /api/users", s.listUsers)
-	mux.HandleFunc("POST /api/users", s.createUser)
-	mux.HandleFunc("PUT /api/users/{id}", s.updateUser)
-	mux.HandleFunc("DELETE /api/users/{id}", s.deleteUser)
-	mux.HandleFunc("GET /api/projects", s.listProjects)
-	mux.HandleFunc("POST /api/projects", s.createProject)
-	mux.HandleFunc("PUT /api/projects/{id}", s.updateProject)
-	mux.HandleFunc("DELETE /api/projects/{id}", s.deleteProject)
-	mux.HandleFunc("POST /api/projects/{id}/members", s.setProjectMember)
-	mux.HandleFunc("DELETE /api/projects/{id}/members/{userId}", s.removeProjectMember)
+	s.registerAuthRoutes(mux)
 
 	return withCORS(withLogging(s.withAuth(mux)))
 }
@@ -347,7 +321,10 @@ func decode(r *http.Request, v any) error {
 // --- handlers --------------------------------------------------------------
 
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"ok": true, "time": time.Now().Unix()})
+	writeJSON(w, http.StatusOK, map[string]any{
+		"ok": true, "time": time.Now().Unix(),
+		"variant": buildVariant(), "features": buildFeatures(),
+	})
 }
 
 type sendPayload struct {

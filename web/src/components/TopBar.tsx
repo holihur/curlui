@@ -81,6 +81,7 @@ export function TopBar() {
   const setRightOpen = useStore((s) => s.setRightOpen);
   const bottomOpen = useStore((s) => s.bottomOpen);
   const setBottomOpen = useStore((s) => s.setBottomOpen);
+  const features = useStore((s) => s.features);
   const selectedFolderId = useStore((s) => s.selectedFolderId);
   const refreshCollections = useStore((s) => s.refreshCollections);
   const toast = useStore((s) => s.toast);
@@ -285,9 +286,11 @@ export function TopBar() {
             <DropdownMenuItem onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
               {!sidebarCollapsed ? <Check /> : <PanelLeft />} {t("panelLeft")}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setBottomOpen(!bottomOpen)}>
-              {bottomOpen ? <Check /> : <Activity />} {t("panelBottom")}
-            </DropdownMenuItem>
+            {features.proxy !== false && (
+              <DropdownMenuItem onClick={() => setBottomOpen(!bottomOpen)}>
+                {bottomOpen ? <Check /> : <Activity />} {t("panelBottom")}
+              </DropdownMenuItem>
+            )}
             <DropdownMenuItem onClick={() => setRightOpen(!rightOpen)}>
               {rightOpen ? <Check /> : <History />} {t("panelRight")}
             </DropdownMenuItem>

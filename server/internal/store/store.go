@@ -17,10 +17,6 @@ import (
 	"sync"
 	"time"
 
-	"gorm.io/driver/postgres"
-	"gorm.io/gorm"
-	"gorm.io/gorm/logger"
-
 	"curlui/server/internal/models"
 )
 
@@ -125,71 +121,13 @@ type Store struct {
 	mu       *sync.RWMutex
 	historyN int
 	path     string
-	db       *gorm.DB
+	db       any
 	root     *Root
 	pid      string
 	data     *Data
 }
 
 // --- GORM rows -------------------------------------------------------------
-
-type userRow struct {
-	ID        string `gorm:"primaryKey"`
-	Username  string `gorm:"uniqueIndex"`
-	Name      string
-	Password  string
-	Role      string
-	CreatedAt time.Time
-}
-
-func (userRow) TableName() string { return "users" }
-
-type sessionRow struct {
-	Token     string `gorm:"primaryKey"`
-	UserID    string `gorm:"index"`
-	CreatedAt time.Time
-	ExpiresAt time.Time `gorm:"index"`
-}
-
-func (sessionRow) TableName() string { return "sessions" }
-
-type projectRow struct {
-	ID        string `gorm:"primaryKey"`
-	Name      string
-	OwnerID   string `gorm:"index"`
-	Data      string `gorm:"type:jsonb"`
-	Version   int64
-	CreatedAt time.Time
-	UpdatedAt time.Time
-}
-
-func (projectRow) TableName() string { return "projects" }
-
-type memberRow struct {
-	ProjectID string `gorm:"primaryKey"`
-	UserID    string `gorm:"primaryKey"`
-	Role      string
-}
-
-func (memberRow) TableName() string { return "project_members" }
-
-type settingRow struct {
-	Key   string `gorm:"primaryKey"`
-	Value string
-}
-
-func (settingRow) TableName() string { return "settings" }
-
-type auditRow struct {
-	ID     string `gorm:"primaryKey"`
-	At     time.Time
-	User   string `gorm:"index"`
-	Action string
-	Target string
-	Detail string
-}
-
-func (auditRow) TableName() string { return "audit_logs" }
 
 // Open loads (or creates) the store. With a DSN it uses PostgreSQL via GORM,
 // otherwise it falls back to a JSON file.
@@ -198,14 +136,9 @@ func Open(opts Options) (*Store, error) {
 	s := &Store{mu: &sync.RWMutex{}, historyN: 500, path: opts.Path, root: root}
 
 	if opts.DSN != "" {
-		db, err := gorm.Open(postgres.Open(opts.DSN), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
-		if err != nil {
+		if err := s.pgOpen(opts.DSN); err != nil {
 			return nil, err
 		}
-		if err := db.AutoMigrate(&userRow{}, &sessionRow{}, &projectRow{}, &memberRow{}, &settingRow{}, &auditRow{}); err != nil {
-			return nil, err
-		}
-		s.db = db
 		if err := s.loadPG(); err != nil {
 			return nil, err
 		}
@@ -220,7 +153,7 @@ func Open(opts Options) (*Store, error) {
 				return nil, err
 			}
 			s.root.Global["pgMigrated"] = "1"
-			if err := s.db.Save(&settingRow{Key: "pgMigrated", Value: "1"}).Error; err != nil {
+			if err := s.pgSaveSetting("pgMigrated", "1"); err != nil {
 				return nil, err
 			}
 			log.Printf("imported existing JSON data into PostgreSQL")
@@ -364,70 +297,6 @@ func (s *Store) loadFile() error {
 	return nil
 }
 
-// loadPG reads every table into memory.
-func (s *Store) loadPG() error {
-	var pros []projectRow
-	if err := s.db.Find(&pros).Error; err != nil {
-		return err
-	}
-	for _, p := range pros {
-		d := newData()
-		if p.Data != "" {
-			if err := json.Unmarshal([]byte(p.Data), d); err != nil {
-				d = newData()
-			}
-		}
-		s.root.Projects[p.ID] = d
-		s.root.Meta[p.ID] = &ProjectMeta{
-			ID:        p.ID,
-			Name:      p.Name,
-			OwnerID:   p.OwnerID,
-			Members:   map[string]string{},
-			CreatedAt: p.CreatedAt,
-			UpdatedAt: p.UpdatedAt,
-			Version:   p.Version,
-		}
-	}
-	var members []memberRow
-	if err := s.db.Find(&members).Error; err != nil {
-		return err
-	}
-	for _, m := range members {
-		if meta := s.root.Meta[m.ProjectID]; meta != nil {
-			meta.Members[m.UserID] = m.Role
-		}
-	}
-	var urs []userRow
-	if err := s.db.Find(&urs).Error; err != nil {
-		return err
-	}
-	for _, u := range urs {
-		s.root.Users[u.ID] = &User{ID: u.ID, Username: u.Username, Name: u.Name, PasswordHash: u.Password, Role: u.Role, CreatedAt: u.CreatedAt}
-	}
-	var sessions []sessionRow
-	if err := s.db.Where("expires_at > ?", time.Now()).Find(&sessions).Error; err != nil {
-		return err
-	}
-	for _, se := range sessions {
-		s.root.Sessions[se.Token] = &Session{Token: se.Token, UserID: se.UserID, CreatedAt: se.CreatedAt, ExpiresAt: se.ExpiresAt}
-	}
-	var sets []settingRow
-	if err := s.db.Find(&sets).Error; err != nil {
-		return err
-	}
-	for _, st := range sets {
-		s.root.Global[st.Key] = st.Value
-	}
-	var audits []auditRow
-	if err := s.db.Order("at desc").Limit(500).Find(&audits).Error; err != nil {
-		return err
-	}
-	for _, a := range audits {
-		s.root.Audit = append(s.root.Audit, AuditEntry{ID: a.ID, At: a.At, User: a.User, Action: a.Action, Target: a.Target, Detail: a.Detail})
-	}
-	return nil
-}
-
 // persist writes the active project (and, in file mode, everything).
 func (s *Store) persist() error {
 	if s.db != nil {
@@ -457,30 +326,6 @@ func (s *Store) dumpRoot() map[string]any {
 		"global":      s.root.Global,
 		"audit":       s.root.Audit,
 	}
-}
-
-// saveProjectRow upserts a project's JSONB blob and bumps its version.
-// Must be called with the lock held.
-func (s *Store) saveProjectRow(pid string) error {
-	if s.db == nil || pid == "" {
-		return nil
-	}
-	meta := s.root.Meta[pid]
-	if meta == nil {
-		return nil
-	}
-	d := s.root.Projects[pid]
-	if d == nil {
-		return nil
-	}
-	meta.Version++
-	meta.UpdatedAt = time.Now()
-	raw, err := json.Marshal(d)
-	if err != nil {
-		return err
-	}
-	row := projectRow{ID: pid, Name: meta.Name, OwnerID: meta.OwnerID, Data: string(raw), Version: meta.Version, CreatedAt: meta.CreatedAt, UpdatedAt: meta.UpdatedAt}
-	return s.db.Save(&row).Error
 }
 
 // --- Project views ---------------------------------------------------------
@@ -577,8 +422,7 @@ func (s *Store) CreateProject(id, name, ownerID string) (ProjectMeta, error) {
 	s.root.Projects[id] = newData()
 	s.root.Meta[id] = meta
 	if s.db != nil {
-		row := projectRow{ID: id, Name: name, OwnerID: ownerID, Data: "{}", CreatedAt: now, UpdatedAt: now}
-		if err := s.db.Create(&row).Error; err != nil {
+		if err := s.pgCreateProject(id, name, ownerID, now); err != nil {
 			return ProjectMeta{}, err
 		}
 	} else if err := s.persistFile(); err != nil {
@@ -598,7 +442,7 @@ func (s *Store) RenameProject(id, name string) error {
 	m.Name = name
 	m.UpdatedAt = time.Now()
 	if s.db != nil {
-		return s.db.Model(&projectRow{}).Where("id = ?", id).Update("name", name).Error
+		return s.pgRenameProject(id, name)
 	}
 	return s.persistFile()
 }
@@ -616,10 +460,7 @@ func (s *Store) DeleteProject(id string) error {
 	delete(s.root.Meta, id)
 	delete(s.root.Projects, id)
 	if s.db != nil {
-		if err := s.db.Delete(&projectRow{}, "id = ?", id).Error; err != nil {
-			return err
-		}
-		return s.db.Delete(&memberRow{}, "project_id = ?", id).Error
+		return s.pgDeleteProject(id)
 	}
 	return s.persistFile()
 }
@@ -638,7 +479,7 @@ func (s *Store) SetMember(projectID, userID, role string) error {
 	m.Members[userID] = role
 	m.UpdatedAt = time.Now()
 	if s.db != nil {
-		return s.db.Save(&memberRow{ProjectID: projectID, UserID: userID, Role: role}).Error
+		return s.pgSaveMember(projectID, userID, role)
 	}
 	return s.persistFile()
 }
@@ -653,7 +494,7 @@ func (s *Store) RemoveMember(projectID, userID string) error {
 	}
 	delete(m.Members, userID)
 	if s.db != nil {
-		return s.db.Delete(&memberRow{}, "project_id = ? AND user_id = ?", projectID, userID).Error
+		return s.pgDeleteMember(projectID, userID)
 	}
 	return s.persistFile()
 }
@@ -725,8 +566,7 @@ func (s *Store) CreateUser(username, name, password, role string) (User, error) 
 	u := &User{ID: models.NewID(), Username: username, Name: name, PasswordHash: HashPassword(password), Role: role, CreatedAt: time.Now()}
 	s.root.Users[u.ID] = u
 	if s.db != nil {
-		row := userRow{ID: u.ID, Username: u.Username, Name: u.Name, Password: u.PasswordHash, Role: u.Role, CreatedAt: u.CreatedAt}
-		if err := s.db.Create(&row).Error; err != nil {
+		if err := s.pgCreateUser(u); err != nil {
 			delete(s.root.Users, u.ID)
 			return User{}, err
 		}
@@ -756,7 +596,7 @@ func (s *Store) UpdateUser(id, name, role, password string) (User, error) {
 		u.PasswordHash = HashPassword(password)
 	}
 	if s.db != nil {
-		if err := s.db.Model(&userRow{}).Where("id = ?", id).Updates(map[string]any{"name": u.Name, "role": u.Role, "password": u.PasswordHash}).Error; err != nil {
+		if err := s.pgUpdateUser(u); err != nil {
 			return User{}, err
 		}
 	} else if err := s.persistFile(); err != nil {
@@ -781,13 +621,7 @@ func (s *Store) DeleteUser(id string) error {
 		}
 	}
 	if s.db != nil {
-		if err := s.db.Delete(&userRow{}, "id = ?", id).Error; err != nil {
-			return err
-		}
-		if err := s.db.Delete(&sessionRow{}, "user_id = ?", id).Error; err != nil {
-			return err
-		}
-		return s.db.Delete(&memberRow{}, "user_id = ?", id).Error
+		return s.pgDeleteUser(id)
 	}
 	return s.persistFile()
 }
@@ -822,7 +656,7 @@ func (s *Store) AddAudit(e AuditEntry) {
 		s.root.Audit = s.root.Audit[:500]
 	}
 	if s.db != nil {
-		_ = s.db.Create(&auditRow{ID: e.ID, At: e.At, User: e.User, Action: e.Action, Target: e.Target, Detail: e.Detail}).Error
+		_ = s.pgAddAudit(e)
 	}
 }
 
@@ -851,8 +685,7 @@ func (s *Store) CreateSession(userID string, ttl time.Duration) (Session, error)
 	defer s.mu.Unlock()
 	s.root.Sessions[tok] = se
 	if s.db != nil {
-		row := sessionRow{Token: se.Token, UserID: se.UserID, CreatedAt: se.CreatedAt, ExpiresAt: se.ExpiresAt}
-		if err := s.db.Create(&row).Error; err != nil {
+		if err := s.pgCreateSession(se); err != nil {
 			delete(s.root.Sessions, tok)
 			return Session{}, err
 		}
@@ -884,7 +717,7 @@ func (s *Store) DeleteSession(token string) error {
 	defer s.mu.Unlock()
 	delete(s.root.Sessions, token)
 	if s.db != nil {
-		return s.db.Delete(&sessionRow{}, "token = ?", token).Error
+		return s.pgDeleteSession(token)
 	}
 	return s.persistFile()
 }
@@ -900,7 +733,7 @@ func (s *Store) PurgeSessions() {
 		}
 	}
 	if s.db != nil {
-		_ = s.db.Delete(&sessionRow{}, "expires_at < ?", now).Error
+		_ = s.pgPurgeSessions(now)
 	}
 }
 
@@ -1534,7 +1367,7 @@ func (s *Store) SaveSettings(in map[string]string) error {
 	}
 	if s.db != nil {
 		for k, v := range in {
-			if err := s.db.Save(&settingRow{Key: k, Value: v}).Error; err != nil {
+			if err := s.pgSaveSetting(k, v); err != nil {
 				return err
 			}
 		}

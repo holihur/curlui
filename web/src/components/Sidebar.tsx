@@ -27,6 +27,8 @@ export function Sidebar() {
   const width = useStore((s) => s.sidebarWidth);
   const setWidth = useStore((s) => s.setSidebarWidth);
   const collapsed = useStore((s) => s.sidebarCollapsed);
+  const hasGrpc = useStore((s) => s.features.grpc !== false);
+  const tabs = TABS.filter((x) => x.key !== "grpc" || hasGrpc);
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -53,8 +55,11 @@ export function Sidebar() {
         collapsed && "md:hidden",
       )}
     >
-      <div className="grid shrink-0 grid-cols-3 items-center gap-1 border-b p-1.5">
-        {TABS.map((item) => (
+      <div
+        className="grid shrink-0 items-center gap-1 border-b p-1.5"
+        style={{ gridTemplateColumns: `repeat(${tabs.length}, minmax(0,1fr))` }}
+      >
+        {tabs.map((item) => (
           <button
             key={item.key}
             onClick={() => setTab(item.key)}

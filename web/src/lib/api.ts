@@ -415,6 +415,9 @@ export const api = {
   authStatus() {
     return request<AuthStatus>("/auth/status");
   },
+  health() {
+    return request<{ ok: boolean; variant: string; features: Record<string, boolean> }>("/health");
+  },
   login(username: string, password: string) {
     return request<{ token: string; user: User }>("/auth/login", {
       method: "POST",

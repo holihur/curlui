@@ -33,6 +33,7 @@ export function SettingsDialog({
 }) {
   const { t } = useI18n();
   const toast = useStore((s) => s.toast);
+  const features = useStore((s) => s.features);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
   const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
   const rightOpen = useStore((s) => s.rightOpen);
@@ -178,11 +179,12 @@ export function SettingsDialog({
             <span>{t("panelLeft")}</span>
             <Switch checked={!sidebarCollapsed} onCheckedChange={(v) => setSidebarCollapsed(!v)} />
           </label>
-          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
-            <span>{t("panelBottom")}</span>
-            <Switch checked={bottomOpen} onCheckedChange={setBottomOpen} />
-          </label>
-          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
+          {features.proxy !== false && (
+            <label className="mt-2 flex items-center justify-between gap-3 text-sm">
+              <span>{t("panelBottom")}</span>
+              <Switch checked={bottomOpen} onCheckedChange={setBottomOpen} />
+            </label>
+          )}          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
             <span>{t("panelRight")}</span>
             <Switch checked={rightOpen} onCheckedChange={setRightOpen} />
           </label>
@@ -285,6 +287,7 @@ export function SettingsDialog({
           )}
         </div>
 
+        {features.mcp !== false && (
         <div className="border-t pt-4">
           <div className="text-sm font-medium">{t("mcp")}</div>
           <p className="mt-0.5 text-[11px] text-muted-foreground">{t("mcpHint")}</p>
@@ -302,6 +305,7 @@ export function SettingsDialog({
             <Switch checked={mcpWrite} onCheckedChange={setMcpWrite} disabled={!mcpOn} />
           </div>
         </div>
+        )}
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>

@@ -1,3 +1,5 @@
+//go:build !core
+
 // Package grpcx adds gRPC support: it loads protobuf descriptor sets (the
 // output of `protoc --descriptor_set_out`, i.e. a .pb file), can fetch
 // descriptors from a server via gRPC reflection, lists services/methods and

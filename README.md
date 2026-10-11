@@ -58,6 +58,24 @@ everyone.
 with maximize), response search + **JSONPath filter** + save-to-file, responsive
 phone layout, self-update, run as a system service, custom User-Agent.
 
+## Two builds: full & core
+
+Every release ships two single-file binaries:
+
+| | **full** | **core** |
+| --- | --- | --- |
+| Everything (gRPC, PostgreSQL, capture proxy, MCP, jobs, PDF) | ✅ | — |
+| HTTP client, collections, environments, history, cURL/OpenAPI/Postman, GraphQL, mocks, assertions, docs (MD/HTML/Word) | ✅ | ✅ |
+| Size (linux/amd64, stripped) | ~22 MB | ~12 MB |
+
+```sh
+curl -fsSL .../install.sh | sh                      # full
+CURLUI_VARIANT=core curl -fsSL .../install.sh | sh  # core
+```
+
+The UI adapts automatically: the core build hides gRPC, the traffic panel,
+jobs, MCP settings and the PDF export option.
+
 ## Install
 
 ```sh
