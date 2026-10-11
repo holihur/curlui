@@ -75,8 +75,8 @@ Every release ships two single-file binaries:
 
 | | **full** | **core** |
 | --- | --- | --- |
-| Everything (gRPC + gRPC streaming, PostgreSQL, capture proxy, MCP, jobs, PDF) | ✅ | — |
-| HTTP client, collections, environments, history, cURL/OpenAPI/Postman, GraphQL, mocks, assertions, live streaming (SSE + WebSocket), docs (MD/HTML/Word) | ✅ | ✅ |
+| Everything (gRPC + streaming, PostgreSQL, capture proxy, MCP, jobs, **docs export** in MD/HTML/Word/PDF with live preview) | ✅ | — |
+| HTTP client, collections, environments, history, cURL/OpenAPI/Postman, GraphQL, mocks, assertions, live streaming (SSE + WebSocket) | ✅ | ✅ |
 | Size (linux/amd64, stripped) | ~22 MB | **~9 MB** |
 
 ```sh

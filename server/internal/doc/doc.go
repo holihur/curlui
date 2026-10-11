@@ -14,31 +14,6 @@ import (
 	"curlui/server/internal/models"
 )
 
-// KV is a rendered key/value pair.
-type KV struct {
-	Name    string
-	Value   string
-	Enabled bool
-}
-
-// Request is one documented request.
-type Request struct {
-	Name        string
-	Method      string
-	URL         string
-	Description string
-	Params      []KV
-	Headers     []KV
-	Body        string
-}
-
-// Model is the template context.
-type Model struct {
-	Title       string
-	GeneratedAt string
-	Requests    []Request
-}
-
 // BuildModel flattens a collection tree into a document model.
 func BuildModel(title string, nodes []*models.Node) Model {
 	m := Model{Title: title, GeneratedAt: time.Now().Format("2006-01-02 15:04")}

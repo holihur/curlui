@@ -147,6 +147,12 @@ func spaFS(fsys fs.FS) http.Handler {
 			http.Error(w, "frontend assets are missing from this build", http.StatusNotFound)
 			return
 		}
+		// A missing static asset (hashed chunk, font, icon…) must 404 — serving
+		// index.html instead would surface as "Unexpected token '<'" in the app.
+		if strings.HasPrefix(name, "assets/") || strings.Contains(path.Base(name), ".") {
+			http.NotFound(w, r)
+			return
+		}
 		// Serve index.html directly: http.FileServer would 301-redirect
 		// "/index.html" -> "./", which breaks client-side routes.
 		if serveCompressed(w, r, fsys, "index.html") {
