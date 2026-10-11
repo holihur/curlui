@@ -314,7 +314,11 @@ export function RequestEditor() {
           />
         </Suspense>
       )}
-      <FuzzDialog open={fuzzOpen} onOpenChange={setFuzzOpen} request={req} />
+      {fuzzOpen && (
+        <Suspense fallback={null}>
+          <FuzzDialog open onOpenChange={setFuzzOpen} request={req} />
+        </Suspense>
+      )}
     </div>
   );
 }

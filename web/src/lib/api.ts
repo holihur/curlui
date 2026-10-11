@@ -349,6 +349,9 @@ export const api = {
     request: RequestDef;
     concurrency: number;
     payloads: string[];
+    categories?: string[];
+    kinds?: string[];
+    maxCases?: number;
     envId?: string;
     variables?: Record<string, string>;
   }) {

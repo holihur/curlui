@@ -146,18 +146,31 @@ export type CaptureEntry = {
 };
 
 export type FuzzFinding = {
-  name: string;
+  kind: string;
+  target: string;
+  payload: string;
+  category: string;
   status: number;
   size: number;
   duration: number;
   error?: string;
-  issues: string[] | null;
+  severity?: "high" | "medium" | "low" | "";
+  issues?: string[] | null;
+  evidence?: string[] | null;
+  count?: number;
 };
 
 export type FuzzResult = {
   baseline: { status: number; size: number; duration: number; error?: string };
   results: FuzzFinding[];
-  summary: { total: number; issues: number };
+  summary: {
+    total: number;
+    issues: number;
+    high?: number;
+    medium?: number;
+    low?: number;
+    deduped?: number;
+  };
 };
 
 export type PendingIntercept = {
