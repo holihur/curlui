@@ -40,6 +40,8 @@ export function SettingsDialog({
   const setRightOpen = useStore((s) => s.setRightOpen);
   const bottomOpen = useStore((s) => s.bottomOpen);
   const setBottomOpen = useStore((s) => s.setBottomOpen);
+  const feedbackHidden = useStore((s) => s.feedbackHidden);
+  const setFeedbackHidden = useStore((s) => s.setFeedbackHidden);
   const [webhook, setWebhook] = useState("");
   const [userAgent, setUserAgent] = useState("");
   const [mcpOn, setMcpOn] = useState(true);
@@ -184,7 +186,11 @@ export function SettingsDialog({
               <span>{t("panelBottom")}</span>
               <Switch checked={bottomOpen} onCheckedChange={setBottomOpen} />
             </label>
-          )}          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
+          )}
+          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
+            <span>{t("feedbackShow")}</span>
+            <Switch checked={!feedbackHidden} onCheckedChange={(v) => setFeedbackHidden(!v)} />
+          </label>          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
             <span>{t("panelRight")}</span>
             <Switch checked={rightOpen} onCheckedChange={setRightOpen} />
           </label>

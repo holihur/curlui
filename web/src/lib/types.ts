@@ -219,6 +219,18 @@ export type GrpcResult = {
   duration: number;
 };
 
+export type FeedbackComment = { author: string; body: string; createdAt: string };
+export type FeedbackIssue = {
+  number: number;
+  title: string;
+  state: string;
+  url: string;
+  author: string;
+  createdAt: string;
+  body?: string;
+  comments?: FeedbackComment[];
+};
+
 export type PendingIntercept = {
   id: string;
   phase: "request" | "response";

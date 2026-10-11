@@ -19,6 +19,7 @@ import type {
   User,
   Project,
   GraphQLSchema,
+  FeedbackIssue,
   GrpcDescriptorResult,
   GrpcResult,
   GrpcStoredDescriptor,
@@ -416,7 +417,38 @@ export const api = {
     return request<AuthStatus>("/auth/status");
   },
   health() {
-    return request<{ ok: boolean; variant: string; features: Record<string, boolean> }>("/health");
+    return request<{ ok: boolean; variant: string; version: string; platform: string; features: Record<string, boolean> }>(
+      "/health",
+    );
+  },
+
+  // Feedback (via the gh CLI)
+  feedbackStatus() {
+    return request<{ available: boolean; repo: string }>("/feedback/status");
+  },
+  listFeedback() {
+    return request<{ issues: FeedbackIssue[]; repo: string }>("/feedback/issues");
+  },
+  createFeedback(title: string, body: string) {
+    return request<FeedbackIssue>("/feedback/issues", {
+      method: "POST",
+      body: JSON.stringify({ title, body }),
+    });
+  },
+  getFeedback(number: number) {
+    return request<FeedbackIssue>(`/feedback/issues/${number}`);
+  },
+  setFeedbackState(number: number, closed: boolean) {
+    return request<FeedbackIssue>(`/feedback/issues/${number}/state`, {
+      method: "POST",
+      body: JSON.stringify({ closed }),
+    });
+  },
+  commentFeedback(number: number, body: string) {
+    return request<FeedbackIssue>(`/feedback/issues/${number}/comments`, {
+      method: "POST",
+      body: JSON.stringify({ body }),
+    });
   },
   login(username: string, password: string) {
     return request<{ token: string; user: User }>("/auth/login", {

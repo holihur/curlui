@@ -8,6 +8,7 @@ import (
 	"io"
 	"log"
 	"net/http"
+	"runtime"
 	"strconv"
 	"strings"
 	"sync"
@@ -201,6 +202,14 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/curl/parse", s.parseCurl)
 	mux.HandleFunc("POST /api/curl/generate", s.generateCurl)
 	mux.HandleFunc("POST /api/import/postman", s.importPostman)
+
+	// Feedback (via the `gh` CLI) — available in both builds.
+	mux.HandleFunc("GET /api/feedback/status", s.feedbackStatus)
+	mux.HandleFunc("GET /api/feedback/issues", s.listFeedback)
+	mux.HandleFunc("POST /api/feedback/issues", s.createFeedback)
+	mux.HandleFunc("GET /api/feedback/issues/{number}", s.getFeedback)
+	mux.HandleFunc("POST /api/feedback/issues/{number}/comments", s.commentFeedback)
+	mux.HandleFunc("POST /api/feedback/issues/{number}/state", s.setFeedbackState)
 	mux.HandleFunc("POST /api/graphql/introspect", s.introspectGraphQL)
 	s.registerGrpcRoutes(mux)
 
@@ -299,7 +308,8 @@ func decode(r *http.Request, v any) error {
 func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 	writeJSON(w, http.StatusOK, map[string]any{
 		"ok": true, "time": time.Now().Unix(),
-		"variant": buildVariant(), "features": buildFeatures(),
+		"variant": buildVariant(), "version": s.version,
+		"platform": runtime.GOOS + "/" + runtime.GOARCH, "features": buildFeatures(),
 	})
 }
 

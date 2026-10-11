@@ -4,6 +4,7 @@ import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
 import { RightSidebar } from "@/components/RightSidebar";
 import { BottomPanel } from "@/components/BottomPanel";
+import { FeedbackWidget } from "@/components/FeedbackWidget";
 import { RequestTabs } from "@/components/RequestTabs";
 import { RequestEditor } from "@/components/RequestEditor";
 import { Toaster } from "@/components/Toaster";
@@ -57,6 +58,7 @@ export default function App() {
       <TooltipProvider delayDuration={250}>
         <AuthScreen />
         <Toaster />
+        <FeedbackWidget />
       </TooltipProvider>
     );
   }
@@ -90,6 +92,7 @@ export default function App() {
           <RightSidebar />
         </div>
         <Toaster />
+        <FeedbackWidget />
         {features.proxy !== false && (
           <Suspense fallback={null}>
             <InterceptDialog />

@@ -65,6 +65,12 @@ type State = {
   setBottomHeight: (v: number) => void;
   bottomMaximized: boolean;
   setBottomMaximized: (v: boolean) => void;
+  feedbackOpen: boolean;
+  setFeedbackOpen: (v: boolean) => void;
+  feedbackHidden: boolean;
+  setFeedbackHidden: (v: boolean) => void;
+  feedbackPos: { x: number; y: number } | null;
+  setFeedbackPos: (p: { x: number; y: number } | null) => void;
 
   // team / auth / projects
   authEnabled: boolean;
@@ -78,6 +84,8 @@ type State = {
   loginOpen: boolean;
   // Build variant ("full" | "core") and which optional features are compiled in.
   buildVariant: string;
+  version: string;
+  platform: string;
   features: Record<string, boolean>;
   loadBuild: () => Promise<void>;
   setLoginOpen: (v: boolean) => void;
@@ -319,12 +327,14 @@ export const useStore = create<State>((set, get) => ({
   projectVersion: 0,
   loginOpen: false,
   buildVariant: "full",
+  version: "",
+  platform: "",
   features: {},
 
   async loadBuild() {
     try {
       const h = await api.health();
-      set({ buildVariant: h.variant || "full", features: h.features ?? {} });
+      set({ buildVariant: h.variant || "full", version: h.version || "", platform: h.platform || "", features: h.features ?? {} });
     } catch {
       /* keep defaults (assume full) */
     }
@@ -595,6 +605,28 @@ export const useStore = create<State>((set, get) => ({
   setBottomMaximized(v) {
     localStorage.setItem("curlui.bottomMaximized", v ? "1" : "0");
     set({ bottomMaximized: v });
+  },
+  feedbackOpen: false,
+  setFeedbackOpen(v) {
+    set({ feedbackOpen: v });
+  },
+  feedbackHidden: localStorage.getItem("curlui.feedbackHidden") === "1",
+  setFeedbackHidden(v) {
+    localStorage.setItem("curlui.feedbackHidden", v ? "1" : "0");
+    set({ feedbackHidden: v, feedbackOpen: false });
+  },
+  feedbackPos: (() => {
+    try {
+      const raw = localStorage.getItem("curlui.feedbackPos");
+      return raw ? (JSON.parse(raw) as { x: number; y: number }) : null;
+    } catch {
+      return null;
+    }
+  })(),
+  setFeedbackPos(p) {
+    if (p) localStorage.setItem("curlui.feedbackPos", JSON.stringify(p));
+    else localStorage.removeItem("curlui.feedbackPos");
+    set({ feedbackPos: p });
   },
 
   renameTab(id, name) {
