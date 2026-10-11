@@ -33,6 +33,12 @@ export function SettingsDialog({
 }) {
   const { t } = useI18n();
   const toast = useStore((s) => s.toast);
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
+  const rightOpen = useStore((s) => s.rightOpen);
+  const setRightOpen = useStore((s) => s.setRightOpen);
+  const bottomOpen = useStore((s) => s.bottomOpen);
+  const setBottomOpen = useStore((s) => s.setBottomOpen);
   const [webhook, setWebhook] = useState("");
   const [userAgent, setUserAgent] = useState("");
   const [mcpOn, setMcpOn] = useState(true);
@@ -167,11 +173,26 @@ export function SettingsDialog({
         </Field>
 
         <div className="border-t pt-4">
+          <div className="mb-2 text-sm font-medium">{t("view")}</div>
+          <label className="flex items-center justify-between gap-3 text-sm">
+            <span>{t("panelLeft")}</span>
+            <Switch checked={!sidebarCollapsed} onCheckedChange={(v) => setSidebarCollapsed(!v)} />
+          </label>
+          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
+            <span>{t("panelBottom")}</span>
+            <Switch checked={bottomOpen} onCheckedChange={setBottomOpen} />
+          </label>
+          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
+            <span>{t("panelRight")}</span>
+            <Switch checked={rightOpen} onCheckedChange={setRightOpen} />
+          </label>
+        </div>
+
+        <div className="border-t pt-4">
           <div className="mb-2 text-sm font-medium">{t("team")}</div>
           <label className="flex items-center justify-between gap-3 text-sm">
             <span className="flex-1">
-              {t("requireLogin")}
-              <span className="mt-0.5 block text-[11px] text-muted-foreground">{t("requireLoginHint")}</span>
+              {t("requireLogin")}              <span className="mt-0.5 block text-[11px] text-muted-foreground">{t("requireLoginHint")}</span>
             </span>
             <Switch checked={authOn} onCheckedChange={setAuthOn} />
           </label>

@@ -149,16 +149,6 @@ export function TopBar() {
         <Menu className="h-4 w-4" />
       </Button>
 
-      <Button
-        variant="ghost"
-        size="icon"
-        className="hidden h-8 w-8 shrink-0 md:inline-flex"
-        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
-        title={t("toggleSidebar")}
-      >
-        <PanelLeft className="h-4 w-4" />
-      </Button>
-
       <div className="flex select-none items-center gap-2 pr-1 sm:pr-2">
         <div className="flex h-7 w-7 items-center justify-center rounded-md bg-primary text-primary-foreground">
           <TerminalSquare className="h-4 w-4" />
@@ -231,24 +221,6 @@ export function TopBar() {
       </DropdownMenu>
 
       <div className="ml-auto flex min-w-0 items-center gap-2">
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn("h-8 w-8 shrink-0", bottomOpen && "bg-accent")}
-          onClick={() => setBottomOpen(!bottomOpen)}
-          title={t("traffic")}
-        >
-          <Activity className="h-4 w-4" />
-        </Button>
-        <Button
-          variant="ghost"
-          size="icon"
-          className={cn("h-8 w-8 shrink-0", rightOpen && "bg-accent")}
-          onClick={() => setRightOpen(!rightOpen)}
-          title={t("history")}
-        >
-          <History className="h-4 w-4" />
-        </Button>
         <div className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
           <Zap className="h-3.5 w-3.5" />
           {t("environment")}
@@ -305,6 +277,20 @@ export function TopBar() {
                 <LogIn /> {t("login")}
               </DropdownMenuItem>
             )}
+
+            <DropdownMenuSeparator />
+
+            {/* Panels */}
+            <DropdownMenuLabel>{t("view")}</DropdownMenuLabel>
+            <DropdownMenuItem onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
+              {!sidebarCollapsed ? <Check /> : <PanelLeft />} {t("panelLeft")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setBottomOpen(!bottomOpen)}>
+              {bottomOpen ? <Check /> : <Activity />} {t("panelBottom")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setRightOpen(!rightOpen)}>
+              {rightOpen ? <Check /> : <History />} {t("panelRight")}
+            </DropdownMenuItem>
 
             <DropdownMenuSeparator />
 

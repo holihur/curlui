@@ -68,6 +68,10 @@ export const en = {
   themeLight: "Light",
   themeDark: "Dark",
   themeAuto: "System",
+  view: "View",
+  panelLeft: "Left sidebar",
+  panelRight: "Right sidebar (history & jobs)",
+  panelBottom: "Bottom panel (traffic)",
   failureWebhook: "Failure webhook URL",
   failureWebhookHint:
     "POSTed as JSON when a scheduled request fails (error or status \u2265 400).",
