@@ -45,13 +45,15 @@ request/response **breakpoints**, replay, save-to-collection, HAR/cURL export.
 The proxy is **started/stopped from the UI** and remembered across restarts.
 
 **Streaming** · **live SSE / chunked** responses render as they arrive (a
-*Stream* toggle next to Send; the button becomes *Stop* to abort) with a
-structured **Events** view that parses `id` / `event` / `data` / `retry`; a
-**WebSocket console** connects through the server bridge to any `ws://` /
-`wss://` target — custom headers, **subprotocols**, **binary frames**,
-self-signed TLS, close codes and a live frame log; **gRPC streaming** (server /
-client / **interactive bidi** — send and receive at the same time, with
-half-close) prints every message, header and trailer as it lands.
+*Stream* toggle next to Send; the button becomes *Stop* to abort), with a
+**Chunks** view (size / delta / ms per chunk), pause + auto-scroll, a structured
+**Events** view (`id` / `event` / `data` / `retry`) and **SSE auto-reconnect**
+that resumes from `Last-Event-ID`; a **WebSocket console** connects through the
+server bridge to any `ws://` / `wss://` target — custom headers,
+**subprotocols**, **binary frames**, self-signed TLS, close codes, a manual
+**ping** (RTT) and a live frame log; **gRPC streaming** (server / client /
+**interactive bidi** — send and receive at the same time, with half-close,
+deadline and gzip) prints every message, header and trailer as it lands.
 
 **Interop** · import OpenAPI/Swagger (URL or file) and Postman v2.1 collections;
 export as JSON, cURL, Postman, or rendered docs (**Markdown / HTML / Word /
