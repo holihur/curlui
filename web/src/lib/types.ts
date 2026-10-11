@@ -16,13 +16,17 @@ export type BodyType =
   | "html"
   | "form-urlencoded"
   | "form-data"
-  | "binary";
+  | "binary"
+  | "graphql";
 
 export type Body = {
   type: BodyType;
   raw: string;
   form: KeyValue[];
   filePath?: string;
+  query?: string;
+  variables?: string;
+  operationName?: string;
 };
 
 export type AuthType = "none" | "basic" | "bearer" | "apikey" | "oauth2" | "jwt" | "aws" | "digest";

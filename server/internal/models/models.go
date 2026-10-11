@@ -35,11 +35,16 @@ type KeyValue struct {
 // Body describes a request body.
 type Body struct {
 	// Type is one of: none, json, text, xml, html, form-urlencoded,
-	// form-data, binary.
+	// form-data, binary, graphql.
 	Type     string     `json:"type"`
 	Raw      string     `json:"raw"`
 	Form     []KeyValue `json:"form"`
 	FilePath string     `json:"filePath,omitempty"`
+
+	// GraphQL (used when Type == "graphql").
+	Query         string `json:"query,omitempty"`
+	Variables     string `json:"variables,omitempty"`
+	OperationName string `json:"operationName,omitempty"`
 }
 
 // Auth describes request authentication.

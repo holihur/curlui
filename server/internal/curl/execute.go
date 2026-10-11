@@ -5,6 +5,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"encoding/json"
 	"errors"
 	"fmt"
 	"io"
@@ -466,6 +467,23 @@ func buildBody(def models.RequestDef) (io.Reader, string, error) {
 		return nil, "", nil
 	case "json":
 		return strings.NewReader(def.Body.Raw), "application/json", nil
+	case "graphql":
+		payload := map[string]any{"query": def.Body.Query}
+		if strings.TrimSpace(def.Body.OperationName) != "" {
+			payload["operationName"] = def.Body.OperationName
+		}
+		if strings.TrimSpace(def.Body.Variables) != "" {
+			var vars any
+			if err := json.Unmarshal([]byte(def.Body.Variables), &vars); err != nil {
+				return nil, "", fmt.Errorf("graphql: variables is not valid JSON: %w", err)
+			}
+			payload["variables"] = vars
+		}
+		b, err := json.Marshal(payload)
+		if err != nil {
+			return nil, "", err
+		}
+		return bytes.NewReader(b), "application/json", nil
 	case "xml":
 		return strings.NewReader(def.Body.Raw), "application/xml", nil
 	case "html":

@@ -43,6 +43,7 @@ const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 const BODY_TYPES: { value: BodyType; label: MessageKey }[] = [
   { value: "none", label: "bodyNone" },
   { value: "json", label: "bodyJson" },
+  { value: "graphql", label: "bodyGraphql" },
   { value: "form-urlencoded", label: "bodyFormUrlencoded" },
   { value: "form-data", label: "bodyFormData" },
   { value: "xml", label: "bodyXml" },
@@ -708,6 +709,40 @@ function BodyEditor({
             placeholder={type === "json" ? t("bodyPlaceholder") : t("requestBodyPlaceholder")}
             className="h-full"
           />
+        </div>
+      )}
+
+      {type === "graphql" && (
+        <div className="grid min-h-0 flex-1 grid-rows-[1fr_auto] gap-2 p-3">
+          <div className="flex min-h-0 flex-col gap-1">
+            <div className="flex items-center gap-2">
+              <span className="text-[11px] font-medium text-muted-foreground">{t("graphqlQuery")}</span>
+              <Input
+                value={req.body.operationName ?? ""}
+                placeholder={t("graphqlOperationName")}
+                onChange={(e) => setBody({ operationName: e.target.value })}
+                className="ml-auto h-7 w-44 font-mono text-[11px]"
+              />
+            </div>
+            <CodeEditor
+              value={req.body.query ?? ""}
+              onChange={(query) => setBody({ query })}
+              language="text"
+              placeholder={"query ($id: ID!) {\n  user(id: $id) { id name }\n}"}
+              className="min-h-[160px] flex-1"
+            />
+          </div>
+          <div className="flex flex-col gap-1">
+            <span className="text-[11px] font-medium text-muted-foreground">{t("graphqlVariables")}</span>
+            <CodeEditor
+              value={req.body.variables ?? ""}
+              onChange={(variables) => setBody({ variables })}
+              language="json"
+              placeholder={'{\n  "id": "1"\n}'}
+              className="min-h-[90px]"
+            />
+            <p className="text-[11px] text-muted-foreground">{t("graphqlHint")}</p>
+          </div>
         </div>
       )}
 

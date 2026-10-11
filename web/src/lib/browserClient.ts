@@ -118,6 +118,21 @@ export async function browserSend(req: RequestDef, vars: Record<string, string>)
         { json: "application/json", xml: "application/xml", html: "text/html", text: "text/plain" }[type],
       );
     }
+  } else if (type === "graphql") {
+    let variables: unknown;
+    if ((req.body.variables ?? "").trim()) {
+      try {
+        variables = JSON.parse(resolveVars(req.body.variables ?? "", vars));
+      } catch {
+        return { ...base, error: "GraphQL variables is not valid JSON." };
+      }
+    }
+    body = JSON.stringify({
+      query: resolveVars(req.body.query ?? "", vars),
+      variables,
+      ...((req.body.operationName ?? "").trim() ? { operationName: req.body.operationName } : {}),
+    });
+    if (!headers.has("Content-Type")) headers.set("Content-Type", "application/json");
   } else if (type === "form-urlencoded") {
     const f = new URLSearchParams();
     for (const kv of req.body.form) if (kv.enabled && kv.key) f.append(resolveVars(kv.key, vars), resolveVars(kv.value, vars));
