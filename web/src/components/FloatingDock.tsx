@@ -12,8 +12,11 @@ export function FloatingDock() {
   const hasAI = useStore((s) => s.features.ai !== false);
   const feedbackHidden = useStore((s) => s.feedbackHidden);
   const pos = useStore((s) => s.feedbackPos);
+  const rightOpen = useStore((s) => s.rightOpen);
+  const rightWidth = useStore((s) => s.rightWidth);
   const setPos = useStore((s) => s.setFeedbackPos);
   const setAiOpen = useStore((s) => s.setAiOpen);
+  const setRightTab = useStore((s) => s.setRightTab);
   const setFeedbackOpen = useStore((s) => s.setFeedbackOpen);
   const ref = useRef<HTMLDivElement>(null);
   const dragged = useRef(false);
@@ -56,16 +59,23 @@ export function FloatingDock() {
     <div
       ref={ref}
       onMouseDown={onDown}
-      style={pos ? { left: pos.x, top: pos.y } : undefined}
+      style={
+        pos
+          ? { left: pos.x, top: pos.y }
+          : rightOpen
+            ? { right: rightWidth + 16 }
+            : undefined
+      }
       className={cn(
         "fixed z-40 flex cursor-grab flex-col overflow-hidden rounded-full border bg-card text-card-foreground shadow-lg active:cursor-grabbing",
-        !pos && "bottom-4 right-4",
+        !pos && "bottom-4",
+        !pos && !rightOpen && "right-4",
       )}
     >
       {hasAI && (
         <button
           type="button"
-          onClick={click(() => setAiOpen(true))}
+          onClick={click(() => setRightTab("ai"))}
           title={t("aiChat")}
           className={cn(btn, "text-primary hover:text-primary")}
         >

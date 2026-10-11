@@ -57,6 +57,8 @@ type State = {
   setSidebarCollapsed: (v: boolean) => void;
   rightOpen: boolean;
   setRightOpen: (v: boolean) => void;
+  rightTab: string;
+  setRightTab: (v: string) => void;
   rightWidth: number;
   setRightWidth: (v: number) => void;
   bottomOpen: boolean;
@@ -670,6 +672,11 @@ export const useStore = create<State>((set, get) => ({
   setRightOpen(v) {
     localStorage.setItem("curlui.rightOpen", v ? "1" : "0");
     set({ rightOpen: v });
+  },
+  rightTab: "history",
+  setRightTab(v) {
+    // Selecting a tab also opens the sidebar.
+    set({ rightTab: v, rightOpen: true });
   },
   rightWidth: Number(localStorage.getItem("curlui.rightWidth")) || 340,
   setRightWidth(v) {

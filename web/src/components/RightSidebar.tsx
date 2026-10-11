@@ -1,6 +1,7 @@
 import { lazy, Suspense, useState } from "react";
-import { History, Timer, X } from "lucide-react";
+import { History, Sparkles, Timer, X } from "lucide-react";
 import { HistoryPanel } from "@/components/HistoryPanel";
+import { AIChatPanel } from "@/components/AIChatPanel";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useStore } from "@/store";
@@ -9,23 +10,28 @@ const SchedulePanel = lazy(() =>
   import("@/components/SchedulePanel").then((m) => ({ default: m.SchedulePanel })),
 );
 
-type TabKey = "history" | "jobs";
+type TabKey = "history" | "jobs" | "ai";
 
 const TABS: { key: TabKey; label: MessageKey; icon: typeof History }[] = [
   { key: "history", label: "history", icon: History },
   { key: "jobs", label: "jobsShort", icon: Timer },
+  { key: "ai", label: "aiChat", icon: Sparkles },
 ];
 
 // RightSidebar hosts history and scheduled jobs on the right, resizable and closable.
 export function RightSidebar() {
   const { t } = useI18n();
-  const [tab, setTab] = useState<TabKey>("history");
+  const tab = useStore((s) => s.rightTab) as TabKey;
+  const setTab = useStore((s) => s.setRightTab);
   const open = useStore((s) => s.rightOpen);
   const setOpen = useStore((s) => s.setRightOpen);
   const width = useStore((s) => s.rightWidth);
   const setWidth = useStore((s) => s.setRightWidth);
   const hasJobs = useStore((s) => s.features.scheduler !== false);
-  const tabs = TABS.filter((x) => x.key !== "jobs" || hasJobs);
+  const hasAI = useStore((s) => s.features.ai !== false);
+  const tabs = TABS.filter(
+    (x) => (x.key !== "jobs" || hasJobs) && (x.key !== "ai" || hasAI),
+  );
 
   const startResize = (e: React.MouseEvent) => {
     e.preventDefault();
@@ -82,6 +88,11 @@ export function RightSidebar() {
           <Suspense fallback={null}>
             <SchedulePanel />
           </Suspense>
+        )}
+        {tab === "ai" && (
+          <div className="h-full p-2">
+            <AIChatPanel />
+          </div>
         )}
       </div>
 
