@@ -8,6 +8,7 @@ package mcp
 
 import (
 	"bufio"
+	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
@@ -81,23 +82,83 @@ func Serve(in io.Reader, out io.Writer, version string, backend Backend) error {
 	return scanner.Err()
 }
 
-// Handle processes a single JSON-RPC message and returns the response bytes.
+// SupportedProtocols are the MCP revisions this server understands.
+var SupportedProtocols = []string{"2025-06-18", "2025-03-26", "2024-11-05"}
+
+// Handle processes one JSON-RPC message (or a batch) and returns the response
+// bytes. The bool is false when nothing should be written back (notifications).
 func Handle(raw []byte, version string, backend Backend) ([]byte, bool) {
+	trimmed := bytes.TrimSpace(raw)
+	if len(trimmed) == 0 {
+		return rpcBytes(nil, response{Error: &rpcError{Code: -32700, Message: "parse error"}}), true
+	}
+	// JSON-RPC batch: an array of requests.
+	if trimmed[0] == '[' {
+		var batch []json.RawMessage
+		if err := json.Unmarshal(trimmed, &batch); err != nil {
+			return rpcBytes(nil, response{Error: &rpcError{Code: -32700, Message: "parse error"}}), true
+		}
+		out := []json.RawMessage{}
+		for _, item := range batch {
+			if b, ok := Handle(item, version, backend); ok {
+				out = append(out, b)
+			}
+		}
+		if len(out) == 0 {
+			return nil, false
+		}
+		joined, err := json.Marshal(out)
+		if err != nil {
+			return nil, false
+		}
+		return joined, true
+	}
 	var req request
-	if err := json.Unmarshal(raw, &req); err != nil {
-		return nil, false
+	if err := json.Unmarshal(trimmed, &req); err != nil {
+		return rpcBytes(nil, response{Error: &rpcError{Code: -32700, Message: "parse error"}}), true
+	}
+	if req.JSONRPC != "" && req.JSONRPC != "2.0" {
+		return rpcBytes(req.ID, response{Error: &rpcError{Code: -32600, Message: "invalid request: jsonrpc must be \"2.0\""}}), true
 	}
 	res, respond := dispatch(req, version, backend)
 	if !respond {
 		return nil, false
 	}
+	return rpcBytes(req.ID, res), true
+}
+
+func rpcBytes(id json.RawMessage, res response) []byte {
 	res.JSONRPC = "2.0"
-	res.ID = req.ID
+	res.ID = id
 	b, err := json.Marshal(res)
 	if err != nil {
-		return nil, false
+		return []byte(`{"jsonrpc":"2.0","error":{"code":-32603,"message":"internal error"}}`)
 	}
-	return b, true
+	return b
+}
+
+// negotiateVersion echoes the client's requested revision when we support it,
+// otherwise it answers with our newest revision.
+func negotiateVersion(params json.RawMessage) string {
+	var in struct {
+		ProtocolVersion string `json:"protocolVersion"`
+	}
+	_ = json.Unmarshal(params, &in)
+	for _, v := range SupportedProtocols {
+		if v == in.ProtocolVersion {
+			return v
+		}
+	}
+	return SupportedProtocols[0]
+}
+
+// errorResult reports a tool failure the way the spec expects: a normal result
+// with isError set, so the model can see the message and recover.
+func errorResult(msg string) response {
+	return response{Result: map[string]any{
+		"content": []map[string]any{{"type": "text", "text": msg}},
+		"isError": true,
+	}}
 }
 
 func mcpEnabled(backend Backend) bool {
@@ -112,14 +173,24 @@ func dispatch(req request, version string, backend Backend) (response, bool) {
 	switch req.Method {
 	case "initialize":
 		return response{Result: map[string]any{
-			"protocolVersion": "2024-11-05",
-			"capabilities":    map[string]any{"tools": map[string]any{}},
-			"serverInfo":      map[string]any{"name": "curlui", "version": version},
+			"protocolVersion": negotiateVersion(req.Params),
+			"capabilities": map[string]any{
+				"tools":     map[string]any{"listChanged": false},
+				"resources": map[string]any{"listChanged": false},
+				"prompts":   map[string]any{},
+			},
+			"serverInfo": map[string]any{"name": "curlui", "version": version},
 		}}, true
-	case "notifications/initialized", "initialized":
+	case "notifications/initialized", "initialized", "notifications/cancelled":
 		return response{}, false
 	case "ping":
 		return response{Result: map[string]any{}}, true
+	case "logging/setLevel":
+		return response{Result: map[string]any{}}, true
+	case "resources/list", "resources/templates/list":
+		return response{Result: map[string]any{"resources": []any{}}}, true
+	case "prompts/list":
+		return response{Result: map[string]any{"prompts": []any{}}}, true
 	case "tools/list":
 		if !mcpEnabled(backend) {
 			return response{Result: map[string]any{"tools": []any{}}}, true
@@ -150,7 +221,7 @@ func callTool(raw json.RawMessage, backend Backend) response {
 		return response{Error: &rpcError{Code: -32601, Message: "unknown tool: " + call.Name}}
 	}
 	if def.write && !mcpWrite(backend) {
-		return response{Error: &rpcError{Code: -32000, Message: "write tools are disabled — enable them in curlui Settings"}}
+		return errorResult("write tools are disabled — enable them in curlui Settings")
 	}
 
 	switch call.Name {
@@ -172,7 +243,7 @@ func callTool(raw json.RawMessage, backend Backend) response {
 		return toolCreateRequest(call.Arguments, backend)
 	case "clear_captures":
 		if err := backend.ClearCaptures(); err != nil {
-			return textResult("error: " + err.Error())
+			return errorResult(err.Error())
 		}
 		return textResult("captures cleared")
 	case "list_intercepts":

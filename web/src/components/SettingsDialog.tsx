@@ -74,6 +74,18 @@ export function SettingsDialog({
   const [oidcLabel, setOidcLabel] = useState("");
   const [oidcAutoCreate, setOidcAutoCreate] = useState(true);
   const [oidcRole, setOidcRole] = useState("member");
+  const [aiProvider, setAiProvider] = useState("anthropic");
+  const [aiKey, setAiKey] = useState("");
+  const [aiBaseUrl, setAiBaseUrl] = useState("");
+  const [aiModel, setAiModel] = useState("");
+  const [aiConfigured, setAiConfigured] = useState(false);
+  const [tokens, setTokens] = useState<
+    { id: string; name: string; scopes: string[]; createdAt: string }[]
+  >([]);
+  const [scopes, setScopes] = useState<string[]>([]);
+  const [newToken, setNewToken] = useState("");
+  const [tokenName, setTokenName] = useState("");
+  const [tokenScopes, setTokenScopes] = useState<string[]>(["read"]);
   const [info, setInfo] = useState<{
     current: string;
     latest: string;
@@ -136,9 +148,40 @@ export function SettingsDialog({
         setOidcLabel(s.oidcButtonLabel ?? "");
         setOidcAutoCreate(s.oidcAutoCreate !== "0");
         setOidcRole(s.oidcDefaultRole || "member");
+        setAiProvider(s.aiProvider || "anthropic");
+        setAiBaseUrl(s.aiBaseUrl ?? "");
+        setAiModel(s.aiModel ?? "");
+        setAiKey("");
       })
       .catch(() => {});
+    api.aiStatus().then((st) => setAiConfigured(st.configured)).catch(() => {});
+    api.listScopes().then((r) => setScopes(r.scopes)).catch(() => {});
+    void loadTokens();
   }, [open]);
+
+  const loadTokens = async () => {
+    try {
+      const r = await api.listTokens();
+      setTokens(r.tokens ?? []);
+    } catch {
+      setTokens([]);
+    }
+  };
+
+  const createToken = async () => {
+    try {
+      const r = await api.createToken(tokenName.trim() || "token", tokenScopes);
+      setNewToken(r.secret);
+      setTokenName("");
+      await loadTokens();
+    } catch (err) {
+      toast({
+        title: t("requestFailed"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    }
+  };
 
   const save = async () => {
     try {
@@ -155,6 +198,10 @@ export function SettingsDialog({
         oidcButtonLabel: oidcLabel.trim(),
         oidcAutoCreate: oidcAutoCreate ? "1" : "0",
         oidcDefaultRole: oidcRole,
+        aiProvider,
+        aiBaseUrl: aiBaseUrl.trim(),
+        aiModel: aiModel.trim(),
+        ...(aiKey.trim() ? { aiApiKey: aiKey.trim() } : {}),
       });
       await useStore.getState().loadAuth();
       toast({ title: t("settingsSaved"), variant: "success" });
@@ -197,6 +244,11 @@ export function SettingsDialog({
             {features.mcp !== false && (
               <TabsTrigger value="mcp" className="px-3 text-xs">
                 {t("mcp")}
+              </TabsTrigger>
+            )}
+            {features.ai !== false && (
+              <TabsTrigger value="ai" className="px-3 text-xs">
+                {t("ai")}
               </TabsTrigger>
             )}
             <TabsTrigger value="updates" className="px-3 text-xs">
@@ -344,6 +396,71 @@ export function SettingsDialog({
                     </p>
                   </div>
                 )}
+
+                {/* Personal access tokens */}
+                <div className="rounded-md border p-2">
+                  <div className="mb-2 text-xs font-medium">{t("tokens")}</div>
+                  <div className="flex flex-wrap items-center gap-1">
+                    <Input
+                      className="h-8 w-32 text-xs"
+                      placeholder={t("tokenName")}
+                      value={tokenName}
+                      onChange={(e) => setTokenName(e.target.value)}
+                    />
+                    {scopes.map((sc) => (
+                      <button
+                        key={sc}
+                        type="button"
+                        onClick={() =>
+                          setTokenScopes((cur) =>
+                            cur.includes(sc) ? cur.filter((x) => x !== sc) : [...cur, sc],
+                          )
+                        }
+                        className={
+                          "rounded border px-1.5 py-0.5 text-[10px] " +
+                          (tokenScopes.includes(sc)
+                            ? "border-primary bg-primary/10 text-primary"
+                            : "text-muted-foreground")
+                        }
+                      >
+                        {sc}
+                      </button>
+                    ))}
+                    <Button size="sm" className="h-8 text-xs" onClick={() => void createToken()}>
+                      {t("tokenNew")}
+                    </Button>
+                  </div>
+                  {newToken && (
+                    <div className="mt-2">
+                      <p className="text-[11px] text-amber-400">{t("tokenCreated")}</p>
+                      <code className="mt-1 block break-all rounded bg-muted p-1.5 font-mono text-[10px]">
+                        {newToken}
+                      </code>
+                    </div>
+                  )}
+                  <div className="mt-2 space-y-1">
+                    {tokens.length === 0 && (
+                      <p className="text-[11px] text-muted-foreground">{t("tokenNone")}</p>
+                    )}
+                    {tokens.map((tk) => (
+                      <div key={tk.id} className="flex items-center gap-2 text-[11px]">
+                        <span className="font-medium">{tk.name}</span>
+                        <span className="text-muted-foreground">{tk.scopes.join(", ")}</span>
+                        <Button
+                          size="sm"
+                          variant="ghost"
+                          className="ml-auto h-6 text-[10px] text-destructive"
+                          onClick={async () => {
+                            await api.deleteToken(tk.id);
+                            await loadTokens();
+                          }}
+                        >
+                          {t("tokenRevoke")}
+                        </Button>
+                      </div>
+                    ))}
+                  </div>
+                </div>
               </TabsContent>
             )}
 
@@ -364,6 +481,56 @@ export function SettingsDialog({
                   </span>
                   <Switch checked={mcpWrite} onCheckedChange={setMcpWrite} disabled={!mcpOn} />
                 </div>
+              </TabsContent>
+            )}
+
+            {/* AI (BYOK) */}
+            {features.ai !== false && (
+              <TabsContent value="ai" className="m-0 space-y-3">
+                <p className="text-[11px] text-muted-foreground">{t("aiHint")}</p>
+                <div className="flex items-center justify-between gap-3 text-sm">
+                  <span>{t("aiProvider")}</span>
+                  <Select value={aiProvider} onValueChange={setAiProvider}>
+                    <SelectTrigger className="h-8 w-44">
+                      <SelectValue />
+                    </SelectTrigger>
+                    <SelectContent>
+                      <SelectItem value="anthropic">Anthropic</SelectItem>
+                      <SelectItem value="openai">OpenAI compatible</SelectItem>
+                    </SelectContent>
+                  </Select>
+                </div>
+                <Field label={t("aiApiKey")}>
+                  <Input
+                    type="password"
+                    className="font-mono text-xs"
+                    value={aiKey}
+                    onChange={(e) => setAiKey(e.target.value)}
+                    placeholder={aiConfigured ? "••••••••" : "sk-…"}
+                    spellCheck={false}
+                  />
+                  {aiConfigured && (
+                    <p className="text-[11px] text-emerald-400">{t("aiConfigured")}</p>
+                  )}
+                </Field>
+                <Field label={t("aiBaseUrl")}>
+                  <Input
+                    className="font-mono text-xs"
+                    value={aiBaseUrl}
+                    onChange={(e) => setAiBaseUrl(e.target.value)}
+                    placeholder="https://api.anthropic.com"
+                    spellCheck={false}
+                  />
+                </Field>
+                <Field label={t("aiModel")}>
+                  <Input
+                    className="font-mono text-xs"
+                    value={aiModel}
+                    onChange={(e) => setAiModel(e.target.value)}
+                    placeholder="claude-sonnet-4-5"
+                    spellCheck={false}
+                  />
+                </Field>
               </TabsContent>
             )}
 

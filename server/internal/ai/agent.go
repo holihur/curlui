@@ -29,11 +29,12 @@ Rules:
 
 // Event is one step of an assistant turn.
 type Event struct {
-	Text  string `json:"text,omitempty"`
-	Tool  string `json:"tool,omitempty"`
-	Args  any    `json:"args,omitempty"`
-	Error string `json:"error,omitempty"`
-	Final bool   `json:"final,omitempty"`
+	Text      string `json:"text,omitempty"`
+	SessionID string `json:"sessionId,omitempty"`
+	Tool      string `json:"tool,omitempty"`
+	Args      any    `json:"args,omitempty"`
+	Error     string `json:"error,omitempty"`
+	Final     bool   `json:"final,omitempty"`
 }
 
 // Agent runs an ADK agent bound to an in-memory session service. Tools are

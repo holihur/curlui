@@ -18,5 +18,6 @@ func buildFeatures() map[string]bool {
 		"postgres":  true,
 		"auth":      true,
 		"feedback":  true,
+		"ai":        true,
 	}
 }

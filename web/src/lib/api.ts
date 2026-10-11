@@ -161,6 +161,67 @@ export const api = {
     }
   },
 
+  // AI assistant (BYOK)
+  aiStatus() {
+    return request<{ configured: boolean; provider: string; model: string; baseUrl: string }>(
+      "/ai/status",
+    );
+  },
+  async aiChat(
+    message: string,
+    sessionId: string,
+    onEvent: (ev: { text?: string; tool?: string; args?: any; error?: string; sessionId?: string; final?: boolean }) => void,
+    signal?: AbortSignal,
+  ) {
+    const res = await fetch("/api/ai/chat", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ message, sessionId }),
+      signal,
+    });
+    if (!res.ok || !res.body) throw new Error((await res.text()) || `HTTP ${res.status}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        for (const line of raw.split("\n")) {
+          if (!line.startsWith("data: ")) continue;
+          try {
+            onEvent(JSON.parse(line.slice(6)));
+          } catch {
+            /* ignore */
+          }
+        }
+      }
+    }
+  },
+
+  // Personal access tokens
+  listScopes() {
+    return request<{ scopes: string[] }>("/tokens/scopes");
+  },
+  listTokens() {
+    return request<{ tokens: { id: string; name: string; scopes: string[]; createdAt: string; lastUsedAt?: string }[] }>(
+      "/tokens",
+    );
+  },
+  createToken(name: string, scopes: string[], expiresInDays = 0) {
+    return request<{ token: { id: string; name: string; scopes: string[] }; secret: string }>("/tokens", {
+      method: "POST",
+      body: JSON.stringify({ name, scopes, expiresInDays }),
+    });
+  },
+  deleteToken(id: string) {
+    return request<{ ok: boolean }>(`/tokens/${id}`, { method: "DELETE" });
+  },
+
   // Collections
   listCollections() {
     return request<{ collections: CollectionNode[] }>("/collections");

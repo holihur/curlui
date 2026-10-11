@@ -85,3 +85,24 @@ func TestPATAdminImpliesAll(t *testing.T) {
 		}
 	}
 }
+
+// A store that has a project but no metadata (older files) must still grant
+// access — this was the cause of a spurious "no access to project" 403.
+func TestDefaultProjectMetaIsRepaired(t *testing.T) {
+	st, err := Open(Options{Path: t.TempDir() + "/store.json"})
+	if err != nil {
+		t.Fatal(err)
+	}
+	// Simulate a legacy file: project present, metadata missing.
+	st.mu.Lock()
+	delete(st.root.Meta, DefaultProjectID)
+	st.mu.Unlock()
+	st.ensureDefaultProject()
+
+	if _, ok := st.Role(DefaultProjectID, "someone", true); !ok {
+		t.Error("admin should always have access to the default project")
+	}
+	if _, ok := st.Role(DefaultProjectID, "someone", false); !ok {
+		t.Error("default project should be open to members")
+	}
+}

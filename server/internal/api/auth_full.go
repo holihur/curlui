@@ -324,8 +324,11 @@ func requestToken(r *http.Request) string {
 func (s *Server) withAuth(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 		path := r.URL.Path
+		// /mcp is deliberately NOT public: an MCP client authenticates with a
+		// personal access token carrying the "mcp" scope.
+		isAPI := strings.HasPrefix(path, "/api/")
 		public := path == "/api/health" || strings.HasPrefix(path, "/api/auth/") ||
-			strings.HasPrefix(path, "/mock/") || path == "/mcp" || !strings.HasPrefix(path, "/api/")
+			strings.HasPrefix(path, "/mock/") || (!isAPI && path != "/mcp")
 
 		token := requestToken(r)
 		var user *store.User

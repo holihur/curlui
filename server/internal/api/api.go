@@ -223,6 +223,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/export", s.exportNodes)
 	s.registerDocRoutes(mux)
 	s.registerTokenRoutes(mux)
+	s.registerAIRoutes(mux)
 	mux.HandleFunc("POST /api/batch", s.runBatch)
 	mux.HandleFunc("POST /api/fuzz", s.runFuzz)
 

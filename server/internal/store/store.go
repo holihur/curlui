@@ -256,6 +256,11 @@ func newData() *Data {
 func (s *Store) ensureDefaultProject() {
 	if _, ok := s.root.Projects[DefaultProjectID]; !ok {
 		s.root.Projects[DefaultProjectID] = newData()
+	}
+	// The metadata is created independently: a store written before projects
+	// had metadata (or migrated from an older file) would otherwise have a
+	// project with no meta, which made every request fail with "no access".
+	if _, ok := s.root.Meta[DefaultProjectID]; !ok {
 		s.root.Meta[DefaultProjectID] = &ProjectMeta{
 			ID:        DefaultProjectID,
 			Name:      "Personal",
