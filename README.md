@@ -1,449 +1,160 @@
 # curlui
 
-A self-hosted HTTP client — build, send, inspect and organize HTTP requests.
-The twist: every request is actually executed **by the Go backend**, so the
-browser never hits CORS, you can call internal/private endpoints, and you get
-precise per-phase network timings.
+**A self-hosted HTTP client that runs every request in Go.** No CORS, no
+mixed-content blocks — call `localhost` and internal APIs, see real per-phase
+network timings, and keep everything on your own machine.
+
+Ships as **one ~8 MB binary** (UI embedded): Postman-style editing, a capture
+proxy, mocks, fuzzing, gRPC, GraphQL, MCP for AI agents — and optional teams.
+No account, no cloud.
 
 ![curlui](docs/screenshots/hero.png)
 
-> Screenshots live in **Git LFS** (`docs/screenshots/`) and are regenerated
-automatically: `bash scripts/screenshots.sh` locally, or the
-[`screenshots`](.github/workflows/screenshots.yml) workflow on CI (which commits
-the refreshed images back).
+## Why curlui
 
-> **One binary, zero dependencies.** Mock server, request chaining, response
-> assertions with a live pass/fail indicator, pre/post hooks, an OpenAPI
-> importer and a scheduler — all in a single ~8 MB file.
-
-
-```
-┌──────────────┐   JSON over /api   ┌────────────────────┐   net/http   ┌────────────┐
-│  React + UI  │ ─────────────────► │  Go API + executor │ ───────────► │  any HTTP  │
-│ (Tailwind +  │ ◄───────────────── │  (store + curl)    │ ◄─────────── │  endpoint  │
-│  shadcn/ui)  │   response + timings└────────────────────┘              └────────────┘
-└──────────────┘
-```
+- **Requests run server-side (Go)** — not in the browser. Private/loopback
+  targets work, TLS is fully controllable, and you get DNS / connect / TLS / TTFB
+  waterfall timings.
+- **One binary, self-hosted** — the React UI is embedded; data lives in a JSON
+  file or PostgreSQL. Nothing to install, nothing phones home.
+- **All the tools in one place** — editor, collections, environments, mocks,
+  capture proxy, fuzzer, scheduler, gRPC, GraphQL, docs export.
+- **AI-ready** — a built-in MCP server lets agents drive your saved requests.
+- **Anonymous by default** — every feature works without logging in; turn on
+  *Require login* only when you want teams.
 
 ## Features
 
-- **Full request builder** — method, URL, query params, headers, body
-  (`none`, `JSON`, `XML`, `HTML`, `text`, `x-www-form-urlencoded`, `form-data`
-  with file upload, `binary`), and `basic` / `bearer` / `api-key` auth.
-- **Requests run in Go** — no CORS, no mixed-content blocks, private/localhost
-  targets work, and you get a real `User-Agent` of `curlui/1.0`.
-- **Detailed timings** — DNS, TCP connect, TLS handshake, TTFB and total,
-  measured with `httptrace` and rendered as a waterfall.
-- **Collections** — nested folders to organize and save requests
-  (rename/move/delete).
-- **History** — every executed request is recorded and can be re-opened.
-- **Environments & variables** — `{{baseUrl}}`, plus dynamic values
-  `{{$timestamp}}`, `{{$isoTimestamp}}`, `{{$uuid}}`, `{{$randomInt}}`.
-- **cURL import/export** — paste a `curl ...` command and it becomes a request;
-  generate the equivalent cURL for any request.
-- **OpenAPI / Swagger import** — enter a spec **URL** (or paste JSON/YAML / pick a
-  file); every operation becomes a ready-to-send request in the Collections
-  sidebar, grouped by tag, with params, request bodies (sampled from schemas),
-  content types and auth configured. Supports Swagger 2.0 and OpenAPI 3.x.
-- **JSON syntax highlighting** — both the request body editor and the response
-  viewer highlight JSON (dependency-free, theme-aware).
-- **Multi-language UI** — English and 简体中文, switchable at runtime and
-  remembered in the browser (and on the server).
-- **Pre-request / post-response hooks** — run any script as a child process;
-  the context arrives as JSON on **stdin** and the result is read from
-  **stdout**, so hooks can be shell, Python, Node, Go, …
-- **Assertions & JSON-path extraction** — validate status/headers/body/JSON
-  paths; extract response values into `{{variables}}` for child requests.
-- **Request chaining** — a request can declare parent requests; their responses
-  are executed first and referenced by descendants.
-- **Mock responses** — define canned responses per request; send one with
-  *Send as mock*, or let any client hit the built-in mock server at
-  `/mock/{requestId}`.
-- **Server or Browser execution** — per-request choice; browser mode uses the
-  browser's `fetch()` (CORS applies).
-- **Scheduler** — send after a delay, at a time, or on a repeating interval
-  (optionally a fixed number of times); manage and watch jobs in the Schedules tab.
-- **Concurrent runner** — run a whole folder, or load-test one request with a
-  bounded concurrency and repeat count, and see a pass/fail + latency summary.
-- **Capture proxy** — run with `-proxy :8899` and point any client at it to
-  record requests/responses; **HTTPS is decrypted** via a generated CA
-  (download it from the Traffic tab) and can be restricted to specific hosts.
-  Capture can be toggled off (proxy-only
-  mode) and captured traffic auto-expires after a configurable **TTL**. A
-  newline-separated **filter** (* wildcards) limits what is captured, entries are
-  searchable, and the capture list **exports to HAR or cURL**. A **Breakpoints**
-  toggle pauses matching requests **or responses** so you can edit and continue
-  (or abort). View captures as a flat list or grouped **by host**, and save any
-  capture — or the whole list — **as a collection**.
-- **Fuzzing** — mutate params/headers/JSON body with a payload list, send them
-  concurrently, and flag anomalies (5xx, status changes, size shifts).
-- **MCP server** — `curlui -mcp` speaks the Model Context Protocol over stdio
-  (or `POST /mcp` over HTTP), with **read tools** (collections, environments,
-  history, captures, intercepts, get request) and **write tools**
-  (http_request, run_saved_request, create_request, replay_capture,
-  resolve_intercept, proxy_config, clear_captures). Both groups are toggled from
-  Settings.
-- **Custom User-Agent** — configurable in Settings; applied to requests that
-  don't set their own.
-- **Teams, projects & collaboration** — optional login (off by default, so a
-  single user keeps **every feature anonymously**). Turn on *Require login* in
-  Settings to create the first admin, then invite members. Each **project** is
-  an isolated workspace (collections, history, environments, traffic) stored in
-  PostgreSQL; members get a role (owner/admin/member/viewer) and clients poll the
-  project version so teammates see each other's changes.
-- **Export / import** — export a collection as JSON (round-trips back in), as a
-  sheet of cURL commands, or as a **Postman Collection v2.1**; import existing
-  **Postman collections** (folders, requests, headers, bodies, auth, query
-  params and collection variables are mapped). **Export docs** renders a
-  collection to **Markdown,
-  HTML, Word or PDF** using the built-in template or your own (Go template
-  syntax over the collection).
-- **Self-update** — Settings → Updates checks GitHub Releases and can replace
-  the running binary in place (restart to apply).
-- **Fast first paint** — the UI is code-split (panels/dialogs load on demand,
-  non-English locales are fetched only when selected), build assets are
-  pre-compressed with **brotli/gzip** and served with `immutable` caching, so
-  the initial payload is ~150 KB instead of ~600 KB.
-- **GraphQL** — a dedicated body type sends `{query, variables, operationName}`
-  as `POST application/json`, with a query editor and JSON variables.
-- **gRPC** — a **gRPC tab in the sidebar** lists your saved protobuf descriptors.
-  Import a `.pb` (`protoc --descriptor_set_out --include_imports`) or fetch it
-  live via **server reflection** — either way it is **stored per project**, so it
-  is there next time (no re-importing). Pick a service/method, get a generated
-  request example, and invoke unary RPCs with metadata over TLS or plaintext.
-- **Run as a service** — `curlui -service install` sets up systemd / launchd / sc.
-- **Deep links** — every request has a UUID; the URL (`#/r/<uuid>`) restores the
-  exact request on refresh and is shareable.
-- **3 languages** — English, 简体中文 and 日本語, plus light/dark themes (persisted).
-- **Duplicate** requests/folders and **copy as cURL** from the tree.
-- **Responsive UI** — works on desktop, tablet and phone; the sidebar collapses
-  to a drawer with auto-close when you pick a request.
-- **Options** — timeout, follow redirects, TLS verification toggle, custom proxy.
-- **Response viewer** — pretty/raw body, headers, cookies, timing waterfall and
-  the exact request that was sent. Binary responses can be downloaded.
-- **Dark / light themes**, keyboard shortcuts, multi-tab editing.
+**Client** · methods, params, headers, bodies (JSON / XML / HTML / text / form /
+form-data with file upload / binary / **GraphQL**), auth (basic, bearer, API key,
+OAuth2, JWT, AWS SigV4, Digest), cookie jar, client certs, cURL import/export,
+timeout / redirects / TLS / proxy options.
+
+**Organize** · nested collections with drag-and-drop, folder variables and setup
+requests, environments and `{{variables}}`, history, multi-tab editing,
+deep links (`#/r/<uuid>`), duplicate, copy-as-cURL.
+
+**Test & automate** · pre/post hooks (any language via stdin/stdout JSON),
+assertions (status / time / header / body / JSON-path) with a live pass/fail
+indicator, request chaining + extraction, mock responses (`/mock/{id}`),
+concurrent folder runner, load tests, fuzzer (reflection, SSTI, error leaks,
+timing, path/header/cookie/body injection), delayed & periodic jobs.
+
+**Observe** · capture proxy with HTTPS decryption (CA), per-host filtering,
+request/response **breakpoints**, replay, save-to-collection, HAR/cURL export.
+
+**Interop** · import OpenAPI/Swagger (URL or file) and Postman v2.1 collections;
+export as JSON, cURL, Postman, or rendered docs (**Markdown / HTML / Word /
+PDF**); gRPC via `.pb` descriptors or server reflection (saved per project);
+GraphQL schema introspection.
+
+**Team** · optional login (local accounts or **OIDC/SSO**), isolated projects,
+roles (owner/admin/member/viewer), audit log, shared workspaces that refresh for
+everyone.
+
+**Extras** · dark/light themes, English / 简体中文 / 日本語, responsive (phone
+drawer), self-update, run as a system service, custom User-Agent.
+
+## Install
+
+```sh
+curl -fsSL https://raw.githubusercontent.com/holihur/curlui/main/install.sh | sh   # macOS / Linux
+```
+
+```powershell
+irm https://raw.githubusercontent.com/holihur/curlui/main/install.ps1 | iex       # Windows
+```
+
+Then:
+
+```bash
+curlui                 # open http://localhost:8080
+```
+
+Prefer manual? Grab a self-contained archive for your platform from
+[Releases](https://github.com/holihur/curlui/releases) and run the single file.
+`curlui -version` / `curlui -help` for details.
+
+## Run from source
+
+Requires Go 1.25+ and Node 20+.
+
+```bash
+make build      # build UI + server → server/curlui-server
+make dev        # server on :8080 + Vite on :5173 (hot reload)
+```
+
+## Configuration
+
+| Flag | Env | Default | Purpose |
+| --- | --- | --- | --- |
+| `-addr` | `CURLUI_ADDR` | `:8080` | Listen address |
+| `-db` | `CURLUI_DATABASE_URL` | — | PostgreSQL DSN (else a JSON file) |
+| `-data` | `CURLUI_DATA` | `data/store.json` | JSON store path |
+| `-proxy` | `CURLUI_PROXY` | off | Capture proxy, e.g. `:8899` |
+| `-proxy-mitm` | `CURLUI_PROXY_MITM` | `1` | Decrypt HTTPS in the proxy |
+| `-mcp` | — | — | MCP server over stdio |
+| `-service` | — | — | `install` / `uninstall` / `status` / `print` |
+
+With `-db`, the schema is auto-migrated and an existing `data/store.json` is
+imported once. The default `local` project keeps anonymous use working.
 
 ## Screenshots
 
-| Import OpenAPI / Swagger | Automation (hooks, assertions, chaining, mock) |
+| Import OpenAPI | Automation (hooks, assertions, chaining) |
 | --- | --- |
 | ![Import OpenAPI](docs/screenshots/openapi-import.png) | ![Automation](docs/screenshots/automation.png) |
-| **Mock server with hit stats** | **Scheduler (delayed / periodic)** |
+| **Mocks** | **Scheduler** |
 | ![Mock](docs/screenshots/mock.png) | ![Scheduler](docs/screenshots/scheduler.png) |
 
-<details>
-<summary>Light theme</summary>
+<details><summary>Light theme · phone · tablet</summary>
 
-![Light theme](docs/screenshots/hero-light.png)
+| Light | Phone | Drawer | Tablet |
+| --- | --- | --- | --- |
+| ![Light](docs/screenshots/hero-light.png) | ![Phone](docs/screenshots/mobile.png) | ![Drawer](docs/screenshots/mobile-drawer.png) | ![Tablet](docs/screenshots/tablet.png) |
 
 </details>
 
-### Responsive (desktop · tablet · phone)
+> Screenshots are stored in **Git LFS** and refreshed automatically
+> (`bash scripts/screenshots.sh`, or the CI `screenshots` workflow).
 
-| Phone | Phone (drawer) | Tablet |
-| --- | --- | --- |
-| ![Phone](docs/screenshots/mobile.png) | ![Phone drawer](docs/screenshots/mobile-drawer.png) | ![Tablet](docs/screenshots/tablet.png) |
+## Variables
 
-## Tech stack
+`{{name}}` resolves from the active environment (plus folder variables and
+parent extractions). Dynamic: `{{$timestamp}}` `{{$isoTimestamp}}` `{{$uuid}}`
+`{{$randomInt}}`.
 
-| Layer     | Tech                                                        |
-| --------- | ----------------------------------------------------------- |
-| Backend   | Go (standard library + `gopkg.in/yaml.v3`, GORM)            |
-| Frontend  | React 19, TypeScript, Vite                                  |
-| Styling   | Tailwind CSS v4, shadcn/ui (Radix primitives), lucide icons  |
-| State     | Zustand                                                     |
-| Storage   | PostgreSQL via GORM (multi-project), JSON file fallback      |
+## Automation
 
-## Install (one line)
-
-**macOS / Linux**
-
-```sh
-curl -fsSL https://raw.githubusercontent.com/holihur/curlui/main/install.sh | sh
-```
-
-**Windows (PowerShell)**
-
-```powershell
-irm https://raw.githubusercontent.com/holihur/curlui/main/install.ps1 | iex
-```
-
-Both detect your OS/CPU, download the matching **single-file** binary from the
-latest Release and put it on your `PATH`. Pin a version with
-`CURLUI_VERSION=v1.3.0` or choose the directory with `CURLUI_INSTALL_DIR=$HOME/bin`.
-
-Then just run:
-
-```bash
-curlui -addr :8080        # open http://localhost:8080
-```
-
-## Download & run (single binary)
-
-Every tagged release ships pre-built, **self-contained** binaries — the web UI
-is embedded, so there is nothing else to install:
-
-1. Open the [Releases](https://github.com/holihur/curlui/releases) page and
-download the archive for your platform (Linux / macOS / Windows · amd64 / arm64).
-2. Unpack and run the single file:
-
-   ```bash
-   ./curlui -addr :8080        # Linux / macOS
-   # curlui.exe -addr :8080    # Windows
-   ```
-3. Open <http://localhost:8080>.
-
-No Node, no Go and no extra assets required — one file serves the UI and the API.
-
-```bash
-curlui -version               # print the version
-curlui -help                  # all flags
-```
-
-## Quick start (from source)
-
-Requirements: **Go 1.22+** and **Node 20+**.
-
-```bash
-# 1) install + build everything
-make build
-
-# 2) run the server (serves the built UI and the API on :8080)
-./server/curlui-server -addr :8080
-```
-
-Then open <http://localhost:8080>.
-
-### Development
-
-```bash
-make dev        # builds the Go server, runs it, and starts Vite on :5173
-```
-
-Vite proxies `/api` to `http://localhost:8080`, so open
-<http://localhost:5173> during development.
-
-### Configuration
-
-The server accepts flags or environment variables:
-
-| Flag       | Env var          | Default          | Description                     |
-| ---------- | ---------------- | ---------------- | ------------------------------- |
-| `-addr`    | `CURLUI_ADDR`    | `:8080`          | Listen address                  |
-| `-data`    | `CURLUI_DATA`    | `data/store.json`| JSON store path (used when `-db` is empty) |
-| `-db`      | `CURLUI_DATABASE_URL` | *(empty)*   | PostgreSQL DSN — enables the GORM backend |
-| `-static`  | `CURLUI_STATIC`  | `web/dist`       | Frontend dir (fallback when the UI is not embedded) |
-| `-proxy`   | `CURLUI_PROXY`   | _(off)_          | Recording HTTP proxy address, e.g. `:8899` |
-| `-proxy-mitm` | `CURLUI_PROXY_MITM` | `1`         | Decrypt HTTPS in the proxy (clients trust the CA) |
-| `-mcp`     | —                | —                | Run an MCP server over stdio (tools for AI agents) |
-| `-service` | —                | —                | `install` / `uninstall` / `status` / `print` a system service |
-| `-version` | —                | —                | Print version and exit          |
-
-### Storage: PostgreSQL (GORM)
-
-Point curlui at a database and it uses PostgreSQL via
-[GORM](https://gorm.io) instead of the JSON file:
-
-```bash
-curlui -db 'postgres://curlui:secret@localhost:5432/curlui?sslmode=disable'
-# or
-CURLUI_DATABASE_URL='postgres://...' curlui
-```
-
-Schema is auto-migrated on start:
-
-| Table             | Contents                                                        |
-| ----------------- | --------------------------------------------------------------- |
-| `projects`        | one row per project — workspace document stored as `jsonb` + version |
-| `project_members` | `(project_id, user_id, role)` — team membership                  |
-| `users`           | team accounts (PBKDF2-HMAC-SHA256 password hashes)              |
-| `sessions`        | login sessions (opaque bearer tokens)                           |
-| `settings`        | global settings (UI, proxy, MCP)                                |
-
-The **default project** (`local`) is always available, so a single user can keep
-using every feature **without logging in**. Existing `data/store.json` files are
-imported into PostgreSQL automatically the first time a database is used.
-
-## Project layout
-
-```
-server/
-  main.go                     # flags, static serving, SPA fallback
-  internal/
-    api/api.go                # HTTP routes + middleware + handlers
-    curl/execute.go           # Go HTTP executor (timings, auth, bodies)
-    curl/parse.go             # cURL tokenizer/parser + generator
-    models/models.go          # shared data types
-    store/store.go            # GORM/PostgreSQL + JSON store, projects, users
-    variables/variables.go    # {{var}} substitution + dynamic vars
-web/
-  src/
-    components/ui/            # shadcn/ui primitives
-    components/*.tsx          # app UI (editor, sidebar, response, dialogs)
-    lib/{api,types,utils}.ts  # API client, types, helpers
-    store.ts                  # Zustand application state
-```
-
-## API reference
-
-| Method   | Path                          | Purpose                          |
-| -------- | ----------------------------- | -------------------------------- |
-| `POST`   | `/api/send`                   | Execute a request                |
-| `POST`   | `/api/import/postman`         | Import a Postman Collection v2.1 |
-| `POST`   | `/api/graphql/introspect`     | Fetch a GraphQL schema           |
-| `POST`   | `/api/grpc/descriptor`        | Import a .pb / reflect (persists) |
-| `GET`    | `/api/grpc/descriptors`       | List saved descriptors           |
-| `DELETE` | `/api/grpc/descriptors/{id}`  | Delete a descriptor              |
-| `POST`   | `/api/grpc/example`           | Generate a request example       |
-| `POST`   | `/api/grpc/call`              | Invoke a unary gRPC method       |
-| `GET`    | `/api/auth/status`            | Auth state, current user + projects |
-| `POST`   | `/api/auth/login`             | Sign in (sets a session cookie)  |
-| `POST`   | `/api/auth/logout`            | Sign out                         |
-| `POST`   | `/api/auth/bootstrap`         | Create the first admin account   |
-| `GET/POST` | `/api/users`                | List / create users (admin)      |
-| `PUT/DELETE` | `/api/users/{id}`         | Edit / remove a user (admin)     |
-| `GET/POST` | `/api/projects`             | List / create projects           |
-| `PUT/DELETE` | `/api/projects/{id}`      | Rename / delete a project        |
-| `POST/DELETE` | `/api/projects/{id}/members[/{userId}]` | Manage members     |
-| `GET`    | `/api/collections`            | Get the collection tree          |
-| `POST`   | `/api/collections`            | Create a folder or request       |
-| `PUT`    | `/api/collections/{id}`       | Update a node                    |
-| `DELETE` | `/api/collections/{id}`       | Delete a node (and subtree)      |
-| `POST`   | `/api/collections/{id}/move`  | Re-parent a node                 |
-| `GET`    | `/api/history`                | List history                     |
-| `DELETE` | `/api/history`                | Clear history                    |
-| `DELETE` | `/api/history/{id}`           | Delete one history entry         |
-| `GET`    | `/api/environments`           | List environments                |
-| `POST`   | `/api/environments`           | Create/update an environment     |
-| `DELETE` | `/api/environments/{id}`      | Delete an environment            |
-| `POST`   | `/api/curl/parse`             | Parse a cURL command             |
-| `POST`   | `/api/curl/generate`          | Generate a cURL command          |
-| `POST`   | `/api/openapi/parse`          | Parse a Swagger/OpenAPI spec (URL or content) |
-| `POST`   | `/api/collections/import`     | Bulk-import a parsed tree        |
-| `POST`   | `/api/schedule`               | Create a delayed/periodic job    |
-| `GET`    | `/api/schedule`               | List jobs                        |
-| `POST`   | `/api/schedule/{id}/run`      | Run a job now                    |
-| `POST`   | `/api/schedule/{id}/cancel`   | Stop future runs                 |
-| `DELETE` | `/api/schedule/{id}`          | Delete a job                     |
-| `GET`    | `/api/schedule/{id}/results`  | Recent run results               |
-| `POST`   | `/api/batch`                  | Run many requests concurrently   |
-| `GET`    | `/api/proxy`                  | Captured proxy traffic           |
-| `DELETE` | `/api/proxy`                  | Clear captures                   |
-| `POST`   | `/api/proxy/{id}/replay`      | Replay a capture                 |
-| `POST`   | `/api/proxy/config`           | Toggle capture/breakpoints/MITM  |
-| `GET`    | `/api/export/doc`             | Export docs (md/html/word/pdf)   |
-| `GET`    | `/api/proxy/export?format=`   | Export captures (HAR or cURL)    |
-| `POST`   | `/api/proxy/save`             | Save captures as a collection    |
-| `GET`    | `/api/intercept`              | List paused (breakpoint) requests |
-| `POST`   | `/api/intercept/{id}`         | Continue (edited) or abort        |
-| `GET`    | `/api/proxy/ca`               | Download the MITM CA certificate |
-| `POST`   | `/api/fuzz`                   | Fuzz a request and flag anomalies |
-| `GET`    | `/api/export?id=&format=`     | Export collection (JSON or cURL) |
-| `GET`    | `/api/update/check`           | Check for a newer release        |
-| `POST`   | `/api/update`                 | Download + replace the binary    |
-| any      | `/mock/{requestId}`           | Mock server for a saved request  |
-| `POST`   | `/mcp`                        | MCP over HTTP (JSON-RPC 2.0)     |
-
-Example:
-
-```bash
-curl -s localhost:8080/api/send -d '{
-  "envId": "",
-  "request": {
-    "method": "POST",
-    "url": "https://httpbin.org/post",
-    "headers": [{"key":"Content-Type","value":"application/json","enabled":true}],
-    "body": {"type":"json","raw":"{\"hello\":\"world\"}"},
-    "auth": {"type":"none"},
-    "options": {"timeout":15000,"followRedirects":true,"verifyTLS":true}
-  }
-}'
-```
-
-## Keyboard shortcuts
-
-| Shortcut             | Action                |
-| -------------------- | --------------------- |
-| `Cmd/Ctrl + Enter`   | Send request          |
-| `Cmd/Ctrl + S`       | Save request          |
-| Double-click a tab   | Rename the request    |
-
-## Variable syntax
-
-Use `{{name}}` anywhere (URL, params, headers, body, auth). Values resolve from
-the selected **Environment** at send time. Dynamic helpers:
-
-`{{$timestamp}}` · `{{$isoTimestamp}}` · `{{$uuid}}` · `{{$randomInt}}`
-
-## Automation (hooks, assertions, chaining)
-
-Open the **Automation** tab in the request editor.
-
-**Hooks** run as child processes. The context is JSON on **stdin**; the result is
-JSON on **stdout**, so a hook can be any language.
-
-*Pre-request* stdin / stdout:
+**Hooks** are child processes: JSON in on **stdin**, JSON out on **stdout** — so
+they can be shell, Python, Node, Go…
 
 ```jsonc
-// stdin
-{"phase":"pre","request":{ … },"variables":{"baseUrl":"…"}}
-// stdout (all fields optional)
-{"variables":{"token":"abc"},"request":{"method":"GET"},
- "abort":false,"log":"…"}
+// pre-request  stdout          // post-response stdout
+{"variables":{"token":"abc"}}   {"variables":{"id":1},
+ "request":{"method":"GET"}}     "tests":[{"name":"status 200","passed":true}]}
 ```
 
-*Post-response* stdin / stdout:
+**Assertions** check `status / time / header / body / jsonpath` with
+`eq ne contains matches gt gte lt lte exists`; the sidebar indicator goes green
+or red.
 
-```jsonc
-// stdin
-{"phase":"post","request":{ … },"response":{"status":200,"body":"…"},"variables":{}}
-// stdout
-{"variables":{"id":1},"tests":[{"name":"status 200","passed":true}]}
+**Chaining**: a request can depend on parents; their **Extract** rules pull JSON
+values (e.g. `$.data.token`) into variables for descendants. Folders can carry
+variables + a setup request so children inherit them automatically.
+
+## AI agents (MCP)
+
+```bash
+curlui -mcp      # MCP over stdio; also POST /mcp
 ```
 
-`request` is **deep-merged**, so a hook only has to emit the fields it changes.
-
-**Assertions** validate `status` / `time` / `header` / `body` / `jsonpath` with
-operators `eq ne contains matches gt gte lt lte exists`. When they pass, the
-indicator next to the request in the sidebar turns **green** (red on failure).
-
-**Chaining**: a request can declare **Dependencies** (parent requests). Parents
-run first; their **Extract** rules pull values out of their JSON responses with a
-JSON path (e.g. `$.data.token`) into variables that descendants reference as
-`{{token}}`.
-
-**Folder hierarchy**: a folder can define **variables** and a **setup request**
-with **Extract** rules (right-click a folder → *Folder settings*). Every request
-inside the folder — and its subfolders — automatically inherits those variables
-and has the setup request run first, so a child API can reference a parent's
-return value without wiring it up manually. Variable precedence is:
-environment → ancestor folder variables → parent/setup extractions → hooks.
-
-**Drag & drop**: reorder or re-parent any node in the sidebar — drop onto a
-folder to nest it, between rows to reorder, or on empty space to move it to the
-root. Ordering and nesting are saved to the store.
+Read tools (collections, environments, history, captures, intercepts) and write
+tools (http_request, run_saved_request, create_request, replay_capture,
+resolve_intercept, proxy_config, clear_captures), toggled in Settings.
 
 ## Notes
 
-### Using curlui from an AI agent (MCP)
-
-```bash
-curlui -mcp            # speaks MCP (JSON-RPC 2.0) over stdio
-```
-
-Point an MCP client (Claude Desktop, etc.) at this command; the tools are
-`http_request`, `list_collections`, `list_environments`, `run_saved_request`.
-
-### Capturing HTTPS
-
-Start with `-proxy :8899`, then trust the CA (Traffic tab → download, or
-`GET /api/proxy/ca`):
-
-```bash
-curl --proxy http://127.0.0.1:8899 --cacert curlui-ca.crt https://example.com
-```
-
-
-- `form-data` **file** fields and the **binary** body type reference paths on the
-  machine running the server (this is a local, self-hosted tool).
-- TLS verification can be disabled per-request (the `-k` equivalent).
+- `form-data` file fields and `binary` bodies reference paths on the machine
+  running the server.
+- TLS verification can be disabled per request (the `-k` equivalent).
