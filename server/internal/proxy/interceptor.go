@@ -1,3 +1,5 @@
+//go:build !core
+
 package proxy
 
 import (

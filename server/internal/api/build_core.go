@@ -9,10 +9,13 @@ func buildVariant() string { return "core" }
 func buildFeatures() map[string]bool {
 	return map[string]bool{
 		"grpc":      false,
-		"proxy":     true,
-		"mcp":       true,
-		"scheduler": true,
+		"proxy":     false,
+		"mcp":       false,
+		"scheduler": false,
 		"pdf":       false,
-		"postgres":  true,
+		"openapi":   false,
+		"doc":       false,
+		"postgres":  false,
+		"auth":      false,
 	}
 }

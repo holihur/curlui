@@ -1,3 +1,5 @@
+//go:build !core
+
 // Package mitm provides a tiny certificate authority used to intercept HTTPS
 // traffic in the capture proxy. Certificates are generated on demand and
 // cached per host.

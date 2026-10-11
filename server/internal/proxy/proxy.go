@@ -1,3 +1,5 @@
+//go:build !core
+
 // Package proxy implements a recording HTTP forward proxy. Plain HTTP traffic
 // is captured in full (request and response); HTTPS/CONNECT is tunnelled and
 // recorded as a host-level entry.

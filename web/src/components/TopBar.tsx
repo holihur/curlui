@@ -184,9 +184,11 @@ export function TopBar() {
           <DropdownMenuItem onClick={() => setImportOpen(true)}>
             <FileUp /> {t("importCurl")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setOpenapiOpen(true)}>
-            <FileJson2 /> {t("importOpenapi")}
-          </DropdownMenuItem>
+          {features.openapi !== false && (
+            <DropdownMenuItem onClick={() => setOpenapiOpen(true)}>
+              <FileJson2 /> {t("importOpenapi")}
+            </DropdownMenuItem>
+          )}
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => collectionFileRef.current?.click()}>
             <FolderInput /> {t("importCollection")}
@@ -252,12 +254,16 @@ export function TopBar() {
             <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
               <SettingsIcon /> {t("settings")}
             </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setTeamOpen(true)}>
-              <Users /> {t("team")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setDocOpen(true)}>
-              <FileText /> {t("exportDocs")}
-            </DropdownMenuItem>
+            {features.auth !== false && (
+              <DropdownMenuItem onClick={() => setTeamOpen(true)}>
+                <Users /> {t("team")}
+              </DropdownMenuItem>
+            )}
+            {features.doc !== false && (
+              <DropdownMenuItem onClick={() => setDocOpen(true)}>
+                <FileText /> {t("exportDocs")}
+              </DropdownMenuItem>
+            )}
 
             <DropdownMenuSeparator />
 

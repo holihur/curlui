@@ -23,6 +23,7 @@ export default function App() {
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const rightOpen = useStore((s) => s.rightOpen);
   const setRightOpen = useStore((s) => s.setRightOpen);
+  const features = useStore((s) => s.features);
   const authEnabled = useStore((s) => s.authEnabled);
   const authenticated = useStore((s) => s.authenticated);
   const syncProject = useStore((s) => s.syncProject);
@@ -78,7 +79,7 @@ export default function App() {
               <RequestTabs />
               <RequestEditor />
             </main>
-            <BottomPanel />
+            {features.proxy !== false && <BottomPanel />}
           </div>
           {rightOpen && (
             <div
@@ -89,9 +90,11 @@ export default function App() {
           <RightSidebar />
         </div>
         <Toaster />
-        <Suspense fallback={null}>
-          <InterceptDialog />
-        </Suspense>
+        {features.proxy !== false && (
+          <Suspense fallback={null}>
+            <InterceptDialog />
+          </Suspense>
+        )}
       </div>
     </TooltipProvider>
   );

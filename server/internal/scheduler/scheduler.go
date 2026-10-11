@@ -1,3 +1,5 @@
+//go:build !core
+
 // Package scheduler runs requests on a delay, at a specific time, or on a
 // repeating interval (like Postman's collection runner / monitors). Jobs are
 // persisted through a callback so they survive restarts.

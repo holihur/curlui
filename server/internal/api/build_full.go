@@ -13,6 +13,9 @@ func buildFeatures() map[string]bool {
 		"mcp":       true,
 		"scheduler": true,
 		"pdf":       true,
+		"openapi":   true,
+		"doc":       true,
 		"postgres":  true,
+		"auth":      true,
 	}
 }

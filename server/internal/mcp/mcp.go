@@ -1,3 +1,5 @@
+//go:build !core
+
 // Package mcp implements a minimal Model Context Protocol server (JSON-RPC 2.0)
 // that exposes curlui as tools an AI agent can call. Tools are split into a
 // read group and a write group; both are gated by settings so the UI can toggle

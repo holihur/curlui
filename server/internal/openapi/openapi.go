@@ -1,3 +1,5 @@
+//go:build !core
+
 // Package openapi parses Swagger 2.0 and OpenAPI 3.x documents into curlui
 // collection trees.
 package openapi

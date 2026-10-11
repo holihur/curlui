@@ -190,6 +190,7 @@ export function SettingsDialog({
           </label>
         </div>
 
+        {features.auth !== false && (
         <div className="border-t pt-4">
           <div className="mb-2 text-sm font-medium">{t("team")}</div>
           <label className="flex items-center justify-between gap-3 text-sm">
@@ -258,6 +259,7 @@ export function SettingsDialog({
             </div>
           )}
         </div>
+        )}
 
         <div className="border-t pt-4">
           <div className="mb-2 text-sm font-medium">{t("updates")}</div>

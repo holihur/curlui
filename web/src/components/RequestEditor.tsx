@@ -60,6 +60,7 @@ export function RequestEditor() {
   const send = useStore((s) => s.send);
   const saveActiveTab = useStore((s) => s.saveActiveTab);
   const status = useStore((s) => (tab?.sourceId ? s.testStatus[tab.sourceId] : undefined));
+  const features = useStore((s) => s.features);
 
   const [codeOpen, setCodeOpen] = useState(false);
   const [scheduleOpen, setScheduleOpen] = useState(false);
@@ -123,6 +124,7 @@ export function RequestEditor() {
     <div className="flex min-h-0 flex-1 flex-col">
       {/* URL bar */}
       <div className="flex flex-wrap items-center gap-2 border-b p-2 sm:p-2.5">
+        {features.grpc !== false && (
         <Button
           variant="outline"
           size="sm"
@@ -148,6 +150,7 @@ export function RequestEditor() {
         >
           {req.protocol === "grpc" ? "gRPC" : "HTTP"}
         </Button>
+        )}
 
         {req.protocol === "grpc" ? (
           <Input
@@ -228,9 +231,11 @@ export function RequestEditor() {
                 <FlaskConical /> {t("sendAsMock")}
               </DropdownMenuItem>
               <DropdownMenuSeparator />
+              {features.scheduler !== false && (
               <DropdownMenuItem onClick={() => setScheduleOpen(true)}>
                 <Clock /> {t("scheduleSend")}
               </DropdownMenuItem>
+              )}
               <DropdownMenuItem onClick={() => setRunOpen(true)}>
                 <Play /> {t("loadTest")}
               </DropdownMenuItem>

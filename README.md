@@ -66,15 +66,16 @@ Every release ships two single-file binaries:
 | --- | --- | --- |
 | Everything (gRPC, PostgreSQL, capture proxy, MCP, jobs, PDF) | ✅ | — |
 | HTTP client, collections, environments, history, cURL/OpenAPI/Postman, GraphQL, mocks, assertions, docs (MD/HTML/Word) | ✅ | ✅ |
-| Size (linux/amd64, stripped) | ~22 MB | ~12 MB |
+| Size (linux/amd64, stripped) | ~22 MB | **~9 MB** |
 
 ```sh
 curl -fsSL .../install.sh | sh                      # full
 CURLUI_VARIANT=core curl -fsSL .../install.sh | sh  # core
 ```
 
-The UI adapts automatically: the core build hides gRPC, the traffic panel,
-jobs, MCP settings and the PDF export option.
+The UI adapts automatically: the core build hides gRPC, the traffic/proxy panel,
+jobs, MCP settings, team/login, OpenAPI import, docs export and PDF — so the UI
+always matches what the binary can actually do.
 
 ## Install
 

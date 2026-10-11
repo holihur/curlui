@@ -14,13 +14,10 @@ import (
 	"time"
 
 	curlpkg "curlui/server/internal/curl"
-	"curlui/server/internal/doc"
 	"curlui/server/internal/graphql"
 	"curlui/server/internal/jsonpath"
-	"curlui/server/internal/mcp"
 	"curlui/server/internal/mitm"
 	"curlui/server/internal/models"
-	"curlui/server/internal/openapi"
 	"curlui/server/internal/postman"
 	"curlui/server/internal/proxy"
 	"curlui/server/internal/scheduler"
@@ -107,22 +104,6 @@ func (s *Server) AddRequest(parentID, name string, req models.RequestDef) (*mode
 	node := &models.Node{ID: models.NewID(), Type: "request", Name: name, Request: &req}
 	req.ID = node.ID
 	return s.store.AddNode(parentID, node)
-}
-
-// handleMCP serves the MCP protocol over HTTP (JSON-RPC 2.0).
-func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
-	body, err := io.ReadAll(io.LimitReader(r.Body, 8<<20))
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	out, respond := mcp.Handle(body, s.version, s)
-	if !respond {
-		w.WriteHeader(http.StatusAccepted)
-		return
-	}
-	w.Header().Set("Content-Type", "application/json; charset=utf-8")
-	_, _ = w.Write(out)
 }
 
 // New returns a new API server.
@@ -223,11 +204,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/graphql/introspect", s.introspectGraphQL)
 	s.registerGrpcRoutes(mux)
 
-	mux.HandleFunc("POST /api/openapi/parse", s.parseOpenAPI)
+	s.registerOpenAPIRoutes(mux)
 	mux.HandleFunc("POST /api/collections/import", s.importCollections)
 
 	mux.HandleFunc("GET /api/export", s.exportNodes)
-	mux.HandleFunc("GET /api/export/doc", s.exportDoc)
+	s.registerDocRoutes(mux)
 	mux.HandleFunc("POST /api/batch", s.runBatch)
 	mux.HandleFunc("POST /api/fuzz", s.runFuzz)
 
@@ -244,16 +225,11 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/update/check", s.checkUpdate)
 	mux.HandleFunc("POST /api/update", s.applyUpdate)
 
-	mux.HandleFunc("POST /api/schedule", s.createSchedule)
-	mux.HandleFunc("GET /api/schedule", s.listSchedules)
-	mux.HandleFunc("DELETE /api/schedule/{id}", s.deleteSchedule)
-	mux.HandleFunc("POST /api/schedule/{id}/run", s.runSchedule)
-	mux.HandleFunc("POST /api/schedule/{id}/cancel", s.cancelSchedule)
-	mux.HandleFunc("GET /api/schedule/{id}/results", s.scheduleResults)
+	s.registerScheduleRoutes(mux)
 
 	// Public mock server: GET/POST/… /mock/{nodeId}
 	mux.HandleFunc("/mock/", s.mockServer)
-	mux.HandleFunc("POST /mcp", s.handleMCP)
+	s.registerMCPRoutes(mux)
 	mux.HandleFunc("GET /api/mock/{id}/hits", s.mockHitsHandler)
 
 	// Team, auth and projects
@@ -804,75 +780,6 @@ func (s *Server) importPostman(w http.ResponseWriter, r *http.Request) {
 
 // --- scheduler -------------------------------------------------------------
 
-func (s *Server) createSchedule(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		Name       string              `json:"name"`
-		Request    models.RequestDef   `json:"request"`
-		EnvID      string              `json:"envId"`
-		Variables  map[string]string   `json:"variables"`
-		Parents    []models.RequestDef `json:"parents"`
-		Mock       bool                `json:"mock"`
-		StartAt    int64               `json:"startAt"`
-		DelayMs    int64               `json:"delayMs"`
-		IntervalMs int64               `json:"intervalMs"`
-		Count      int                 `json:"count"`
-	}
-	if err := decode(r, &payload); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-	startAt := payload.StartAt
-	if startAt <= 0 && payload.DelayMs > 0 {
-		startAt = time.Now().UnixMilli() + payload.DelayMs
-	}
-	job := s.scheduler.Add(models.ScheduleJob{
-		Name:       payload.Name,
-		Request:    payload.Request,
-		EnvID:      payload.EnvID,
-		Variables:  payload.Variables,
-		Parents:    payload.Parents,
-		Mock:       payload.Mock,
-		StartAt:    startAt,
-		IntervalMs: payload.IntervalMs,
-		Total:      payload.Count,
-	})
-	writeJSON(w, http.StatusCreated, job)
-}
-
-func (s *Server) listSchedules(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"jobs": s.scheduler.List()})
-}
-
-func (s *Server) deleteSchedule(w http.ResponseWriter, r *http.Request) {
-	if !s.scheduler.Remove(r.PathValue("id")) {
-		writeErr(w, http.StatusNotFound, "job not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) runSchedule(w http.ResponseWriter, r *http.Request) {
-	if !s.scheduler.RunNow(r.PathValue("id")) {
-		writeErr(w, http.StatusNotFound, "job not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) cancelSchedule(w http.ResponseWriter, r *http.Request) {
-	if !s.scheduler.Cancel(r.PathValue("id")) {
-		writeErr(w, http.StatusNotFound, "job not found")
-		return
-	}
-	writeJSON(w, http.StatusOK, map[string]bool{"ok": true})
-}
-
-func (s *Server) scheduleResults(w http.ResponseWriter, r *http.Request) {
-	writeJSON(w, http.StatusOK, map[string]any{"results": s.scheduler.Results(r.PathValue("id"))})
-}
-
-// --- export ----------------------------------------------------------------
-
 func (s *Server) exportNodes(w http.ResponseWriter, r *http.Request) {
 	id := r.URL.Query().Get("id")
 	format := r.URL.Query().Get("format")
@@ -923,87 +830,6 @@ func (s *Server) exportNodes(w http.ResponseWriter, r *http.Request) {
 		"collections": nodes,
 	})
 }
-
-// exportDoc renders a collection to Markdown, HTML, Word or PDF, using the
-// optional template query parameter or the saved docTemplate setting.
-func (s *Server) exportDoc(w http.ResponseWriter, r *http.Request) {
-	id := r.URL.Query().Get("id")
-	format := strings.ToLower(r.URL.Query().Get("format"))
-	tmpl := r.URL.Query().Get("template")
-	if tmpl == "" {
-		tmpl = s.db(r).Settings()["docTemplate"]
-	}
-
-	title := "API Documentation"
-	var nodes []*models.Node
-	if id != "" {
-		n, ok := s.db(r).FindNode(id)
-		if !ok {
-			writeErr(w, http.StatusNotFound, "node not found")
-			return
-		}
-		nodes = []*models.Node{n}
-		title = n.Name
-	} else {
-		nodes = s.db(r).Collections()
-	}
-
-	model := doc.BuildModel(title, nodes)
-
-	var (
-		data []byte
-		err  error
-		ct   string
-		ext  string
-	)
-	switch format {
-	case "html":
-		data, err = doc.RenderHTML(model, tmpl)
-		ct, ext = "text/html; charset=utf-8", "html"
-	case "word", "doc", "docx":
-		data, err = doc.RenderHTML(model, tmpl)
-		ct, ext = "application/msword", "doc"
-	case "pdf":
-		data, err = doc.RenderPDF(model)
-		ct, ext = "application/pdf", "pdf"
-	default:
-		data, err = doc.RenderMarkdown(model, tmpl)
-		ct, ext = "text/markdown; charset=utf-8", "md"
-	}
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	base := "curlui-docs"
-	if id != "" {
-		if n, ok := s.db(r).FindNode(id); ok {
-			base = safeFilename(n.Name)
-		}
-	}
-	w.Header().Set("Content-Type", ct)
-	w.Header().Set("Content-Disposition", fmt.Sprintf("attachment; filename=%q", base+"."+ext))
-	_, _ = w.Write(data)
-}
-
-func safeFilename(name string) string {
-	repl := strings.NewReplacer("/", "-", "\\", "-", ":", "-", "*", "-", "?", "-", "\"", "-", "<", "-", ">", "-", "|", "-")
-	out := strings.TrimSpace(repl.Replace(name))
-	if out == "" {
-		return "curlui-docs"
-	}
-	return out
-}
-
-func writeCurlNode(w io.Writer, n *models.Node, prefix string) {
-	if n.Type == "request" && n.Request != nil {
-		fmt.Fprintf(w, "# %s%s\n%s\n\n", prefix, n.Name, curlpkg.Generate(*n.Request))
-	}
-	for _, c := range n.Children {
-		writeCurlNode(w, c, prefix+n.Name+" / ")
-	}
-}
-
-// --- update ----------------------------------------------------------------
 
 func (s *Server) checkUpdate(w http.ResponseWriter, r *http.Request) {
 	rel, err := update.LatestRelease()
@@ -1581,41 +1407,6 @@ func headerMap(kvs []models.KeyValue) map[string][]string {
 
 // --- OpenAPI / Swagger import ---------------------------------------------
 
-func (s *Server) parseOpenAPI(w http.ResponseWriter, r *http.Request) {
-	var payload struct {
-		URL     string            `json:"url"`
-		Content string            `json:"content"`
-		Headers map[string]string `json:"headers"`
-	}
-	if err := decode(r, &payload); err != nil {
-		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
-		return
-	}
-
-	var raw []byte
-	switch {
-	case strings.TrimSpace(payload.URL) != "":
-		data, err := openapi.Fetch(strings.TrimSpace(payload.URL), payload.Headers)
-		if err != nil {
-			writeErr(w, http.StatusBadGateway, err.Error())
-			return
-		}
-		raw = data
-	case strings.TrimSpace(payload.Content) != "":
-		raw = []byte(payload.Content)
-	default:
-		writeErr(w, http.StatusBadRequest, "provide either a spec URL or content")
-		return
-	}
-
-	result, err := openapi.Parse(raw)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	writeJSON(w, http.StatusOK, result)
-}
-
 func (s *Server) importCollections(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		ParentID string         `json:"parentId"`
@@ -1636,3 +1427,14 @@ func (s *Server) importCollections(w http.ResponseWriter, r *http.Request) {
 	}
 	writeJSON(w, http.StatusCreated, map[string]any{"collections": saved, "count": count})
 }
+
+func writeCurlNode(w io.Writer, n *models.Node, prefix string) {
+	if n.Type == "request" && n.Request != nil {
+		fmt.Fprintf(w, "# %s%s\n%s\n\n", prefix, n.Name, curlpkg.Generate(*n.Request))
+	}
+	for _, c := range n.Children {
+		writeCurlNode(w, c, prefix+n.Name+" / ")
+	}
+}
+
+// --- update ----------------------------------------------------------------

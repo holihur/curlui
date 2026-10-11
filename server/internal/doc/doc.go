@@ -1,3 +1,5 @@
+//go:build !core
+
 // Package doc renders collections into documentation in Markdown, HTML, Word
 // (.doc) or PDF, using either a built-in template or a user-provided one.
 package doc

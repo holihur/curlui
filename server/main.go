@@ -21,7 +21,6 @@ import (
 	"time"
 
 	"curlui/server/internal/api"
-	"curlui/server/internal/mcp"
 	"curlui/server/internal/mitm"
 	"curlui/server/internal/store"
 	"curlui/server/internal/webui"
@@ -60,10 +59,7 @@ func main() {
 
 	apiServer := api.New(st, version)
 
-	if *mcpMode {
-		if err := mcp.Serve(os.Stdin, os.Stdout, version, apiServer); err != nil {
-			log.Fatalf("mcp server: %v", err)
-		}
+	if runMCPServer(apiServer, version, *mcpMode) {
 		return
 	}
 
