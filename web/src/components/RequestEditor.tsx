@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, lazy, Suspense, type ReactNode } from "react";
-import { AlertCircle, Bug, CheckCircle2, ChevronDown, Clock, Code2, FlaskConical, Loader2, Play, Save, Send, Wand2, XCircle } from "lucide-react";
+import { AlertCircle, Bug, CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, Database, FlaskConical, Loader2, Play, Save, Send, Wand2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -36,7 +36,8 @@ const CodeDialog = lazy(() => import("@/components/CodeDialog").then((m) => ({ d
 import { tryPrettyJSON } from "@/lib/highlight";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useActiveTab, useStore } from "@/store";
-import type { AuthType, BodyType, RequestDef } from "@/lib/types";
+import type { AuthType, BodyType, GraphQLSchema, RequestDef } from "@/lib/types";
+import { api } from "@/lib/api";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
 
@@ -640,11 +641,41 @@ function BodyEditor({
   onChange: (patch: Partial<RequestDef>) => void;
 }) {
   const { t } = useI18n();
+  const toast = useStore((s) => s.toast);
   const setBody = (patch: Partial<RequestDef["body"]>) => onChange({ body: { ...req.body, ...patch } });
   const type = req.body.type;
   const isRaw = type === "json" || type === "xml" || type === "html" || type === "text";
   const jsonErr = type === "json" ? jsonError(req.body.raw) : null;
   const hasJson = type === "json" && req.body.raw.trim().length > 0;
+
+  // GraphQL schema introspection.
+  const [schema, setSchema] = useState<GraphQLSchema | null>(null);
+  const [schemaLoading, setSchemaLoading] = useState(false);
+  const [schemaFilter, setSchemaFilter] = useState("");
+  const [expandedType, setExpandedType] = useState<string | null>(null);
+
+  const loadSchema = async () => {
+    setSchemaLoading(true);
+    try {
+      const s = await api.introspectGraphQL(req);
+      setSchema(s);
+      toast({ title: t("graphqlLoaded"), variant: "success" });
+    } catch (err) {
+      toast({
+        title: t("graphqlSchema"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    } finally {
+      setSchemaLoading(false);
+    }
+  };
+
+  const insertField = (name: string) => {
+    const q = (req.body.query ?? "").trimEnd();
+    setBody({ query: q ? `${q}\n  ${name}` : `  ${name}` });
+    toast({ title: t("graphqlInserted"), description: name, variant: "success" });
+  };
 
   return (
     <div className="flex h-full min-h-0 flex-col">
@@ -713,36 +744,118 @@ function BodyEditor({
       )}
 
       {type === "graphql" && (
-        <div className="grid min-h-0 flex-1 grid-rows-[1fr_auto] gap-2 p-3">
-          <div className="flex min-h-0 flex-col gap-1">
-            <div className="flex items-center gap-2">
-              <span className="text-[11px] font-medium text-muted-foreground">{t("graphqlQuery")}</span>
-              <Input
-                value={req.body.operationName ?? ""}
-                placeholder={t("graphqlOperationName")}
-                onChange={(e) => setBody({ operationName: e.target.value })}
-                className="ml-auto h-7 w-44 font-mono text-[11px]"
-              />
+        <div className="flex min-h-0 flex-1 flex-col gap-2 overflow-y-auto p-3">
+          <div className="flex items-center gap-2">
+            <span className="text-[11px] font-medium text-muted-foreground">{t("graphqlQuery")}</span>
+            <Input
+              value={req.body.operationName ?? ""}
+              placeholder={t("graphqlOperationName")}
+              onChange={(e) => setBody({ operationName: e.target.value })}
+              className="ml-auto h-7 w-40 font-mono text-[11px]"
+            />
+            <Button
+              variant="outline"
+              size="xs"
+              className="h-7 gap-1"
+              disabled={schemaLoading || !req.url.trim()}
+              onClick={() => void loadSchema()}
+            >
+              {schemaLoading ? (
+                <Loader2 className="h-3.5 w-3.5 animate-spin" />
+              ) : (
+                <Database className="h-3.5 w-3.5" />
+              )}
+              {t("graphqlLoadSchema")}
+            </Button>
+          </div>
+          <CodeEditor
+            value={req.body.query ?? ""}
+            onChange={(query) => setBody({ query })}
+            language="text"
+            placeholder={"query ($id: ID!) {\n  user(id: $id) { id name }\n}"}
+            className="min-h-[150px]"
+          />
+          <span className="text-[11px] font-medium text-muted-foreground">{t("graphqlVariables")}</span>
+          <CodeEditor
+            value={req.body.variables ?? ""}
+            onChange={(variables) => setBody({ variables })}
+            language="json"
+            placeholder={'{\n  "id": "1"\n}'}
+            className="min-h-[80px]"
+          />
+          <p className="text-[11px] text-muted-foreground">{t("graphqlHint")}</p>
+
+          {schema && (
+            <div className="rounded-md border">
+              <div className="flex items-center gap-2 border-b bg-muted/30 px-2 py-1">
+                <span className="text-[11px] font-medium">{t("graphqlSchema")}</span>
+                <span className="text-[10px] text-muted-foreground">
+                  {schema.queryType}
+                  {schema.mutationType ? ` · ${schema.mutationType}` : ""}
+                </span>
+                <Input
+                  value={schemaFilter}
+                  onChange={(e) => setSchemaFilter(e.target.value)}
+                  placeholder={t("graphqlSearch")}
+                  className="ml-auto h-6 w-44 text-[11px]"
+                />
+              </div>
+              <div className="max-h-56 overflow-y-auto">
+                {schema.types
+                  .flatMap((tp) => {
+                    const fields = tp.fields ?? tp.inputFields ?? [];
+                    const f = schemaFilter.trim().toLowerCase();
+                    const typeMatch = f === "" || tp.name.toLowerCase().includes(f);
+                    const matchedFields = f === "" ? fields : fields.filter((x) => x.name.toLowerCase().includes(f));
+                    if (f !== "" && !typeMatch && matchedFields.length === 0) return [];
+                    return [{ tp, fields: typeMatch ? fields : matchedFields }];
+                  })
+                  .map(({ tp, fields }) => {
+                    const open = expandedType === tp.name || (schemaFilter.trim() !== "" && fields.length > 0);
+                    return (
+                      <div key={tp.name}>
+                        <button
+                          onClick={() => setExpandedType(expandedType === tp.name ? null : tp.name)}
+                          className="flex w-full items-center gap-2 px-2 py-1 text-left text-[11px] hover:bg-accent"
+                        >
+                          <ChevronRight
+                            className={cn("h-3 w-3 shrink-0 transition-transform", open && "rotate-90")}
+                          />
+                          <span className="font-mono font-medium">{tp.name}</span>
+                          <span className="text-[10px] text-muted-foreground">{tp.kind}</span>
+                        </button>
+                        {open && (
+                          <div className="border-t bg-muted/20">
+                            {fields.map((fl) => (
+                              <button
+                                key={fl.name}
+                                onClick={() => insertField(fl.name)}
+                                className="flex w-full items-center gap-2 px-6 py-0.5 text-left text-[11px] hover:bg-accent"
+                              >
+                                <span className="font-mono">{fl.name}</span>
+                                {fl.args && fl.args.length > 0 && (
+                                  <span className="truncate text-[10px] text-muted-foreground">
+                                    ({fl.args.map((a) => `${a.name}: ${a.type}`).join(", ")})
+                                  </span>
+                                )}
+                                <span className="ml-auto shrink-0 font-mono text-[10px] text-muted-foreground">
+                                  {fl.type}
+                                </span>
+                              </button>
+                            ))}
+                            {(tp.enumValues ?? []).map((v) => (
+                              <div key={v} className="px-6 py-0.5 font-mono text-[11px] text-muted-foreground">
+                                {v}
+                              </div>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })}
+              </div>
             </div>
-            <CodeEditor
-              value={req.body.query ?? ""}
-              onChange={(query) => setBody({ query })}
-              language="text"
-              placeholder={"query ($id: ID!) {\n  user(id: $id) { id name }\n}"}
-              className="min-h-[160px] flex-1"
-            />
-          </div>
-          <div className="flex flex-col gap-1">
-            <span className="text-[11px] font-medium text-muted-foreground">{t("graphqlVariables")}</span>
-            <CodeEditor
-              value={req.body.variables ?? ""}
-              onChange={(variables) => setBody({ variables })}
-              language="json"
-              placeholder={'{\n  "id": "1"\n}'}
-              className="min-h-[90px]"
-            />
-            <p className="text-[11px] text-muted-foreground">{t("graphqlHint")}</p>
-          </div>
+          )}
         </div>
       )}
 

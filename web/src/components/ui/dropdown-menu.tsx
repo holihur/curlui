@@ -67,6 +67,42 @@ const DropdownMenuLabel = React.forwardRef<
 ));
 DropdownMenuLabel.displayName = DropdownMenuPrimitive.Label.displayName;
 
+const DropdownMenuSubTrigger = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubTrigger>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubTrigger> & { inset?: boolean }
+>(({ className, inset, children, ...props }, ref) => (
+  <DropdownMenuPrimitive.SubTrigger
+    ref={ref}
+    className={cn(
+      "flex cursor-default select-none items-center gap-2 rounded-sm px-2 py-1.5 text-sm outline-none transition-colors focus:bg-accent focus:text-accent-foreground data-[state=open]:bg-accent [&_svg]:size-4 [&_svg]:shrink-0",
+      inset && "pl-8",
+      className,
+    )}
+    {...props}
+  >
+    {children}
+    <ChevronRight className="ml-auto h-4 w-4 opacity-60" />
+  </DropdownMenuPrimitive.SubTrigger>
+));
+DropdownMenuSubTrigger.displayName = DropdownMenuPrimitive.SubTrigger.displayName;
+
+const DropdownMenuSubContent = React.forwardRef<
+  React.ElementRef<typeof DropdownMenuPrimitive.SubContent>,
+  React.ComponentPropsWithoutRef<typeof DropdownMenuPrimitive.SubContent>
+>(({ className, ...props }, ref) => (
+  <DropdownMenuPrimitive.Portal>
+    <DropdownMenuPrimitive.SubContent
+      ref={ref}
+      className={cn(
+        "z-50 min-w-[8rem] overflow-hidden rounded-md border bg-popover p-1 text-popover-foreground shadow-lg",
+        className,
+      )}
+      {...props}
+    />
+  </DropdownMenuPrimitive.Portal>
+));
+DropdownMenuSubContent.displayName = DropdownMenuPrimitive.SubContent.displayName;
+
 export {
   DropdownMenu,
   DropdownMenuTrigger,
@@ -76,6 +112,8 @@ export {
   DropdownMenuLabel,
   DropdownMenuGroup,
   DropdownMenuSub,
+  DropdownMenuSubTrigger,
+  DropdownMenuSubContent,
   DropdownMenuRadioGroup,
   Check,
   ChevronRight,

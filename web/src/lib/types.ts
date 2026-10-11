@@ -177,6 +177,27 @@ export type FuzzResult = {
   };
 };
 
+export type GraphQLField = {
+  name: string;
+  type: string;
+  args?: { name: string; type: string }[];
+};
+
+export type GraphQLType = {
+  name: string;
+  kind: string;
+  fields?: GraphQLField[];
+  inputFields?: GraphQLField[];
+  enumValues?: string[];
+};
+
+export type GraphQLSchema = {
+  queryType: string;
+  mutationType?: string;
+  subscriptionType?: string;
+  types: GraphQLType[];
+};
+
 export type PendingIntercept = {
   id: string;
   phase: "request" | "response";

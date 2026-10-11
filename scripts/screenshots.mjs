@@ -217,7 +217,9 @@ async function seed() {
   });
 
   await step("hero-light.png", async () => {
-    await page.locator("header button:has(svg.lucide-sun)").first().click();
+    await page.locator("header button[aria-haspopup=menu]").last().click();
+    await page.getByRole("menuitem", { name: /Theme/ }).click();
+    await page.getByRole("menuitem", { name: /Light/ }).click();
     await page.locator("aside").getByText("Echo GET", { exact: true }).click();
     await page.waitForTimeout(500);
     await page.screenshot({ path: path.join(OUT, "hero-light.png") });

@@ -18,6 +18,7 @@ import type {
   AuthStatus,
   User,
   Project,
+  GraphQLSchema,
 } from "./types";
 
 const BASE = "/api";
@@ -203,6 +204,12 @@ export const api = {
     return request<{ count: number; collections: CollectionNode[] }>("/import/postman", {
       method: "POST",
       body: JSON.stringify({ content, parentId }),
+    });
+  },
+  introspectGraphQL(req: RequestDef) {
+    return request<GraphQLSchema>("/graphql/introspect", {
+      method: "POST",
+      body: JSON.stringify({ request: req }),
     });
   },
 

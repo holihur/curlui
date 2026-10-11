@@ -15,6 +15,7 @@ import (
 
 	curlpkg "curlui/server/internal/curl"
 	"curlui/server/internal/doc"
+	"curlui/server/internal/graphql"
 	"curlui/server/internal/jsonpath"
 	"curlui/server/internal/mcp"
 	"curlui/server/internal/models"
@@ -200,6 +201,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/curl/parse", s.parseCurl)
 	mux.HandleFunc("POST /api/curl/generate", s.generateCurl)
 	mux.HandleFunc("POST /api/import/postman", s.importPostman)
+	mux.HandleFunc("POST /api/graphql/introspect", s.introspectGraphQL)
 
 	mux.HandleFunc("POST /api/openapi/parse", s.parseOpenAPI)
 	mux.HandleFunc("POST /api/collections/import", s.importCollections)
@@ -719,6 +721,34 @@ func (s *Server) generateCurl(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]string{"command": curlpkg.Generate(req)})
+}
+
+func (s *Server) introspectGraphQL(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		Request models.RequestDef `json:"request"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if strings.TrimSpace(payload.Request.URL) == "" {
+		writeErr(w, http.StatusBadRequest, "url is required")
+		return
+	}
+	req := payload.Request
+	req.Method = http.MethodPost
+	req.Body = models.Body{Type: "graphql", Query: graphql.IntrospectionQuery}
+	resp := s.executor.Execute(r.Context(), req, variables.Set{}, false)
+	if resp.Error != "" {
+		writeErr(w, http.StatusBadGateway, resp.Error)
+		return
+	}
+	schema, err := graphql.ParseSchema([]byte(resp.Body))
+	if err != nil {
+		writeErr(w, http.StatusBadGateway, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, schema)
 }
 
 // importPostman imports a Postman Collection v2.1 document.

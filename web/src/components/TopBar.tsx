@@ -28,6 +28,9 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
+  DropdownMenuSub,
+  DropdownMenuSubContent,
+  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PromptDialog } from "@/components/PromptDialog";
@@ -222,38 +225,27 @@ export function TopBar() {
               <MoreHorizontal className="h-4 w-4" />
             </Button>
           </DropdownMenuTrigger>
-          <DropdownMenuContent align="end" className="w-52">
-            <DropdownMenuLabel>{t("theme")}</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => setTheme("light")}>
-              {theme === "light" ? <Check /> : <Sun />} {t("themeLight")}
-            </DropdownMenuItem>
-            <DropdownMenuItem onClick={() => setTheme("dark")}>
-              {theme === "dark" ? <Check /> : <Moon />} {t("themeDark")}
-            </DropdownMenuItem>
-            <DropdownMenuSeparator />
-            <DropdownMenuLabel>{t("language")}</DropdownMenuLabel>
-            {LOCALES.map((l) => (
-              <DropdownMenuItem key={l.value} onClick={() => setLocale(l.value)}>
-                {locale === l.value ? <Check /> : <Globe />} {l.label}
-              </DropdownMenuItem>
-            ))}
-            <DropdownMenuSeparator />
-            <DropdownMenuItem onClick={() => setDocOpen(true)}>
-              <FileText /> {t("exportDocs")}
-            </DropdownMenuItem>
+          <DropdownMenuContent align="end" className="w-56">
+            {/* Primary actions first */}
             <DropdownMenuItem onClick={() => setSettingsOpen(true)}>
               <SettingsIcon /> {t("settings")}
             </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setTeamOpen(true)}>
+              <Users /> {t("team")}
+            </DropdownMenuItem>
+            <DropdownMenuItem onClick={() => setDocOpen(true)}>
+              <FileText /> {t("exportDocs")}
+            </DropdownMenuItem>
+
             <DropdownMenuSeparator />
+
+            {/* Account */}
             <DropdownMenuLabel>{t("account")}</DropdownMenuLabel>
             {user && (
               <DropdownMenuItem disabled>
                 {user.name || user.username} · {user.role}
               </DropdownMenuItem>
             )}
-            <DropdownMenuItem onClick={() => setTeamOpen(true)}>
-              <Users /> {t("team")}
-            </DropdownMenuItem>
             {authEnabled && authenticated && (
               <DropdownMenuItem onClick={() => void logout()}>
                 <LogOut /> {t("logout")}
@@ -264,6 +256,36 @@ export function TopBar() {
                 <LogIn /> {t("login")}
               </DropdownMenuItem>
             )}
+
+            <DropdownMenuSeparator />
+
+            {/* Preferences last, in submenus */}
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                {theme === "dark" ? <Moon /> : <Sun />} {t("theme")}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                <DropdownMenuItem onClick={() => setTheme("light")}>
+                  {theme === "light" ? <Check /> : <Sun />} {t("themeLight")}
+                </DropdownMenuItem>
+                <DropdownMenuItem onClick={() => setTheme("dark")}>
+                  {theme === "dark" ? <Check /> : <Moon />} {t("themeDark")}
+                </DropdownMenuItem>
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
+
+            <DropdownMenuSub>
+              <DropdownMenuSubTrigger>
+                <Globe /> {t("language")}
+              </DropdownMenuSubTrigger>
+              <DropdownMenuSubContent>
+                {LOCALES.map((l) => (
+                  <DropdownMenuItem key={l.value} onClick={() => setLocale(l.value)}>
+                    {locale === l.value ? <Check /> : <Globe />} {l.label}
+                  </DropdownMenuItem>
+                ))}
+              </DropdownMenuSubContent>
+            </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
