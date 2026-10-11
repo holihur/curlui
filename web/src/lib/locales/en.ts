@@ -68,6 +68,7 @@ export const en = {
   language: "Language",
   more: "More",
   settings: "Settings",
+  general: "General",
   appearance: "Appearance",
   theme: "Theme",
   themeLight: "Light",

@@ -69,6 +69,7 @@ export const zh: Record<MessageKey, string> = {
   language: "语言",
   more: "更多",
   settings: "设置",
+  general: "通用",
   appearance: "外观",
   theme: "主题",
   themeLight: "浅色",

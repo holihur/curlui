@@ -22,6 +22,7 @@ const (
 	ctxUser ctxKey = iota
 	ctxProject
 	ctxToken
+	ctxScopes
 )
 
 const (
@@ -58,6 +59,30 @@ func projectIDFrom(r *http.Request) string {
 		return p
 	}
 	return store.DefaultProjectID
+}
+
+// scopesFrom returns the scopes of the calling personal access token (nil for
+// session logins, which are unscoped).
+func scopesFrom(r *http.Request) []string {
+	if sc, ok := r.Context().Value(ctxScopes).([]string); ok {
+		return sc
+	}
+	return nil
+}
+
+// hasScope reports whether the caller may perform an action. Session logins
+// always pass; tokens are checked against their scopes.
+func hasScope(r *http.Request, scope string) bool {
+	sc := scopesFrom(r)
+	if sc == nil {
+		return true
+	}
+	for _, s := range sc {
+		if s == scope || s == store.ScopeAdmin {
+			return true
+		}
+	}
+	return false
 }
 
 func tokenFrom(r *http.Request) string {
@@ -304,8 +329,12 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 
 		token := requestToken(r)
 		var user *store.User
+		var pat *store.PAT
 		if token != "" {
-			if u, ok := s.store.SessionUser(token); ok {
+			if p, u, ok := s.store.PATByToken(token); ok {
+				pat, user = p, u
+				s.store.TouchPAT(p.ID)
+			} else if u, ok := s.store.SessionUser(token); ok {
 				user = u
 			}
 		}
@@ -317,9 +346,21 @@ func (s *Server) withAuth(next http.Handler) http.Handler {
 			return
 		}
 
+		// A personal access token only grants the scopes it was issued with, so
+		// agents can be handed a read-only or send-only credential.
+		if pat != nil && !public {
+			if need := scopeFor(r.Method, r.URL.Path); need != "" && !pat.Has(need) {
+				writeErr(w, http.StatusForbidden, `token is missing the "`+need+`" scope`)
+				return
+			}
+		}
+
 		ctx := r.Context()
 		if user != nil {
 			ctx = context.WithValue(ctx, ctxUser, user)
+		}
+		if pat != nil {
+			ctx = context.WithValue(ctx, ctxScopes, pat.Scopes)
 		}
 		ctx = context.WithValue(ctx, ctxToken, token)
 

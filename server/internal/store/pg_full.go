@@ -4,6 +4,7 @@ package store
 
 import (
 	"encoding/json"
+	"strings"
 	"time"
 
 	"gorm.io/driver/postgres"
@@ -30,6 +31,19 @@ type sessionRow struct {
 }
 
 func (sessionRow) TableName() string { return "sessions" }
+
+type patRow struct {
+	ID         string `gorm:"primaryKey"`
+	UserID     string `gorm:"index"`
+	Name       string
+	Hash       string `gorm:"uniqueIndex"`
+	Scopes     string
+	CreatedAt  time.Time
+	LastUsedAt *time.Time
+	ExpiresAt  *time.Time
+}
+
+func (patRow) TableName() string { return "personal_access_tokens" }
 
 type projectRow struct {
 	ID        string `gorm:"primaryKey"`
@@ -117,6 +131,20 @@ func (s *Store) loadPG() error {
 	for _, se := range sessions {
 		s.root.Sessions[se.Token] = &Session{Token: se.Token, UserID: se.UserID, CreatedAt: se.CreatedAt, ExpiresAt: se.ExpiresAt}
 	}
+	var pats []patRow
+	if err := db.Find(&pats).Error; err != nil {
+		return err
+	}
+	for _, p := range pats {
+		scopes := []string{}
+		if p.Scopes != "" {
+			scopes = strings.Split(p.Scopes, ",")
+		}
+		s.root.PATs[p.ID] = &PAT{
+			ID: p.ID, UserID: p.UserID, Name: p.Name, Hash: p.Hash, Scopes: scopes,
+			CreatedAt: p.CreatedAt, LastUsedAt: p.LastUsedAt, ExpiresAt: p.ExpiresAt,
+		}
+	}
 	var sets []settingRow
 	if err := db.Find(&sets).Error; err != nil {
 		return err
@@ -164,7 +192,7 @@ func (s *Store) pgOpen(dsn string) error {
 	if err != nil {
 		return err
 	}
-	if err := db.AutoMigrate(&userRow{}, &sessionRow{}, &projectRow{}, &memberRow{}, &settingRow{}, &auditRow{}); err != nil {
+	if err := db.AutoMigrate(&userRow{}, &sessionRow{}, &patRow{}, &projectRow{}, &memberRow{}, &settingRow{}, &auditRow{}); err != nil {
 		return err
 	}
 	s.db = db
@@ -232,6 +260,20 @@ func (s *Store) pgDeleteSession(token string) error {
 
 func (s *Store) pgPurgeSessions(before time.Time) error {
 	return s.db.(*gorm.DB).Delete(&sessionRow{}, "expires_at < ?", before).Error
+}
+
+func (s *Store) pgCreatePAT(p *PAT) error {
+	row := patRow{ID: p.ID, UserID: p.UserID, Name: p.Name, Hash: p.Hash,
+		Scopes: strings.Join(p.Scopes, ","), CreatedAt: p.CreatedAt, ExpiresAt: p.ExpiresAt}
+	return s.db.(*gorm.DB).Create(&row).Error
+}
+
+func (s *Store) pgDeletePAT(id string) error {
+	return s.db.(*gorm.DB).Delete(&patRow{}, "id = ?", id).Error
+}
+
+func (s *Store) pgTouchPAT(id string, at time.Time) error {
+	return s.db.(*gorm.DB).Model(&patRow{}).Where("id = ?", id).Update("last_used_at", at).Error
 }
 
 func (s *Store) pgAddAudit(e AuditEntry) error {

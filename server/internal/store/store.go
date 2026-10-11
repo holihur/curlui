@@ -77,6 +77,52 @@ type Session struct {
 	ExpiresAt time.Time `json:"expiresAt"`
 }
 
+// Personal access token scopes. A token is only allowed to do what its scopes
+// permit, so agents (MCP / AI) can be handed a read-only or send-only token.
+const (
+	ScopeRead  = "read"  // list collections, environments, history, captures
+	ScopeSend  = "send"  // execute requests
+	ScopeWrite = "write" // create/update collections, environments, settings
+	ScopeMCP   = "mcp"   // use the MCP endpoint
+	ScopeAI    = "ai"    // use the AI assistant
+	ScopeAdmin = "admin" // manage users, projects, tokens
+)
+
+// AllScopes is the canonical scope list (shown in the UI, validated on create).
+var AllScopes = []string{ScopeRead, ScopeSend, ScopeWrite, ScopeMCP, ScopeAI, ScopeAdmin}
+
+// ValidScope reports whether name is a known scope.
+func ValidScope(name string) bool {
+	for _, sc := range AllScopes {
+		if sc == name {
+			return true
+		}
+	}
+	return false
+}
+
+// PAT is a personal access token: a user-owned credential with explicit scopes.
+type PAT struct {
+	ID         string     `json:"id"`
+	UserID     string     `json:"userId"`
+	Name       string     `json:"name"`
+	Hash       string     `json:"hash"`
+	Scopes     []string   `json:"scopes"`
+	CreatedAt  time.Time  `json:"createdAt"`
+	LastUsedAt *time.Time `json:"lastUsedAt,omitempty"`
+	ExpiresAt  *time.Time `json:"expiresAt,omitempty"`
+}
+
+// Has reports whether the token grants a scope.
+func (t *PAT) Has(scope string) bool {
+	for _, sc := range t.Scopes {
+		if sc == scope || sc == ScopeAdmin {
+			return true
+		}
+	}
+	return false
+}
+
 // AuditEntry records a team action for the audit trail.
 type AuditEntry struct {
 	ID     string    `json:"id"`
@@ -104,6 +150,7 @@ type Root struct {
 	Meta     map[string]*ProjectMeta
 	Users    map[string]*User
 	Sessions map[string]*Session
+	PATs     map[string]*PAT
 	Global   map[string]string
 	Audit    []AuditEntry
 	Version  int64
@@ -197,6 +244,7 @@ func newRoot() *Root {
 		Meta:     map[string]*ProjectMeta{},
 		Users:    map[string]*User{},
 		Sessions: map[string]*Session{},
+		PATs:     map[string]*PAT{},
 		Global:   map[string]string{},
 	}
 }
@@ -718,6 +766,122 @@ func (s *Store) DeleteSession(token string) error {
 	delete(s.root.Sessions, token)
 	if s.db != nil {
 		return s.pgDeleteSession(token)
+	}
+	return s.persistFile()
+}
+
+// --- Personal access tokens -------------------------------------------------
+
+// PATPrefix marks curlui personal access tokens.
+const PATPrefix = "curlui_pat_"
+
+// hashToken returns the hex SHA-256 of a token (tokens are never stored raw).
+func hashToken(token string) string {
+	sum := sha256.Sum256([]byte(token))
+	return hex.EncodeToString(sum[:])
+}
+
+// CreatePAT issues a token for a user and returns it (the caller sees the
+// plaintext exactly once; only the hash is persisted).
+func (s *Store) CreatePAT(userID, name string, scopes []string, ttl time.Duration) (PAT, string, error) {
+	clean := []string{}
+	for _, sc := range scopes {
+		if ValidScope(sc) {
+			clean = append(clean, sc)
+		}
+	}
+	if len(clean) == 0 {
+		clean = []string{ScopeRead}
+	}
+	token := PATPrefix + randomToken()
+	pat := &PAT{
+		ID:        models.NewID(),
+		UserID:    userID,
+		Name:      strings.TrimSpace(name),
+		Hash:      hashToken(token),
+		Scopes:    clean,
+		CreatedAt: time.Now(),
+	}
+	if pat.Name == "" {
+		pat.Name = "token"
+	}
+	if ttl > 0 {
+		exp := time.Now().Add(ttl)
+		pat.ExpiresAt = &exp
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	s.root.PATs[pat.ID] = pat
+	if s.db != nil {
+		if err := s.pgCreatePAT(pat); err != nil {
+			delete(s.root.PATs, pat.ID)
+			return PAT{}, "", err
+		}
+	} else if err := s.persistFile(); err != nil {
+		return PAT{}, "", err
+	}
+	return *pat, token, nil
+}
+
+// ListPATs returns a user's tokens (newest first).
+func (s *Store) ListPATs(userID string) []PAT {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := []PAT{}
+	for _, p := range s.root.PATs {
+		if p.UserID == userID {
+			out = append(out, *p)
+		}
+	}
+	sort.Slice(out, func(i, j int) bool { return out[i].CreatedAt.After(out[j].CreatedAt) })
+	return out
+}
+
+// PATByToken resolves a bearer token to its PAT and user.
+func (s *Store) PATByToken(token string) (*PAT, *User, bool) {
+	if !strings.HasPrefix(token, PATPrefix) {
+		return nil, nil, false
+	}
+	h := hashToken(token)
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, p := range s.root.PATs {
+		if subtle.ConstantTimeCompare([]byte(p.Hash), []byte(h)) == 1 {
+			if p.ExpiresAt != nil && time.Now().After(*p.ExpiresAt) {
+				return nil, nil, false
+			}
+			u, ok := s.root.Users[p.UserID]
+			if !ok {
+				return nil, nil, false
+			}
+			return p, u, true
+		}
+	}
+	return nil, nil, false
+}
+
+// TouchPAT records the last use of a token.
+func (s *Store) TouchPAT(id string) {
+	now := time.Now()
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if p, ok := s.root.PATs[id]; ok {
+		p.LastUsedAt = &now
+		if s.db != nil {
+			_ = s.pgTouchPAT(id, now)
+		} else {
+			_ = s.persistFile()
+		}
+	}
+}
+
+// DeletePAT revokes a token.
+func (s *Store) DeletePAT(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	delete(s.root.PATs, id)
+	if s.db != nil {
+		return s.pgDeletePAT(id)
 	}
 	return s.persistFile()
 }

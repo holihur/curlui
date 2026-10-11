@@ -69,6 +69,7 @@ export const ja: Record<MessageKey, string> = {
   language: "言語",
   more: "その他",
   settings: "設定",
+  general: "一般",
   appearance: "外観",
   theme: "テーマ",
   themeLight: "ライト",

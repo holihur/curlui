@@ -11,6 +11,7 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
+import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
   Select,
   SelectContent,
@@ -28,6 +29,18 @@ function Field({ label, children }: { label: string; children: ReactNode }) {
       <label className="text-xs font-medium text-muted-foreground">{label}</label>
       {children}
     </div>
+  );
+}
+
+function Row({ label, hint, children }: { label: string; hint?: string; children: ReactNode }) {
+  return (
+    <label className="flex items-center justify-between gap-3 text-sm">
+      <span className="flex-1">
+        {label}
+        {hint && <span className="mt-0.5 block text-[11px] text-muted-foreground">{hint}</span>}
+      </span>
+      {children}
+    </label>
   );
 }
 
@@ -61,7 +74,12 @@ export function SettingsDialog({
   const [oidcLabel, setOidcLabel] = useState("");
   const [oidcAutoCreate, setOidcAutoCreate] = useState(true);
   const [oidcRole, setOidcRole] = useState("member");
-  const [info, setInfo] = useState<{ current: string; latest: string; hasUpdate: boolean; url: string } | null>(null);
+  const [info, setInfo] = useState<{
+    current: string;
+    latest: string;
+    hasUpdate: boolean;
+    url: string;
+  } | null>(null);
   const [checking, setChecking] = useState(false);
   const [updating, setUpdating] = useState(false);
 
@@ -152,7 +170,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-w-md">
+      <DialogContent className="max-h-[86vh] w-[min(96vw,760px)] max-w-none grid-rows-[auto_1fr_auto] gap-3 overflow-hidden">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4" /> {t("settings")}
@@ -160,199 +178,232 @@ export function SettingsDialog({
           <DialogDescription />
         </DialogHeader>
 
-        <Field label={t("failureWebhook")}>
-          <Input
-            value={webhook}
-            onChange={(e) => setWebhook(e.target.value)}
-            placeholder="https://hooks.example.com/curlui"
-            className="font-mono text-xs"
-            spellCheck={false}
-          />
-          <p className="text-[11px] text-muted-foreground">{t("failureWebhookHint")}</p>
-        </Field>
-
-        <Field label={t("userAgent")}>
-          <Input
-            value={userAgent}
-            onChange={(e) => setUserAgent(e.target.value)}
-            placeholder="curlui/1.0"
-            className="font-mono text-xs"
-            spellCheck={false}
-          />
-          <p className="text-[11px] text-muted-foreground">{t("userAgentHint")}</p>
-        </Field>
-
-        <div className="border-t pt-4">
-          <div className="mb-2 text-sm font-medium">{t("appearance")}</div>
-          <div className="flex items-center justify-between gap-3 text-sm">
-            <span>{t("theme")}</span>
-            <Select value={theme} onValueChange={(v) => setTheme(v as Theme)}>
-              <SelectTrigger className="h-8 w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                <SelectItem value="auto">{t("themeAuto")}</SelectItem>
-                <SelectItem value="light">{t("themeLight")}</SelectItem>
-                <SelectItem value="dark">{t("themeDark")}</SelectItem>
-              </SelectContent>
-            </Select>
-          </div>
-          <div className="mt-2 flex items-center justify-between gap-3 text-sm">
-            <span>{t("language")}</span>
-            <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-              <SelectTrigger className="h-8 w-44">
-                <SelectValue />
-              </SelectTrigger>
-              <SelectContent>
-                {LOCALES.map((l) => (
-                  <SelectItem key={l.value} value={l.value}>
-                    {l.label}
-                  </SelectItem>
-                ))}
-              </SelectContent>
-            </Select>
-          </div>
-        </div>
-
-        <div className="border-t pt-4">
-          <div className="mb-2 text-sm font-medium">{t("view")}</div>
-          <label className="flex items-center justify-between gap-3 text-sm">
-            <span>{t("panelLeft")}</span>
-            <Switch checked={!sidebarCollapsed} onCheckedChange={(v) => setSidebarCollapsed(!v)} />
-          </label>
-          {features.proxy !== false && (
-            <label className="mt-2 flex items-center justify-between gap-3 text-sm">
-              <span>{t("panelBottom")}</span>
-              <Switch checked={bottomOpen} onCheckedChange={setBottomOpen} />
-            </label>
-          )}
-          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
-            <span>{t("feedbackShow")}</span>
-            <Switch checked={!feedbackHidden} onCheckedChange={(v) => setFeedbackHidden(!v)} />
-          </label>          <label className="mt-2 flex items-center justify-between gap-3 text-sm">
-            <span>{t("panelRight")}</span>
-            <Switch checked={rightOpen} onCheckedChange={setRightOpen} />
-          </label>
-        </div>
-
-        {features.auth !== false && (
-        <div className="border-t pt-4">
-          <div className="mb-2 text-sm font-medium">{t("team")}</div>
-          <label className="flex items-center justify-between gap-3 text-sm">
-            <span className="flex-1">
-              {t("requireLogin")}              <span className="mt-0.5 block text-[11px] text-muted-foreground">{t("requireLoginHint")}</span>
-            </span>
-            <Switch checked={authOn} onCheckedChange={setAuthOn} />
-          </label>
-
-          <div className="mt-4 flex items-center justify-between gap-3 text-sm">
-            <span className="flex-1">{t("oidcEnable")}</span>
-            <Switch checked={oidcOn} onCheckedChange={setOidcOn} />
-          </div>
-          {oidcOn && (
-            <div className="mt-2 space-y-2 rounded-md border p-2">
-              <div className="flex flex-col gap-1">
-                <span className="text-xs text-muted-foreground">{t("oidcIssuer")}</span>
-                <Input
-                  className="h-8 font-mono text-xs"
-                  placeholder="https://accounts.example.com"
-                  value={oidcIssuer}
-                  onChange={(e) => setOidcIssuer(e.target.value)}
-                  spellCheck={false}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  className="h-8 font-mono text-xs"
-                  placeholder={t("clientId")}
-                  value={oidcClientId}
-                  onChange={(e) => setOidcClientId(e.target.value)}
-                  spellCheck={false}
-                />
-                <Input
-                  className="h-8 font-mono text-xs"
-                  type="password"
-                  placeholder={t("clientSecret")}
-                  value={oidcClientSecret}
-                  onChange={(e) => setOidcClientSecret(e.target.value)}
-                />
-              </div>
-              <div className="grid grid-cols-2 gap-2">
-                <Input
-                  className="h-8 text-xs"
-                  placeholder={t("oidcButtonLabel")}
-                  value={oidcLabel}
-                  onChange={(e) => setOidcLabel(e.target.value)}
-                />
-                <select
-                  className="h-8 rounded-md border bg-background px-2 text-xs"
-                  value={oidcRole}
-                  onChange={(e) => setOidcRole(e.target.value)}
-                >
-                  <option value="member">{t("roleMember")}</option>
-                  <option value="viewer">{t("roleViewer")}</option>
-                  <option value="admin">{t("roleAdmin")}</option>
-                </select>
-              </div>
-              <label className="flex items-center justify-between gap-3 text-xs">
-                <span>{t("oidcAutoCreate")}</span>
-                <Switch checked={oidcAutoCreate} onCheckedChange={setOidcAutoCreate} />
-              </label>
-              <p className="text-[11px] text-muted-foreground">
-                Redirect URI: <code>{"/api/auth/oidc/callback"}</code>
-              </p>
-            </div>
-          )}
-        </div>
-        )}
-
-        <div className="border-t pt-4">
-          <div className="mb-2 text-sm font-medium">{t("updates")}</div>
-          <div className="flex items-center gap-2">
-            <Button variant="outline" size="sm" className="gap-1.5" onClick={() => void check()} disabled={checking}>
-              <RefreshCw className={checking ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
-              {t("checkForUpdates")}
-            </Button>
-            {info && (
-              <span className="text-xs text-muted-foreground">
-                {t("currentVersion")}: v{info.current.replace(/^v/, "")}
-                {info.latest ? ` · ${t("latestVersion")}: ${info.latest}` : ""}
-              </span>
+        <Tabs defaultValue="general" className="flex min-h-0 flex-col">
+          <TabsList className="h-9 w-full shrink-0 justify-start gap-1 bg-transparent p-0">
+            <TabsTrigger value="general" className="px-3 text-xs">
+              {t("general")}
+            </TabsTrigger>
+            <TabsTrigger value="appearance" className="px-3 text-xs">
+              {t("appearance")}
+            </TabsTrigger>
+            <TabsTrigger value="view" className="px-3 text-xs">
+              {t("view")}
+            </TabsTrigger>
+            {features.auth !== false && (
+              <TabsTrigger value="team" className="px-3 text-xs">
+                {t("team")}
+              </TabsTrigger>
             )}
-          </div>
-          {info && !info.hasUpdate && <p className="mt-2 text-xs text-emerald-400">{t("upToDate")}</p>}
-          {info && info.hasUpdate && (
-            <div className="mt-2 flex items-center gap-3">
-              <span className="text-xs text-amber-400">
-                {t("updateAvailable")}: {info.latest}
-              </span>
-              <Button size="sm" className="gap-1.5" onClick={() => void doUpdate()} disabled={updating}>
-                <RefreshCw className={updating ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
-                {updating ? t("updating") : t("updateNow")}
-              </Button>
-            </div>
-          )}
-        </div>
+            {features.mcp !== false && (
+              <TabsTrigger value="mcp" className="px-3 text-xs">
+                {t("mcp")}
+              </TabsTrigger>
+            )}
+            <TabsTrigger value="updates" className="px-3 text-xs">
+              {t("updates")}
+            </TabsTrigger>
+          </TabsList>
 
-        {features.mcp !== false && (
-        <div className="border-t pt-4">
-          <div className="text-sm font-medium">{t("mcp")}</div>
-          <p className="mt-0.5 text-[11px] text-muted-foreground">{t("mcpHint")}</p>
-          <div className="mt-2 flex items-center justify-between rounded-lg border p-3">
-            <span className="text-sm">{t("mcpEnable")}</span>
-            <Switch checked={mcpOn} onCheckedChange={setMcpOn} />
+          <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+            {/* General */}
+            <TabsContent value="general" className="m-0 space-y-4">
+              <Field label={t("failureWebhook")}>
+                <Input
+                  value={webhook}
+                  onChange={(e) => setWebhook(e.target.value)}
+                  placeholder="https://hooks.example.com/curlui"
+                  className="font-mono text-xs"
+                  spellCheck={false}
+                />
+                <p className="text-[11px] text-muted-foreground">{t("failureWebhookHint")}</p>
+              </Field>
+
+              <Field label={t("userAgent")}>
+                <Input
+                  value={userAgent}
+                  onChange={(e) => setUserAgent(e.target.value)}
+                  placeholder="curlui/1.0"
+                  className="font-mono text-xs"
+                  spellCheck={false}
+                />
+                <p className="text-[11px] text-muted-foreground">{t("userAgentHint")}</p>
+              </Field>
+            </TabsContent>
+
+            {/* Appearance */}
+            <TabsContent value="appearance" className="m-0 space-y-3">
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span>{t("theme")}</span>
+                <Select value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+                  <SelectTrigger className="h-8 w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    <SelectItem value="auto">{t("themeAuto")}</SelectItem>
+                    <SelectItem value="light">{t("themeLight")}</SelectItem>
+                    <SelectItem value="dark">{t("themeDark")}</SelectItem>
+                  </SelectContent>
+                </Select>
+              </div>
+              <div className="flex items-center justify-between gap-3 text-sm">
+                <span>{t("language")}</span>
+                <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+                  <SelectTrigger className="h-8 w-44">
+                    <SelectValue />
+                  </SelectTrigger>
+                  <SelectContent>
+                    {LOCALES.map((l) => (
+                      <SelectItem key={l.value} value={l.value}>
+                        {l.label}
+                      </SelectItem>
+                    ))}
+                  </SelectContent>
+                </Select>
+              </div>
+            </TabsContent>
+
+            {/* View */}
+            <TabsContent value="view" className="m-0 space-y-3">
+              <Row label={t("panelLeft")}>
+                <Switch checked={!sidebarCollapsed} onCheckedChange={(v) => setSidebarCollapsed(!v)} />
+              </Row>
+              {features.proxy !== false && (
+                <Row label={t("panelBottom")}>
+                  <Switch checked={bottomOpen} onCheckedChange={setBottomOpen} />
+                </Row>
+              )}
+              <Row label={t("panelRight")}>
+                <Switch checked={rightOpen} onCheckedChange={setRightOpen} />
+              </Row>
+              <Row label={t("feedbackShow")}>
+                <Switch checked={!feedbackHidden} onCheckedChange={(v) => setFeedbackHidden(!v)} />
+              </Row>
+            </TabsContent>
+
+            {/* Team */}
+            {features.auth !== false && (
+              <TabsContent value="team" className="m-0 space-y-3">
+                <Row label={t("requireLogin")} hint={t("requireLoginHint")}>
+                  <Switch checked={authOn} onCheckedChange={setAuthOn} />
+                </Row>
+
+                <Row label={t("oidcEnable")}>
+                  <Switch checked={oidcOn} onCheckedChange={setOidcOn} />
+                </Row>
+                {oidcOn && (
+                  <div className="space-y-2 rounded-md border p-2">
+                    <div className="flex flex-col gap-1">
+                      <span className="text-xs text-muted-foreground">{t("oidcIssuer")}</span>
+                      <Input
+                        className="h-8 font-mono text-xs"
+                        placeholder="https://accounts.example.com"
+                        value={oidcIssuer}
+                        onChange={(e) => setOidcIssuer(e.target.value)}
+                        spellCheck={false}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        className="h-8 font-mono text-xs"
+                        placeholder={t("clientId")}
+                        value={oidcClientId}
+                        onChange={(e) => setOidcClientId(e.target.value)}
+                        spellCheck={false}
+                      />
+                      <Input
+                        className="h-8 font-mono text-xs"
+                        type="password"
+                        placeholder={t("clientSecret")}
+                        value={oidcClientSecret}
+                        onChange={(e) => setOidcClientSecret(e.target.value)}
+                      />
+                    </div>
+                    <div className="grid grid-cols-2 gap-2">
+                      <Input
+                        className="h-8 text-xs"
+                        placeholder={t("oidcButtonLabel")}
+                        value={oidcLabel}
+                        onChange={(e) => setOidcLabel(e.target.value)}
+                      />
+                      <select
+                        className="h-8 rounded-md border bg-background px-2 text-xs"
+                        value={oidcRole}
+                        onChange={(e) => setOidcRole(e.target.value)}
+                      >
+                        <option value="member">{t("roleMember")}</option>
+                        <option value="viewer">{t("roleViewer")}</option>
+                        <option value="admin">{t("roleAdmin")}</option>
+                      </select>
+                    </div>
+                    <label className="flex items-center justify-between gap-3 text-xs">
+                      <span>{t("oidcAutoCreate")}</span>
+                      <Switch checked={oidcAutoCreate} onCheckedChange={setOidcAutoCreate} />
+                    </label>
+                    <p className="text-[11px] text-muted-foreground">
+                      Redirect URI: <code>{"/api/auth/oidc/callback"}</code>
+                    </p>
+                  </div>
+                )}
+              </TabsContent>
+            )}
+
+            {/* MCP */}
+            {features.mcp !== false && (
+              <TabsContent value="mcp" className="m-0 space-y-3">
+                <p className="text-[11px] text-muted-foreground">{t("mcpHint")}</p>
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <span className="text-sm">{t("mcpEnable")}</span>
+                  <Switch checked={mcpOn} onCheckedChange={setMcpOn} />
+                </div>
+                <div className="flex items-center justify-between rounded-lg border p-3">
+                  <span className="text-sm">
+                    {t("mcpWriteTools")}{" "}
+                    <span className="text-[10px] text-muted-foreground">
+                      ({t("mcpReadGroup")} + {t("mcpWriteGroup")})
+                    </span>
+                  </span>
+                  <Switch checked={mcpWrite} onCheckedChange={setMcpWrite} disabled={!mcpOn} />
+                </div>
+              </TabsContent>
+            )}
+
+            {/* Updates */}
+            <TabsContent value="updates" className="m-0 space-y-3">
+              <div className="flex flex-wrap items-center gap-2">
+                <Button
+                  variant="outline"
+                  size="sm"
+                  className="gap-1.5"
+                  onClick={() => void check()}
+                  disabled={checking}
+                >
+                  <RefreshCw className={checking ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+                  {t("checkForUpdates")}
+                </Button>
+                {info && (
+                  <span className="text-xs text-muted-foreground">
+                    {t("currentVersion")}: v{info.current.replace(/^v/, "")}
+                    {info.latest ? ` · ${t("latestVersion")}: ${info.latest}` : ""}
+                  </span>
+                )}
+              </div>
+              {info && !info.hasUpdate && (
+                <p className="text-xs text-emerald-400">{t("upToDate")}</p>
+              )}
+              {info && info.hasUpdate && (
+                <div className="flex items-center gap-3">
+                  <span className="text-xs text-amber-400">
+                    {t("updateAvailable")}: {info.latest}
+                  </span>
+                  <Button size="sm" className="gap-1.5" onClick={() => void doUpdate()} disabled={updating}>
+                    <RefreshCw className={updating ? "h-3.5 w-3.5 animate-spin" : "h-3.5 w-3.5"} />
+                    {updating ? t("updating") : t("updateNow")}
+                  </Button>
+                </div>
+              )}
+            </TabsContent>
           </div>
-          <div className="mt-2 flex items-center justify-between rounded-lg border p-3">
-            <span className="text-sm">
-              {t("mcpWriteTools")}{" "}
-              <span className="text-[10px] text-muted-foreground">
-                ({t("mcpReadGroup")} + {t("mcpWriteGroup")})
-              </span>
-            </span>
-            <Switch checked={mcpWrite} onCheckedChange={setMcpWrite} disabled={!mcpOn} />
-          </div>
-        </div>
-        )}
+        </Tabs>
 
         <DialogFooter>
           <Button variant="ghost" onClick={() => onOpenChange(false)}>
