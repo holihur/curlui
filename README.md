@@ -48,7 +48,8 @@ The proxy is **started/stopped from the UI** and remembered across restarts.
 *Stream* toggle next to Send; the button becomes *Stop* to abort); a
 **WebSocket console** connects through the server bridge to any `ws://` /
 `wss://` target — custom headers, self-signed TLS and a live frame log; **gRPC
-streaming** (server / client / bidi) prints every message as it lands.
+streaming** (server / client / **interactive bidi** — send and receive at the
+same time, with half-close) prints every message as it lands.
 
 **Interop** · import OpenAPI/Swagger (URL or file) and Postman v2.1 collections;
 export as JSON, cURL, Postman, or rendered docs (**Markdown / HTML / Word /
