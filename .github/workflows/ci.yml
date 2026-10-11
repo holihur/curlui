@@ -30,3 +30,20 @@ jobs:
         env:
           GOMAXPROCS: "2"
         run: bash scripts/check.sh
+
+      - name: Install Playwright chromium
+        working-directory: e2e
+        run: |
+          npm install --no-audit --no-fund
+          npx playwright install --with-deps chromium
+
+      - name: E2E (full build)
+        working-directory: e2e
+        run: node run.mjs
+
+      - name: E2E (core build)
+        working-directory: e2e
+        env:
+          CURLUI_BIN: ../server/curlui-server-core
+          CURLUI_PORT: "8092"
+        run: node run.mjs

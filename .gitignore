@@ -27,3 +27,7 @@ server/data/
 .env
 .vscode/
 .idea/
+
+# e2e
+web/node_modules/
+e2e/node_modules/

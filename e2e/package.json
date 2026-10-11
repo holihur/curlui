@@ -1,0 +1,13 @@
+{
+  "name": "curlui-e2e",
+  "private": true,
+  "type": "module",
+  "description": "End-to-end tests for curlui (self-contained: they spin up their own echo/SSE server and a throwaway curlui instance).",
+  "scripts": {
+    "test": "node run.mjs",
+    "test:core": "CURLUI_BIN=../server/curlui-server-core CURLUI_PORT=8092 node run.mjs"
+  },
+  "dependencies": {
+    "playwright-core": "^1.49.0"
+  }
+}
