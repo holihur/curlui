@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Network, Play, Radio, Save, Sparkles, Trash2, Upload } from "lucide-react";
+import { Loader2, Network, Play, Radio, Save, Sparkles, Square, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -64,7 +64,15 @@ export function GrpcPanel() {
   const [result, setResult] = useState<GrpcResult | null>(null);
   const [busy, setBusy] = useState(false);
   const [loaded, setLoaded] = useState(false);
+  const [streamLog, setStreamLog] = useState<{ kind: string; text: string }[]>([]);
+  const [streaming, setStreaming] = useState(false);
+  const streamAbort = useRef<AbortController | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
+
+  const fullName = (svc: GrpcService) => (svc.package ? svc.package + "." : "") + svc.name;
+  const isStreamingMethod = services.some(
+    (svc) => fullName(svc) === service && svc.methods.some((m) => m.name === method && m.streaming),
+  );
 
   const fail = (err: unknown) =>
     toast({
@@ -187,6 +195,35 @@ export function GrpcPanel() {
       fail(err);
     } finally {
       setBusy(false);
+    }
+  };
+
+  // streamCall runs a streaming RPC and renders each message as it arrives.
+  const streamCall = async () => {
+    setStreaming(true);
+    setStreamLog([]);
+    streamAbort.current = new AbortController();
+    try {
+      await api.grpcStream(
+        { id: selectedId, target, service, method, body, plaintext, metadata: parseMetadata(metadata) },
+        (ev) => {
+          if (ev.type === "meta") {
+            setStreamLog((l) => [...l, { kind: "meta", text: t("grpcStreamOpen") }]);
+          } else if (ev.type === "message") {
+            setStreamLog((l) => [...l, { kind: "message", text: ev.response ?? "" }]);
+          } else if (ev.type === "status") {
+            setStreamLog((l) => [...l, { kind: "status", text: `${ev.code ?? "OK"} · ${formatMs(ev.duration ?? 0)}` }]);
+          } else if (ev.type === "error") {
+            setStreamLog((l) => [...l, { kind: "error", text: ev.message ?? "error" }]);
+          }
+        },
+        streamAbort.current.signal,
+      );
+    } catch (err) {
+      if (!(err instanceof Error && err.message.includes("abort"))) fail(err);
+    } finally {
+      setStreaming(false);
+      streamAbort.current = null;
     }
   };
 
@@ -397,6 +434,18 @@ export function GrpcPanel() {
                 {busy ? <Loader2 className="h-3 w-3 animate-spin" /> : <Play className="h-3 w-3" />}
                 {t("grpcInvoke")}
               </Button>
+              {isStreamingMethod && (
+                <Button
+                  size="xs"
+                  variant={streaming ? "destructive" : "secondary"}
+                  className="h-6 gap-1 text-[10px]"
+                  disabled={!selectedId || !service || !method}
+                  onClick={() => (streaming ? streamAbort.current?.abort() : void streamCall())}
+                >
+                  {streaming ? <Square className="h-3 w-3" /> : <Radio className="h-3 w-3" />}
+                  {streaming ? t("stop") : t("grpcStream")}
+                </Button>
+              )}
             </div>
             <CodeEditor value={body} onChange={setBody} language="json" className="min-h-[110px]" />
           </div>
@@ -422,6 +471,24 @@ export function GrpcPanel() {
               <pre className="max-h-52 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-2 font-mono text-[10px]">
                 {prettyJSON(result.response) || result.response}
               </pre>
+            </div>
+          )}
+
+          {streamLog.length > 0 && (
+            <div className="mt-2 flex flex-col gap-1">
+              {streamLog.map((e, i) => (
+                <pre
+                  key={i}
+                  className={cn(
+                    "max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-2 font-mono text-[10px]",
+                    e.kind === "error" && "text-red-400",
+                    e.kind === "meta" && "text-muted-foreground",
+                    e.kind === "status" && "text-emerald-400",
+                  )}
+                >
+                  {e.kind === "message" ? prettyJSON(e.text) || e.text : e.text}
+                </pre>
+              ))}
             </div>
           )}
         </>

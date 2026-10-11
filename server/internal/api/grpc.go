@@ -5,6 +5,7 @@ package api
 import (
 	"context"
 	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -300,12 +301,72 @@ func grpcForget(id string) {
 }
 
 // registerGrpcRoutes mounts the gRPC endpoints (full build only).
+// grpcStream runs a server/client/bidi streaming RPC and forwards every event
+// (meta / message / status / error) to the browser as Server-Sent Events.
+func (s *Server) grpcStream(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		ID        string            `json:"id"`
+		Target    string            `json:"target"`
+		Service   string            `json:"service"`
+		Method    string            `json:"method"`
+		Messages  []string          `json:"messages"`
+		Body      string            `json:"body"`
+		Plaintext bool              `json:"plaintext"`
+		Metadata  []models.KeyValue `json:"metadata"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	flusher, ok := w.(http.Flusher)
+	if !ok {
+		writeErr(w, http.StatusInternalServerError, "streaming is not supported by this connection")
+		return
+	}
+	db := s.db(r)
+	d, ok := db.FindDescriptor(payload.ID)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "unknown descriptor; import a .pb file or use reflection first")
+		return
+	}
+	files, ok := grpcFilesFor(d)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "stored descriptor could not be parsed")
+		return
+	}
+	target := payload.Target
+	if target == "" {
+		target = d.Target
+	}
+	msgs := payload.Messages
+	if len(msgs) == 0 && strings.TrimSpace(payload.Body) != "" {
+		msgs = []string{payload.Body}
+	}
+
+	w.Header().Set("Content-Type", "text/event-stream")
+	w.Header().Set("Cache-Control", "no-cache")
+	w.Header().Set("Connection", "keep-alive")
+	w.Header().Set("X-Accel-Buffering", "no")
+	w.WriteHeader(http.StatusOK)
+	send := func(ev grpcx.Event) {
+		b, _ := json.Marshal(ev)
+		fmt.Fprintf(w, "data: %s\n\n", b)
+		flusher.Flush()
+	}
+
+	err := grpcx.Stream(r.Context(), files, target, payload.Service, payload.Method, msgs, payload.Plaintext, keyValueMetadata(payload.Metadata), send)
+	if err != nil {
+		send(grpcx.Event{Type: "error", Message: err.Error()})
+	}
+}
+
 func (s *Server) registerGrpcRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/grpc/descriptor", s.grpcDescriptor)
 	mux.HandleFunc("GET /api/grpc/descriptors", s.listGrpcDescriptors)
 	mux.HandleFunc("DELETE /api/grpc/descriptors/{id}", s.deleteGrpcDescriptor)
 	mux.HandleFunc("POST /api/grpc/example", s.grpcExample)
 	mux.HandleFunc("POST /api/grpc/call", s.grpcCall)
+	mux.HandleFunc("POST /api/grpc/stream", s.grpcStream)
 }
 
 func base64Encode(b []byte) string { return base64.StdEncoding.EncodeToString(b) }

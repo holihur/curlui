@@ -14,6 +14,7 @@ import (
 	"encoding/hex"
 	"encoding/json"
 	"fmt"
+	"io"
 	"sort"
 	"strings"
 	"time"
@@ -369,4 +370,105 @@ func Invoke(ctx context.Context, files *protoregistry.Files, target, service, me
 		out.Message = err.Error()
 	}
 	return out, nil
+}
+
+// Event is a single update emitted while streaming an RPC.
+type Event struct {
+	Type     string              `json:"type"` // meta | message | status | error
+	Response string              `json:"response,omitempty"`
+	Headers  map[string][]string `json:"headers,omitempty"`
+	Trailers map[string][]string `json:"trailers,omitempty"`
+	Code     string              `json:"code,omitempty"`
+	Message  string              `json:"message,omitempty"`
+	Index    int                 `json:"index,omitempty"`
+	Duration int64               `json:"duration,omitempty"`
+}
+
+// Stream runs a server/client/bidi streaming RPC. All client messages are sent
+// up front (from reqs), then every response message is delivered to onEvent.
+func Stream(ctx context.Context, files *protoregistry.Files, target, service, method string, reqs []string, plaintext bool, md map[string][]string, onEvent func(Event)) error {
+	conn, err := Dial(target, plaintext)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	desc, err := files.FindDescriptorByName(protoreflect.FullName(service))
+	if err != nil {
+		return fmt.Errorf("service %q not found in descriptor", service)
+	}
+	sd, ok := desc.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return fmt.Errorf("%q is not a service", service)
+	}
+	mdesc := sd.Methods().ByName(protoreflect.Name(method))
+	if mdesc == nil {
+		return fmt.Errorf("method %q not found on %s", method, service)
+	}
+	if !mdesc.IsStreamingClient() && !mdesc.IsStreamingServer() {
+		return fmt.Errorf("%s/%s is a unary method; use the unary call instead", service, method)
+	}
+
+	streamDesc := &grpc.StreamDesc{
+		StreamName:    method,
+		ServerStreams: mdesc.IsStreamingServer(),
+		ClientStreams: mdesc.IsStreamingClient(),
+	}
+	if len(md) > 0 {
+		ctx = metadata.NewOutgoingContext(ctx, metadata.MD(md))
+	}
+	stream, err := conn.NewStream(ctx, streamDesc, "/"+service+"/"+method)
+	if err != nil {
+		return err
+	}
+
+	start := time.Now()
+	for _, r := range reqs {
+		msg := dynamicpb.NewMessage(mdesc.Input())
+		if strings.TrimSpace(r) != "" {
+			if err := protojson.Unmarshal([]byte(r), msg); err != nil {
+				return fmt.Errorf("request JSON does not match %s: %w", mdesc.Input().FullName(), err)
+			}
+		}
+		if err := stream.SendMsg(msg); err != nil {
+			return err
+		}
+	}
+	if mdesc.IsStreamingClient() {
+		if err := stream.CloseSend(); err != nil {
+			return err
+		}
+	}
+
+	if hdr, err := stream.Header(); err == nil {
+		onEvent(Event{Type: "meta", Headers: hdr})
+	}
+
+	idx := 0
+	for {
+		resp := dynamicpb.NewMessage(mdesc.Output())
+		err := stream.RecvMsg(resp)
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			st, _ := status.FromError(err)
+			onEvent(Event{
+				Type:     "status",
+				Code:     st.Code().String(),
+				Message:  st.Message(),
+				Trailers: stream.Trailer(),
+				Duration: time.Since(start).Milliseconds(),
+			})
+			return nil
+		}
+		js, mErr := protojson.MarshalOptions{Indent: "  ", EmitUnpopulated: true}.Marshal(resp)
+		if mErr != nil {
+			return fmt.Errorf("cannot render response: %w", mErr)
+		}
+		onEvent(Event{Type: "message", Response: string(js), Index: idx})
+		idx++
+	}
+	onEvent(Event{Type: "status", Code: "OK", Trailers: stream.Trailer(), Duration: time.Since(start).Milliseconds()})
+	return nil
 }
