@@ -14,6 +14,9 @@ fi
 npm run build
 cd ..
 
+echo "==> Pre-compressing assets (brotli + gzip)"
+node scripts/precompress.mjs web/dist
+
 echo "==> Embedding frontend"
 rm -rf server/internal/webui/dist
 mkdir -p server/internal/webui/dist

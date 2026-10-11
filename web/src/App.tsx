@@ -1,12 +1,15 @@
-import { useEffect, useRef } from "react";
+import { lazy, Suspense, useEffect, useRef } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
 import { RequestTabs } from "@/components/RequestTabs";
 import { RequestEditor } from "@/components/RequestEditor";
 import { Toaster } from "@/components/Toaster";
-import { InterceptDialog } from "@/components/InterceptDialog";
 import { AuthScreen } from "@/components/LoginDialog";
+
+const InterceptDialog = lazy(() =>
+  import("@/components/InterceptDialog").then((m) => ({ default: m.InterceptDialog })),
+);
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
 
@@ -72,7 +75,9 @@ export default function App() {
           </main>
         </div>
         <Toaster />
-        <InterceptDialog />
+        <Suspense fallback={null}>
+          <InterceptDialog />
+        </Suspense>
       </div>
     </TooltipProvider>
   );

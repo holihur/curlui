@@ -390,11 +390,11 @@ export const useStore = create<State>((set, get) => ({
   async loadAll() {
     await get().loadAuth();
     if (get().authEnabled && !get().authenticated) return;
-    await Promise.all([
-      get().refreshCollections(),
-      get().refreshHistory(),
-      get().refreshEnvironments(),
-    ]);
+    // Collections are needed for the first paint; history and environments are
+    // other tabs, so load them in the background.
+    await get().refreshCollections();
+    void get().refreshHistory();
+    void get().refreshEnvironments();
   },
 
   async refreshCollections() {

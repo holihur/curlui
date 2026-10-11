@@ -1,4 +1,4 @@
-import { useState, type DragEvent } from "react";
+import { lazy, Suspense, useState, type DragEvent } from "react";
 import {
   ChevronRight,
   Copy,
@@ -33,10 +33,21 @@ import { findNode, useStore } from "@/store";
 import type { CollectionNode } from "@/lib/types";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
-import { FolderSettingsDialog, MoveDialog } from "@/components/FolderSettingsDialog";
-import { RunDialog, type RunItem } from "@/components/RunDialog";
-import { DocExportDialog } from "@/components/DocExportDialog";
+import type { RunItem } from "@/components/RunDialog";
 
+// Dialogs are loaded on demand (they are not part of the first paint).
+const FolderSettingsDialog = lazy(() =>
+  import("@/components/FolderSettingsDialog").then((m) => ({ default: m.FolderSettingsDialog })),
+);
+const MoveDialog = lazy(() =>
+  import("@/components/FolderSettingsDialog").then((m) => ({ default: m.MoveDialog })),
+);
+const RunDialog = lazy(() =>
+  import("@/components/RunDialog").then((m) => ({ default: m.RunDialog })),
+);
+const DocExportDialog = lazy(() =>
+  import("@/components/DocExportDialog").then((m) => ({ default: m.DocExportDialog })),
+);
 type DropPosition = "before" | "after" | "inside" | "dependency";
 type DropTarget = { id: string; position: DropPosition };
 
@@ -225,24 +236,36 @@ export function CollectionsPanel() {
         }}
       />
 
-      <FolderSettingsDialog
-        open={folderSettings !== null}
-        onOpenChange={(o) => !o && setFolderSettings(null)}
-        folder={folderSettings}
-      />
-      <MoveDialog
-        open={moveTarget !== null}
-        onOpenChange={(o) => !o && setMoveTarget(null)}
-        node={moveTarget}
-      />
-      <RunDialog
-        open={runScope !== null}
-        onOpenChange={(o) => !o && setRunScope(null)}
-        title={runScope?.title ?? ""}
-        items={runScope?.items ?? []}
-        defaultRepeat={runScope?.defaultRepeat ?? 1}
-      />
-      <DocExportDialog open={docOpen} onOpenChange={setDocOpen} node={docNode} />
+      {folderSettings !== null && (
+        <Suspense fallback={null}>
+          <FolderSettingsDialog
+            open
+            onOpenChange={(o) => !o && setFolderSettings(null)}
+            folder={folderSettings}
+          />
+        </Suspense>
+      )}
+      {moveTarget !== null && (
+        <Suspense fallback={null}>
+          <MoveDialog open onOpenChange={(o) => !o && setMoveTarget(null)} node={moveTarget} />
+        </Suspense>
+      )}
+      {runScope !== null && (
+        <Suspense fallback={null}>
+          <RunDialog
+            open
+            onOpenChange={(o) => !o && setRunScope(null)}
+            title={runScope?.title ?? ""}
+            items={runScope?.items ?? []}
+            defaultRepeat={runScope?.defaultRepeat ?? 1}
+          />
+        </Suspense>
+      )}
+      {docOpen && (
+        <Suspense fallback={null}>
+          <DocExportDialog open onOpenChange={setDocOpen} node={docNode} />
+        </Suspense>
+      )}
     </div>
   );
 }

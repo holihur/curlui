@@ -24,5 +24,14 @@ export default defineConfig({
     outDir: "dist",
     sourcemap: false,
     chunkSizeWarningLimit: 1500,
+    rollupOptions: {
+      output: {
+        // One vendor chunk keeps React/Radix init order correct while still
+        // separating dependencies from app code (better caching).
+        manualChunks(id) {
+          if (id.includes("node_modules")) return "vendor";
+        },
+      },
+    },
   },
 });

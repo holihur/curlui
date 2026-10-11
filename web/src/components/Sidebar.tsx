@@ -1,12 +1,19 @@
-import { useState } from "react";
+import { lazy, Suspense, useState } from "react";
 import { Activity, Clock, FolderTree, Settings2, Timer } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
-import { useStore } from "@/store";import { CollectionsPanel } from "@/components/CollectionsPanel";
+import { useStore } from "@/store";
+import { CollectionsPanel } from "@/components/CollectionsPanel";
 import { HistoryPanel } from "@/components/HistoryPanel";
 import { EnvPanel } from "@/components/EnvPanel";
-import { SchedulePanel } from "@/components/SchedulePanel";
-import { TrafficPanel } from "@/components/TrafficPanel";
+
+// Loaded on demand: these tabs are not part of the first paint.
+const SchedulePanel = lazy(() =>
+  import("@/components/SchedulePanel").then((m) => ({ default: m.SchedulePanel })),
+);
+const TrafficPanel = lazy(() =>
+  import("@/components/TrafficPanel").then((m) => ({ default: m.TrafficPanel })),
+);
 
 type TabKey = "collections" | "history" | "env" | "schedules" | "traffic";
 
@@ -52,8 +59,16 @@ export function Sidebar() {
         {tab === "collections" && <CollectionsPanel />}
         {tab === "history" && <HistoryPanel />}
         {tab === "env" && <EnvPanel />}
-        {tab === "schedules" && <SchedulePanel />}
-        {tab === "traffic" && <TrafficPanel />}
+        {tab === "schedules" && (
+          <Suspense fallback={null}>
+            <SchedulePanel />
+          </Suspense>
+        )}
+        {tab === "traffic" && (
+          <Suspense fallback={null}>
+            <TrafficPanel />
+          </Suspense>
+        )}
       </div>
     </aside>
   );

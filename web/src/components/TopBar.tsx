@@ -1,4 +1,4 @@
-import { useRef, useState } from "react";
+import { lazy, Suspense, useRef, useState } from "react";
 import {
   Check,
   ChevronDown,
@@ -30,13 +30,27 @@ import {
   DropdownMenuSeparator,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
-import { ImportCurlDialog } from "@/components/ImportCurlDialog";
-import { OpenAPIDialog } from "@/components/OpenAPIDialog";
-import { SettingsDialog } from "@/components/SettingsDialog";
-import { DocExportDialog } from "@/components/DocExportDialog";
-import { TeamDialog } from "@/components/TeamDialog";
-import { LoginDialog } from "@/components/LoginDialog";
 import { PromptDialog } from "@/components/PromptDialog";
+
+// Dialogs are loaded on demand so they stay out of the initial bundle.
+const ImportCurlDialog = lazy(() =>
+  import("@/components/ImportCurlDialog").then((m) => ({ default: m.ImportCurlDialog })),
+);
+const OpenAPIDialog = lazy(() =>
+  import("@/components/OpenAPIDialog").then((m) => ({ default: m.OpenAPIDialog })),
+);
+const SettingsDialog = lazy(() =>
+  import("@/components/SettingsDialog").then((m) => ({ default: m.SettingsDialog })),
+);
+const DocExportDialog = lazy(() =>
+  import("@/components/DocExportDialog").then((m) => ({ default: m.DocExportDialog })),
+);
+const TeamDialog = lazy(() =>
+  import("@/components/TeamDialog").then((m) => ({ default: m.TeamDialog })),
+);
+const LoginDialog = lazy(() =>
+  import("@/components/LoginDialog").then((m) => ({ default: m.LoginDialog })),
+);
 import { LOCALES, useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
@@ -254,12 +268,36 @@ export function TopBar() {
         </DropdownMenu>
       </div>
 
-      <ImportCurlDialog open={importOpen} onOpenChange={setImportOpen} />
-      <OpenAPIDialog open={openapiOpen} onOpenChange={setOpenapiOpen} />
-      <SettingsDialog open={settingsOpen} onOpenChange={setSettingsOpen} />
-      <DocExportDialog open={docOpen} onOpenChange={setDocOpen} node={null} />
-      <TeamDialog open={teamOpen} onOpenChange={setTeamOpen} />
-      <LoginDialog open={loginOpen} onOpenChange={setLoginOpen} />
+      {importOpen && (
+        <Suspense fallback={null}>
+          <ImportCurlDialog open onOpenChange={setImportOpen} />
+        </Suspense>
+      )}
+      {openapiOpen && (
+        <Suspense fallback={null}>
+          <OpenAPIDialog open onOpenChange={setOpenapiOpen} />
+        </Suspense>
+      )}
+      {settingsOpen && (
+        <Suspense fallback={null}>
+          <SettingsDialog open onOpenChange={setSettingsOpen} />
+        </Suspense>
+      )}
+      {docOpen && (
+        <Suspense fallback={null}>
+          <DocExportDialog open onOpenChange={setDocOpen} node={null} />
+        </Suspense>
+      )}
+      {teamOpen && (
+        <Suspense fallback={null}>
+          <TeamDialog open onOpenChange={setTeamOpen} />
+        </Suspense>
+      )}
+      {loginOpen && (
+        <Suspense fallback={null}>
+          <LoginDialog open onOpenChange={setLoginOpen} />
+        </Suspense>
+      )}
       <PromptDialog
         open={newProjectOpen}
         onOpenChange={setNewProjectOpen}

@@ -100,6 +100,9 @@ the refreshed images back).
   syntax over the collection).
 - **Self-update** — Settings → Updates checks GitHub Releases and can replace
   the running binary in place (restart to apply).
+- **Fast first paint** — the UI is code-split (panels/dialogs load on demand),
+  build assets are pre-compressed with **brotli/gzip** and served with
+  `immutable` caching, so the initial payload is ~150 KB instead of ~600 KB.
 - **Run as a service** — `curlui -service install` sets up systemd / launchd / sc.
 - **Deep links** — every request has a UUID; the URL (`#/r/<uuid>`) restores the
   exact request on refresh and is shareable.

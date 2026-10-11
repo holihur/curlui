@@ -1,4 +1,4 @@
-import { useEffect, useRef, useState, type ReactNode } from "react";
+import { useEffect, useRef, useState, lazy, Suspense, type ReactNode } from "react";
 import { AlertCircle, Bug, CheckCircle2, ChevronDown, Clock, Code2, FlaskConical, Loader2, Play, Save, Send, Wand2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -23,12 +23,16 @@ import {
 import { KeyValueEditor } from "@/components/KeyValueEditor";
 import { CodeEditor } from "@/components/CodeEditor";
 import { AutomationEditor } from "@/components/AutomationEditor";
-import { ScheduleDialog } from "@/components/ScheduleDialog";
-import { RunDialog } from "@/components/RunDialog";
-import { FuzzDialog } from "@/components/FuzzDialog";
 import { ResponsePanel } from "@/components/ResponsePanel";
-import { CodeDialog } from "@/components/CodeDialog";
 import { cn, jsonError } from "@/lib/utils";
+
+// Dialogs are loaded on demand (not part of the first paint).
+const ScheduleDialog = lazy(() =>
+  import("@/components/ScheduleDialog").then((m) => ({ default: m.ScheduleDialog })),
+);
+const RunDialog = lazy(() => import("@/components/RunDialog").then((m) => ({ default: m.RunDialog })));
+const FuzzDialog = lazy(() => import("@/components/FuzzDialog").then((m) => ({ default: m.FuzzDialog })));
+const CodeDialog = lazy(() => import("@/components/CodeDialog").then((m) => ({ default: m.CodeDialog })));
 import { tryPrettyJSON } from "@/lib/highlight";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useActiveTab, useStore } from "@/store";
@@ -289,15 +293,27 @@ export function RequestEditor() {
 
       <ResponsePanel tab={tab} />
 
-      <CodeDialog open={codeOpen} onOpenChange={setCodeOpen} request={req} />
-      <ScheduleDialog open={scheduleOpen} onOpenChange={setScheduleOpen} request={req} />
-      <RunDialog
-        open={runOpen}
-        onOpenChange={setRunOpen}
-        title={t("loadTest")}
-        items={[{ name: req.name || req.url, request: req }]}
-        defaultRepeat={10}
-      />
+      {codeOpen && (
+        <Suspense fallback={null}>
+          <CodeDialog open onOpenChange={setCodeOpen} request={req} />
+        </Suspense>
+      )}
+      {scheduleOpen && (
+        <Suspense fallback={null}>
+          <ScheduleDialog open onOpenChange={setScheduleOpen} request={req} />
+        </Suspense>
+      )}
+      {runOpen && (
+        <Suspense fallback={null}>
+          <RunDialog
+            open
+            onOpenChange={setRunOpen}
+            title={t("loadTest")}
+            items={[{ name: req.name || req.url, request: req }]}
+            defaultRepeat={10}
+          />
+        </Suspense>
+      )}
       <FuzzDialog open={fuzzOpen} onOpenChange={setFuzzOpen} request={req} />
     </div>
   );
