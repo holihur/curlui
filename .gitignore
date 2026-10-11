@@ -5,7 +5,9 @@ web/node_modules/
 # build output
 web/dist/
 server/curlui-server
+curlui-server-core
 curlui-server
+curlui-server-core
 dist/
 
 # embedded frontend (generated at build time; .gitkeep keeps the dir present)
