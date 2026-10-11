@@ -45,8 +45,8 @@ request/response **breakpoints**, replay, save-to-collection, HAR/cURL export.
 
 **Interop** · import OpenAPI/Swagger (URL or file) and Postman v2.1 collections;
 export as JSON, cURL, Postman, or rendered docs (**Markdown / HTML / Word /
-PDF**); gRPC via `.pb` descriptors or server reflection (saved per project);
-GraphQL schema introspection.
+PDF**); gRPC via `.pb` descriptors or server reflection — **calls save into
+collections** (reopen, export, share); GraphQL schema introspection.
 
 **Team** · optional login (local accounts or **OIDC/SSO**), isolated projects,
 roles (owner/admin/member/viewer), audit log, shared workspaces that refresh for
