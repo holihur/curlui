@@ -182,6 +182,7 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("POST /api/send", s.send)
 	mux.HandleFunc("POST /api/stream", s.streamRequest)
+	mux.HandleFunc("GET /api/ws", s.wsBridge)
 
 	mux.HandleFunc("GET /api/collections", s.listCollections)
 	mux.HandleFunc("POST /api/collections", s.createNode)

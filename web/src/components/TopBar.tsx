@@ -16,6 +16,7 @@ import {
   Menu,
   Moon,
   MoreHorizontal,
+  Radio,
   Network,
   PanelLeft,
   Plus,
@@ -52,6 +53,9 @@ const SettingsDialog = lazy(() =>
 );
 const DocExportDialog = lazy(() =>
   import("@/components/DocExportDialog").then((m) => ({ default: m.DocExportDialog })),
+);
+const WebSocketDialog = lazy(() =>
+  import("@/components/WebSocketDialog").then((m) => ({ default: m.WebSocketDialog })),
 );
 const TeamDialog = lazy(() =>
   import("@/components/TeamDialog").then((m) => ({ default: m.TeamDialog })),
@@ -90,6 +94,7 @@ export function TopBar() {
   const [openapiOpen, setOpenapiOpen] = useState(false);
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
+  const [wsOpen, setWsOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const collectionFileRef = useRef<HTMLInputElement>(null);
@@ -264,6 +269,9 @@ export function TopBar() {
                 <FileText /> {t("exportDocs")}
               </DropdownMenuItem>
             )}
+            <DropdownMenuItem onClick={() => setWsOpen(true)}>
+              <Radio /> {t("wsConsole")}
+            </DropdownMenuItem>
 
             <DropdownMenuSeparator />
 
@@ -355,6 +363,11 @@ export function TopBar() {
       {docOpen && (
         <Suspense fallback={null}>
           <DocExportDialog open onOpenChange={setDocOpen} node={null} />
+        </Suspense>
+      )}
+      {wsOpen && (
+        <Suspense fallback={null}>
+          <WebSocketDialog open onOpenChange={setWsOpen} />
         </Suspense>
       )}
       {teamOpen && (
