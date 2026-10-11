@@ -71,7 +71,27 @@ type User struct {
 }
 
 // UserAI is a user's own BYOK configuration for the assistant.
+// AIProvider is one BYOK entry: a provider + key + model the user can switch
+// between.
+type AIProvider struct {
+	ID       string `json:"id"`
+	Name     string `json:"name,omitempty"`
+	Provider string `json:"provider,omitempty"`
+	APIKey   string `json:"apiKey,omitempty"`
+	BaseURL  string `json:"baseUrl,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
+// Ready reports whether the entry can actually be used.
+func (p AIProvider) Ready() bool {
+	return strings.TrimSpace(p.APIKey) != "" && strings.TrimSpace(p.Model) != ""
+}
+
 type UserAI struct {
+	// Providers are the user's saved BYOK entries; Active is the selected id.
+	Providers []AIProvider `json:"providers,omitempty"`
+	Active    string       `json:"active,omitempty"`
+	// Legacy single-configuration fields (still written by older clients).
 	Provider string `json:"provider,omitempty"`
 	APIKey   string `json:"apiKey,omitempty"`
 	BaseURL  string `json:"baseUrl,omitempty"`
@@ -84,9 +104,36 @@ type UserAI struct {
 	Deny []string `json:"deny,omitempty"`
 }
 
-// Configured reports whether the user has a usable key.
+// EffectiveProviders returns the saved entries, migrating a legacy single
+// configuration into a one-element list.
+func (c UserAI) EffectiveProviders() []AIProvider {
+	if len(c.Providers) > 0 {
+		return c.Providers
+	}
+	if strings.TrimSpace(c.APIKey) != "" || strings.TrimSpace(c.Model) != "" {
+		return []AIProvider{{ID: "default", Name: "Default", Provider: c.Provider, APIKey: c.APIKey, BaseURL: c.BaseURL, Model: c.Model}}
+	}
+	return nil
+}
+
+// ActiveProvider returns the entry the assistant should use.
+func (c UserAI) ActiveProvider() (AIProvider, bool) {
+	list := c.EffectiveProviders()
+	if len(list) == 0 {
+		return AIProvider{}, false
+	}
+	for _, p := range list {
+		if p.ID == c.Active {
+			return p, true
+		}
+	}
+	return list[0], true
+}
+
+// Configured reports whether an active entry has a usable key.
 func (c UserAI) Configured() bool {
-	return strings.TrimSpace(c.APIKey) != "" && strings.TrimSpace(c.Model) != ""
+	p, ok := c.ActiveProvider()
+	return ok && p.Ready()
 }
 
 // Session is a logged-in session.
@@ -935,18 +982,128 @@ func (s *Store) SetAIConfig(userID string, cfg UserAI) error {
 	if u.AI == nil {
 		u.AI = &UserAI{}
 	}
-	if strings.TrimSpace(cfg.APIKey) != "" {
-		u.AI.APIKey = strings.TrimSpace(cfg.APIKey)
-	}
 	u.AI.Provider = cfg.Provider
 	u.AI.BaseURL = cfg.BaseURL
 	u.AI.Model = cfg.Model
+	if len(cfg.Providers) > 0 {
+		u.AI.Providers = cfg.Providers
+	}
+	if cfg.Active != "" {
+		u.AI.Active = cfg.Active
+	}
+	if strings.TrimSpace(cfg.APIKey) != "" {
+		// Legacy single-config path: fold it into the provider list.
+		u.AI.Provider, u.AI.APIKey, u.AI.BaseURL, u.AI.Model = cfg.Provider, strings.TrimSpace(cfg.APIKey), cfg.BaseURL, cfg.Model
+	}
 	if cfg.Allow != nil {
 		u.AI.Allow = cfg.Allow
 	}
 	if cfg.Deny != nil {
 		u.AI.Deny = cfg.Deny
 	}
+	if s.db != nil {
+		return s.pgSaveUserAI(userID, *u.AI)
+	}
+	return s.persistFile()
+}
+
+// AddAIProvider saves a BYOK entry (creating it, or updating in place when the
+// id already exists). An empty key keeps the stored secret.
+func (s *Store) AddAIProvider(userID string, in AIProvider) (AIProvider, error) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.root.Users[userID]
+	if !ok {
+		return AIProvider{}, errors.New("user not found")
+	}
+	if u.AI == nil {
+		u.AI = &UserAI{}
+	}
+	// Fold a legacy single config into the list first.
+	if len(u.AI.Providers) == 0 {
+		u.AI.Providers = u.AI.EffectiveProviders()
+		u.AI.Provider, u.AI.APIKey, u.AI.BaseURL, u.AI.Model = "", "", "", ""
+	}
+	in.Name = strings.TrimSpace(in.Name)
+	if in.Name == "" {
+		in.Name = in.Model
+	}
+	if in.ID == "" {
+		in.ID = models.NewID()
+		u.AI.Providers = append(u.AI.Providers, in)
+	} else {
+		found := false
+		for i := range u.AI.Providers {
+			if u.AI.Providers[i].ID == in.ID {
+				if strings.TrimSpace(in.APIKey) == "" {
+					in.APIKey = u.AI.Providers[i].APIKey
+				}
+				u.AI.Providers[i] = in
+				found = true
+				break
+			}
+		}
+		if !found {
+			u.AI.Providers = append(u.AI.Providers, in)
+		}
+	}
+	if u.AI.Active == "" {
+		u.AI.Active = in.ID
+	}
+	if s.db != nil {
+		if err := s.pgSaveUserAI(userID, *u.AI); err != nil {
+			return AIProvider{}, err
+		}
+	} else if err := s.persistFile(); err != nil {
+		return AIProvider{}, err
+	}
+	return in, nil
+}
+
+// DeleteAIProvider removes a BYOK entry.
+func (s *Store) DeleteAIProvider(userID, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.root.Users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	if u.AI == nil {
+		return nil
+	}
+	list := u.AI.EffectiveProviders()
+	kept := make([]AIProvider, 0, len(list))
+	for _, p := range list {
+		if p.ID != id {
+			kept = append(kept, p)
+		}
+	}
+	u.AI.Providers = kept
+	u.AI.Provider, u.AI.APIKey, u.AI.BaseURL, u.AI.Model = "", "", "", ""
+	if u.AI.Active == id {
+		u.AI.Active = ""
+		if len(kept) > 0 {
+			u.AI.Active = kept[0].ID
+		}
+	}
+	if s.db != nil {
+		return s.pgSaveUserAI(userID, *u.AI)
+	}
+	return s.persistFile()
+}
+
+// SetAIActive selects which BYOK entry the assistant uses.
+func (s *Store) SetAIActive(userID, id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.root.Users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	if u.AI == nil {
+		u.AI = &UserAI{}
+	}
+	u.AI.Active = id
 	if s.db != nil {
 		return s.pgSaveUserAI(userID, *u.AI)
 	}

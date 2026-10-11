@@ -267,6 +267,11 @@ export function SettingsDialog({
                 {t("mcp")}
               </TabsTrigger>
             )}
+            {features.auth !== false && (
+              <TabsTrigger value="tokens" className="px-3 text-xs">
+                {t("tokens")}
+              </TabsTrigger>
+            )}
             {features.ai !== false && (
               <TabsTrigger value="ai" className="px-3 text-xs">
                 {t("ai")}
@@ -418,70 +423,6 @@ export function SettingsDialog({
                   </div>
                 )}
 
-                {/* Personal access tokens */}
-                <div className="rounded-md border p-2">
-                  <div className="mb-2 text-xs font-medium">{t("tokens")}</div>
-                  <div className="flex flex-wrap items-center gap-1">
-                    <Input
-                      className="h-8 w-32 text-xs"
-                      placeholder={t("tokenName")}
-                      value={tokenName}
-                      onChange={(e) => setTokenName(e.target.value)}
-                    />
-                    {scopes.map((sc) => (
-                      <button
-                        key={sc}
-                        type="button"
-                        onClick={() =>
-                          setTokenScopes((cur) =>
-                            cur.includes(sc) ? cur.filter((x) => x !== sc) : [...cur, sc],
-                          )
-                        }
-                        className={
-                          "rounded border px-1.5 py-0.5 text-[10px] " +
-                          (tokenScopes.includes(sc)
-                            ? "border-primary bg-primary/10 text-primary"
-                            : "text-muted-foreground")
-                        }
-                      >
-                        {sc}
-                      </button>
-                    ))}
-                    <Button size="sm" className="h-8 text-xs" onClick={() => void createToken()}>
-                      {t("tokenNew")}
-                    </Button>
-                  </div>
-                  {newToken && (
-                    <div className="mt-2">
-                      <p className="text-[11px] text-amber-400">{t("tokenCreated")}</p>
-                      <code className="mt-1 block break-all rounded bg-muted p-1.5 font-mono text-[10px]">
-                        {newToken}
-                      </code>
-                    </div>
-                  )}
-                  <div className="mt-2 space-y-1">
-                    {tokens.length === 0 && (
-                      <p className="text-[11px] text-muted-foreground">{t("tokenNone")}</p>
-                    )}
-                    {tokens.map((tk) => (
-                      <div key={tk.id} className="flex items-center gap-2 text-[11px]">
-                        <span className="font-medium">{tk.name}</span>
-                        <span className="text-muted-foreground">{tk.scopes.join(", ")}</span>
-                        <Button
-                          size="sm"
-                          variant="ghost"
-                          className="ml-auto h-6 text-[10px] text-destructive"
-                          onClick={async () => {
-                            await api.deleteToken(tk.id);
-                            await loadTokens();
-                          }}
-                        >
-                          {t("tokenRevoke")}
-                        </Button>
-                      </div>
-                    ))}
-                  </div>
-                </div>
               </TabsContent>
             )}
 
@@ -502,6 +443,76 @@ export function SettingsDialog({
                   </span>
                   <Switch checked={mcpWrite} onCheckedChange={setMcpWrite} disabled={!mcpOn} />
                 </div>
+              </TabsContent>
+            )}
+
+            {/* Access tokens */}
+            {features.auth !== false && (
+              <TabsContent value="tokens" className="m-0 space-y-3">
+                <p className="text-[11px] text-muted-foreground">{t("tokenHint")}</p>
+                            <div className="rounded-md border p-2">
+                <div className="mb-2 text-xs font-medium">{t("tokens")}</div>
+                <div className="flex flex-wrap items-center gap-1">
+                  <Input
+                    className="h-8 w-32 text-xs"
+                    placeholder={t("tokenName")}
+                    value={tokenName}
+                    onChange={(e) => setTokenName(e.target.value)}
+                  />
+                  {scopes.map((sc) => (
+                    <button
+                      key={sc}
+                      type="button"
+                      onClick={() =>
+                        setTokenScopes((cur) =>
+                          cur.includes(sc) ? cur.filter((x) => x !== sc) : [...cur, sc],
+                        )
+                      }
+                      className={
+                        "rounded border px-1.5 py-0.5 text-[10px] " +
+                        (tokenScopes.includes(sc)
+                          ? "border-primary bg-primary/10 text-primary"
+                          : "text-muted-foreground")
+                      }
+                    >
+                      {sc}
+                    </button>
+                  ))}
+                  <Button size="sm" className="h-8 text-xs" onClick={() => void createToken()}>
+                    {t("tokenNew")}
+                  </Button>
+                </div>
+                {newToken && (
+                  <div className="mt-2">
+                    <p className="text-[11px] text-amber-400">{t("tokenCreated")}</p>
+                    <code className="mt-1 block break-all rounded bg-muted p-1.5 font-mono text-[10px]">
+                      {newToken}
+                    </code>
+                  </div>
+                )}
+                <div className="mt-2 space-y-1">
+                  {tokens.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">{t("tokenNone")}</p>
+                  )}
+                  {tokens.map((tk) => (
+                    <div key={tk.id} className="flex items-center gap-2 text-[11px]">
+                      <span className="font-medium">{tk.name}</span>
+                      <span className="text-muted-foreground">{tk.scopes.join(", ")}</span>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="ml-auto h-6 text-[10px] text-destructive"
+                        onClick={async () => {
+                          await api.deleteToken(tk.id);
+                          await loadTokens();
+                        }}
+                      >
+                        {t("tokenRevoke")}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+              </div>
               </TabsContent>
             )}
 

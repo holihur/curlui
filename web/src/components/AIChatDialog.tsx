@@ -1,11 +1,18 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Send, ShieldAlert, Sparkles, Trash2 } from "lucide-react";
+import { Loader2, Plus, Send, ShieldAlert, Sparkles, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
 import { useStore, type AIMessage } from "@/store";
 import { Markdown } from "@/components/Markdown";
 
@@ -21,10 +28,18 @@ export function AIChatDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const { t } = useI18n();
-  const messages = useStore((s) => s.aiMessages);
-  const setMessages = useStore((s) => s.setAiMessages);
-  const sessionId = useStore((s) => s.aiSessionId);
-  const setSessionId = useStore((s) => s.setAiSessionId);
+  const conversations = useStore((s) => s.aiConversations);
+  const activeId = useStore((s) => s.aiActiveId);
+  const patchActive = useStore((s) => s.aiPatchActive);
+  const newConversation = useStore((s) => s.aiNewConversation);
+  const selectConversation = useStore((s) => s.aiSelectConversation);
+  const deleteConversation = useStore((s) => s.aiDeleteConversation);
+  const conv = conversations.find((c) => c.id === activeId) ?? conversations[0];
+  const messages = conv?.messages ?? [];
+  const sessionId = conv?.sessionId ?? "";
+  const setMessages = (fn: (prev: AIMessage[]) => AIMessage[]) =>
+    patchActive((c) => ({ ...c, messages: fn(c.messages), updatedAt: Date.now() }));
+  const setSessionId = (v: string) => patchActive((c) => ({ ...c, sessionId: v }));
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
@@ -63,6 +78,7 @@ export function AIChatDialog({
     if (!text || busy) return;
     setDraft("");
     setBusy(true);
+    patchActive((c) => (c.title ? c : { ...c, title: text.slice(0, 60) }));
     setMessages((cur) => [
       ...cur,
       { role: "user", text, tools: [] },
@@ -100,6 +116,44 @@ export function AIChatDialog({
           </DialogTitle>
           <DialogDescription />
         </DialogHeader>
+
+        {/* Conversation switcher */}
+        <div className="flex items-center gap-1.5">
+          <Select value={activeId} onValueChange={selectConversation}>
+            <SelectTrigger className="h-8 flex-1 text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {conversations.map((c) => (
+                <SelectItem key={c.id} value={c.id} className="text-xs">
+                  {c.title || t("aiNewChat")}
+                  {c.messages.length > 0 && (
+                    <span className="ml-1 text-muted-foreground">({c.messages.length})</span>
+                  )}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+          <Button
+            size="sm"
+            variant="outline"
+            className="h-8 gap-1 text-xs"
+            onClick={() => newConversation()}
+          >
+            <Plus className="h-3.5 w-3.5" /> {t("aiNewChat")}
+          </Button>
+          <Button
+            size="sm"
+            variant="ghost"
+            className="h-8 gap-1 text-xs text-destructive"
+            title={t("aiDeleteChat")}
+            onClick={() => {
+              if (conv) deleteConversation(conv.id);
+            }}
+          >
+            <Trash2 className="h-3.5 w-3.5" />
+          </Button>
+        </div>
 
         {configured === false && (
           <p className="rounded-md border border-amber-500/40 bg-amber-500/10 p-2 text-xs text-amber-400">
@@ -204,6 +258,7 @@ export function AIChatDialog({
               onClick={() => {
                 setMessages(() => []);
                 setSessionId("");
+                patchActive((c) => ({ ...c, title: "" }));
               }}
             >
               <Trash2 className="h-3.5 w-3.5" /> {t("aiClear")}

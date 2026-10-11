@@ -11,7 +11,6 @@ import {
   LogOut,
   Menu,
   MoreHorizontal,
-  Sparkles,
   Radio,
   Network,
   Plus,
@@ -80,7 +79,6 @@ export function TopBar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
   const [wsOpen, setWsOpen] = useState(false);
-  const setAiOpen = useStore((s) => s.setAiOpen);
   const [teamOpen, setTeamOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const collectionFileRef = useRef<HTMLInputElement>(null);
@@ -258,11 +256,6 @@ export function TopBar() {
             <DropdownMenuItem onClick={() => setWsOpen(true)}>
               <Radio /> {t("wsConsole")}
             </DropdownMenuItem>
-            {features.ai !== false && (
-              <DropdownMenuItem onClick={() => setAiOpen(true)}>
-                <Sparkles /> {t("aiChat")}
-              </DropdownMenuItem>
-            )}
 
             <DropdownMenuSeparator />
 

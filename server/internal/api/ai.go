@@ -21,22 +21,23 @@ import (
 func (s *Server) aiConfig(r *http.Request) ai.Config {
 	user := userFrom(r)
 	cfg := s.store.AIConfigFor(user.ID)
-	return ai.Config{
-		Provider: cfg.Provider,
-		APIKey:   cfg.APIKey,
-		BaseURL:  cfg.BaseURL,
-		Model:    cfg.Model,
+	// The user may keep several BYOK entries; use the selected one.
+	if p, ok := cfg.ActiveProvider(); ok {
+		return ai.Config{Provider: p.Provider, APIKey: p.APIKey, BaseURL: p.BaseURL, Model: p.Model}
 	}
+	return ai.Config{}
 }
 
 // getAISettings returns the caller's BYOK configuration without the secret.
 func (s *Server) getAISettings(w http.ResponseWriter, r *http.Request) {
 	cfg := s.store.AIConfigFor(userFrom(r).ID)
+	active, _ := cfg.ActiveProvider()
 	writeJSON(w, http.StatusOK, map[string]any{
 		"configured": cfg.Configured(),
-		"provider":   cfg.Provider,
-		"model":      cfg.Model,
-		"baseUrl":    cfg.BaseURL,
+		"provider":   active.Provider,
+		"model":      active.Model,
+		"baseUrl":    active.BaseURL,
+		"active":     cfg.Active,
 		"allow":      cfg.Allow,
 		"deny":       cfg.Deny,
 	})

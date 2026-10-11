@@ -73,10 +73,12 @@ type State = {
   setFeedbackPos: (p: { x: number; y: number } | null) => void;
   aiOpen: boolean;
   setAiOpen: (v: boolean) => void;
-  aiMessages: AIMessage[];
-  setAiMessages: (fn: (prev: AIMessage[]) => AIMessage[]) => void;
-  aiSessionId: string;
-  setAiSessionId: (v: string) => void;
+  aiConversations: AIConversation[];
+  aiActiveId: string;
+  aiPatchActive: (fn: (c: AIConversation) => AIConversation) => void;
+  aiNewConversation: () => string;
+  aiSelectConversation: (id: string) => void;
+  aiDeleteConversation: (id: string) => void;
   aiPos: { x: number; y: number } | null;
   setAiPos: (p: { x: number; y: number } | null) => void;
 
@@ -326,6 +328,57 @@ export type AIMessage = {
   tools: { name: string; args?: unknown }[];
   error?: string;
 };
+
+// AIConversation is one thread with the assistant.
+export type AIConversation = {
+  id: string;
+  title: string;
+  sessionId: string;
+  messages: AIMessage[];
+  updatedAt: number;
+};
+
+const AI_STORE_KEY = "curlui.aiConversations";
+const MAX_CONVERSATIONS = 20;
+
+function newConversation(): AIConversation {
+  return {
+    id: `c-${Date.now()}-${Math.random().toString(36).slice(2, 8)}`,
+    title: "",
+    sessionId: "",
+    messages: [],
+    updatedAt: Date.now(),
+  };
+}
+
+function readConversations(): { list: AIConversation[]; active: string } {
+  try {
+    const raw = localStorage.getItem(AI_STORE_KEY);
+    if (raw) {
+      const parsed = JSON.parse(raw) as { list?: AIConversation[]; active?: string };
+      const list = Array.isArray(parsed.list) ? parsed.list.filter((c) => c && c.id) : [];
+      if (list.length) {
+        const active = list.some((c) => c.id === parsed.active) ? parsed.active! : list[0].id;
+        return { list, active };
+      }
+    }
+  } catch {
+    /* fall through to a fresh conversation */
+  }
+  const conv = newConversation();
+  return { list: [conv], active: conv.id };
+}
+
+function writeConversations(list: AIConversation[], active: string) {
+  try {
+    localStorage.setItem(
+      AI_STORE_KEY,
+      JSON.stringify({ list: list.slice(0, MAX_CONVERSATIONS), active }),
+    );
+  } catch {
+    /* quota exceeded — keep it in memory only */
+  }
+}
 
 function computeStatus(res: ApiResponse): TestStatus | undefined {
   const assertions = res.assertions ?? [];
@@ -669,35 +722,42 @@ export const useStore = create<State>((set, get) => ({
   setAiOpen(v) {
     set({ aiOpen: v });
   },
-  // The conversation lives in the store so closing the panel (which unmounts
-  // it) does not throw it away; sessionStorage keeps it across a reload.
-  aiMessages: (() => {
-    try {
-      const raw = sessionStorage.getItem("curlui.aiMessages");
-      return raw ? (JSON.parse(raw) as AIMessage[]) : [];
-    } catch {
-      return [];
-    }
-  })(),
-  setAiMessages(fn) {
+  // Conversations live in the store so closing the panel (which unmounts it)
+  // does not throw them away, and in localStorage so they survive a reload.
+  // Several threads can be kept side by side.
+  aiConversations: readConversations().list,
+  aiActiveId: readConversations().active,
+  aiPatchActive(fn) {
     set((s) => {
-      const next = fn(s.aiMessages);
-      try {
-        sessionStorage.setItem("curlui.aiMessages", JSON.stringify(next));
-      } catch {
-        /* quota — keep it in memory only */
-      }
-      return { aiMessages: next };
+      const list = s.aiConversations.map((c) => (c.id === s.aiActiveId ? fn(c) : c));
+      writeConversations(list, s.aiActiveId);
+      return { aiConversations: list };
     });
   },
-  aiSessionId: sessionStorage.getItem("curlui.aiSessionId") ?? "",
-  setAiSessionId(v) {
-    try {
-      sessionStorage.setItem("curlui.aiSessionId", v);
-    } catch {
-      /* ignore */
-    }
-    set({ aiSessionId: v });
+  aiNewConversation() {
+    const conv = newConversation();
+    set((s) => {
+      const list = [conv, ...s.aiConversations].slice(0, MAX_CONVERSATIONS);
+      writeConversations(list, conv.id);
+      return { aiConversations: list, aiActiveId: conv.id };
+    });
+    return conv.id;
+  },
+  aiSelectConversation(id) {
+    set((s) => {
+      if (!s.aiConversations.some((c) => c.id === id)) return {};
+      writeConversations(s.aiConversations, id);
+      return { aiActiveId: id };
+    });
+  },
+  aiDeleteConversation(id) {
+    set((s) => {
+      const list = s.aiConversations.filter((c) => c.id !== id);
+      const next = list.length ? list : [newConversation()];
+      const active = s.aiActiveId === id ? next[0].id : s.aiActiveId;
+      writeConversations(next, active);
+      return { aiConversations: next, aiActiveId: active };
+    });
   },
   aiPos: (() => {
     try {
