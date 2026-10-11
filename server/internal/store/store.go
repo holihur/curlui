@@ -48,6 +48,19 @@ type Data struct {
 	MockHits     map[string][]models.MockHit `json:"mockHits,omitempty"`
 	Captures     []models.CaptureEntry       `json:"captures,omitempty"`
 	Settings     map[string]string           `json:"settings,omitempty"`
+	Descriptors  []GrpcDescriptor            `json:"descriptors,omitempty"`
+}
+
+// GrpcDescriptor is a stored protobuf descriptor set (.pb) available for gRPC
+// calls. Data holds the base64-encoded FileDescriptorSet.
+type GrpcDescriptor struct {
+	ID         string `json:"id"`
+	Name       string `json:"name"`
+	Size       int    `json:"size"`
+	Source     string `json:"source"` // file | reflection
+	Target     string `json:"target,omitempty"`
+	UploadedAt int64  `json:"uploadedAt"`
+	Data       string `json:"data"`
 }
 
 // User is a team member.
@@ -1446,6 +1459,57 @@ func (s *Store) SaveMockHits(hits map[string][]models.MockHit) error {
 	defer s.mu.Unlock()
 	s.data.MockHits = hits
 	return s.persist()
+}
+
+// --- gRPC descriptors ------------------------------------------------------
+
+// Descriptors returns the stored protobuf descriptor sets, including their
+// payload (callers that expose them over HTTP must omit Data themselves).
+func (s *Store) Descriptors() []GrpcDescriptor {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	out := make([]GrpcDescriptor, 0, len(s.data.Descriptors))
+	out = append(out, s.data.Descriptors...)
+	return out
+}
+
+// FindDescriptor returns a stored descriptor including its payload.
+func (s *Store) FindDescriptor(id string) (GrpcDescriptor, bool) {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	for _, d := range s.data.Descriptors {
+		if d.ID == id {
+			return d, true
+		}
+	}
+	return GrpcDescriptor{}, false
+}
+
+// SaveDescriptor inserts or replaces a descriptor.
+func (s *Store) SaveDescriptor(d GrpcDescriptor) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i := range s.data.Descriptors {
+		if s.data.Descriptors[i].ID == d.ID {
+			s.data.Descriptors[i] = d
+			return s.persist()
+		}
+	}
+	s.data.Descriptors = append(s.data.Descriptors, d)
+	return s.persist()
+}
+
+// DeleteDescriptor removes a descriptor.
+func (s *Store) DeleteDescriptor(id string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for i, d := range s.data.Descriptors {
+		if d.ID == id {
+			s.data.Descriptors = append(s.data.Descriptors[:i], s.data.Descriptors[i+1:]...)
+			return s.persist()
+		}
+	}
+	return ErrNotFound
 }
 
 // --- Settings (global, shared across projects) -----------------------------

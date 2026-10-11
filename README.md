@@ -106,10 +106,11 @@ the refreshed images back).
   the initial payload is ~150 KB instead of ~600 KB.
 - **GraphQL** — a dedicated body type sends `{query, variables, operationName}`
   as `POST application/json`, with a query editor and JSON variables.
-- **gRPC** — import a protobuf descriptor (`.pb`, i.e.
-  `protoc --descriptor_set_out --include_imports`) or fetch it live via **server
-  reflection**, browse services/methods, and invoke unary RPCs with a JSON
-  request body and metadata (TLS or plaintext).
+- **gRPC** — a **gRPC tab in the sidebar** lists your saved protobuf descriptors.
+  Import a `.pb` (`protoc --descriptor_set_out --include_imports`) or fetch it
+  live via **server reflection** — either way it is **stored per project**, so it
+  is there next time (no re-importing). Pick a service/method, get a generated
+  request example, and invoke unary RPCs with metadata over TLS or plaintext.
 - **Run as a service** — `curlui -service install` sets up systemd / launchd / sc.
 - **Deep links** — every request has a UUID; the URL (`#/r/<uuid>`) restores the
   exact request on refresh and is shareable.
@@ -290,7 +291,10 @@ web/
 | `POST`   | `/api/send`                   | Execute a request                |
 | `POST`   | `/api/import/postman`         | Import a Postman Collection v2.1 |
 | `POST`   | `/api/graphql/introspect`     | Fetch a GraphQL schema           |
-| `POST`   | `/api/grpc/descriptor`        | Load a .pb descriptor / reflect  |
+| `POST`   | `/api/grpc/descriptor`        | Import a .pb / reflect (persists) |
+| `GET`    | `/api/grpc/descriptors`       | List saved descriptors           |
+| `DELETE` | `/api/grpc/descriptors/{id}`  | Delete a descriptor              |
+| `POST`   | `/api/grpc/example`           | Generate a request example       |
 | `POST`   | `/api/grpc/call`              | Invoke a unary gRPC method       |
 | `GET`    | `/api/auth/status`            | Auth state, current user + projects |
 | `POST`   | `/api/auth/login`             | Sign in (sets a session cookie)  |

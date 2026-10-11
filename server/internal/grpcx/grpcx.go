@@ -10,6 +10,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"fmt"
 	"sort"
 	"strings"
@@ -86,6 +87,106 @@ func LoadDescriptorSet(data []byte) (*protoregistry.Files, error) {
 		return nil, fmt.Errorf("invalid descriptor set (missing imports? use --include_imports): %w", err)
 	}
 	return files, nil
+}
+
+// MarshalDescriptorSet serialises a registry back into a FileDescriptorSet so
+// descriptors fetched via reflection can be stored like an imported .pb.
+func MarshalDescriptorSet(files *protoregistry.Files) ([]byte, error) {
+	set := &descriptorpb.FileDescriptorSet{}
+	files.RangeFiles(func(fd protoreflect.FileDescriptor) bool {
+		set.File = append(set.File, protodesc.ToFileDescriptorProto(fd))
+		return true
+	})
+	if len(set.File) == 0 {
+		return nil, fmt.Errorf("no descriptors to serialise")
+	}
+	return proto.Marshal(set)
+}
+
+// ExampleJSON builds a request skeleton for a method from its input message.
+func ExampleJSON(files *protoregistry.Files, service, method string) (string, error) {
+	desc, err := files.FindDescriptorByName(protoreflect.FullName(service))
+	if err != nil {
+		return "", fmt.Errorf("service %q not found", service)
+	}
+	sd, ok := desc.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return "", fmt.Errorf("%q is not a service", service)
+	}
+	md := sd.Methods().ByName(protoreflect.Name(method))
+	if md == nil {
+		return "", fmt.Errorf("method %q not found", method)
+	}
+	obj := exampleMessage(md.Input(), 0, map[protoreflect.FullName]bool{})
+	b, err := json.MarshalIndent(obj, "", "  ")
+	if err != nil {
+		return "", err
+	}
+	return string(b), nil
+}
+
+func exampleMessage(md protoreflect.MessageDescriptor, depth int, seen map[protoreflect.FullName]bool) map[string]any {
+	out := map[string]any{}
+	if depth > 4 || seen[md.FullName()] {
+		return out
+	}
+	seen[md.FullName()] = true
+	fields := md.Fields()
+	for i := 0; i < fields.Len(); i++ {
+		fd := fields.Get(i)
+		name := string(fd.JSONName())
+		switch {
+		case fd.IsMap():
+			out[name] = map[string]any{}
+		case fd.IsList():
+			out[name] = []any{exampleValue(fd, depth, seen)}
+		default:
+			out[name] = exampleValue(fd, depth, seen)
+		}
+	}
+	delete(seen, md.FullName())
+	return out
+}
+
+func exampleValue(fd protoreflect.FieldDescriptor, depth int, seen map[protoreflect.FullName]bool) any {
+	switch fd.Kind() {
+	case protoreflect.MessageKind, protoreflect.GroupKind:
+		if wk, ok := wellKnownExample(fd.Message().FullName()); ok {
+			return wk
+		}
+		return exampleMessage(fd.Message(), depth+1, seen)
+	case protoreflect.EnumKind:
+		if fd.Enum().Values().Len() > 0 {
+			return string(fd.Enum().Values().Get(0).Name())
+		}
+		return 0
+	case protoreflect.BoolKind:
+		return false
+	case protoreflect.StringKind, protoreflect.BytesKind:
+		return ""
+	default:
+		return 0
+	}
+}
+
+func wellKnownExample(name protoreflect.FullName) (any, bool) {
+	switch name {
+	case "google.protobuf.Timestamp":
+		return "1970-01-01T00:00:00Z", true
+	case "google.protobuf.Duration":
+		return "0s", true
+	case "google.protobuf.FieldMask":
+		return "", true
+	case "google.protobuf.Struct", "google.protobuf.Value", "google.protobuf.Any",
+		"google.protobuf.ListValue":
+		return map[string]any{}, true
+	case "google.protobuf.Empty":
+		return map[string]any{}, true
+	}
+	if strings.HasPrefix(string(name), "google.protobuf.") {
+		return "", true
+	}
+	return nil, false
 }
 
 // Services lists the services and methods in a descriptor registry.

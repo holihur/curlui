@@ -201,6 +201,15 @@ export type GraphQLSchema = {
 export type GrpcMethod = { name: string; input: string; output: string; streaming: boolean };
 export type GrpcService = { name: string; package?: string; methods: GrpcMethod[] };
 export type GrpcDescriptorResult = { id: string; source: string; services: GrpcService[] };
+export type GrpcStoredDescriptor = {
+  id: string;
+  name: string;
+  size: number;
+  source: string;
+  target?: string;
+  uploadedAt: number;
+  services: GrpcService[];
+};
 export type GrpcResult = {
   response: string;
   code: string;

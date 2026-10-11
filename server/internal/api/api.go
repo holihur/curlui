@@ -208,6 +208,9 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/import/postman", s.importPostman)
 	mux.HandleFunc("POST /api/graphql/introspect", s.introspectGraphQL)
 	mux.HandleFunc("POST /api/grpc/descriptor", s.grpcDescriptor)
+	mux.HandleFunc("GET /api/grpc/descriptors", s.listGrpcDescriptors)
+	mux.HandleFunc("DELETE /api/grpc/descriptors/{id}", s.deleteGrpcDescriptor)
+	mux.HandleFunc("POST /api/grpc/example", s.grpcExample)
 	mux.HandleFunc("POST /api/grpc/call", s.grpcCall)
 
 	mux.HandleFunc("POST /api/openapi/parse", s.parseOpenAPI)

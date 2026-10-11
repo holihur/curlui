@@ -2,6 +2,7 @@ package api
 
 import (
 	"context"
+	"encoding/base64"
 	"net/http"
 	"strings"
 	"time"
@@ -10,13 +11,15 @@ import (
 
 	"curlui/server/internal/grpcx"
 	"curlui/server/internal/models"
+	"curlui/server/internal/store"
 )
 
-// grpcDescriptor loads a protobuf descriptor set (.pb, base64) or fetches one
-// from a server via reflection, caches it and returns the service catalogue.
+// grpcDescriptor imports a protobuf descriptor set (.pb, base64) or fetches one
+// via server reflection, persists it and returns the service catalogue.
 func (s *Server) grpcDescriptor(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		Descriptor string            `json:"descriptor"` // base64 .pb
+		Name       string            `json:"name"`
 		Target     string            `json:"target"`
 		Plaintext  bool              `json:"plaintext"`
 		Reflect    bool              `json:"reflect"`
@@ -26,53 +29,101 @@ func (s *Server) grpcDescriptor(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
+	db := s.db(r)
+	md := keyValueMetadata(payload.Metadata)
 
 	var (
+		files  *protoregistry.Files
 		id     string
+		name   string
 		source string
+		raw    []byte
+		err    error
 	)
-	md := keyValueMetadata(payload.Metadata)
 
 	if payload.Reflect {
 		ctx, cancel := context.WithTimeout(r.Context(), 20*time.Second)
 		defer cancel()
-		loaded, err := grpcx.Reflect(ctx, payload.Target, payload.Plaintext, md)
+		files, err = grpcx.Reflect(ctx, payload.Target, payload.Plaintext, md)
 		if err != nil {
 			writeErr(w, http.StatusBadGateway, err.Error())
 			return
 		}
+		raw, err = grpcx.MarshalDescriptorSet(files)
+		if err != nil {
+			writeErr(w, http.StatusInternalServerError, err.Error())
+			return
+		}
 		id = "reflect:" + payload.Target
+		name = strings.TrimSpace(payload.Name)
+		if name == "" {
+			name = "reflection: " + payload.Target
+		}
 		source = "reflection"
-		s.grpcStore(id, loaded)
-		writeJSON(w, http.StatusOK, map[string]any{
-			"id": id, "source": source, "services": grpcx.Services(loaded),
-		})
-		return
+	} else {
+		if strings.TrimSpace(payload.Descriptor) == "" {
+			writeErr(w, http.StatusBadRequest, "descriptor (.pb) is required")
+			return
+		}
+		raw, err = grpcx.DecodeBase64(payload.Descriptor)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, "descriptor is not valid base64")
+			return
+		}
+		files, err = grpcx.LoadDescriptorSet(raw)
+		if err != nil {
+			writeErr(w, http.StatusBadRequest, err.Error())
+			return
+		}
+		id = grpcx.DescriptorID(raw)
+		name = strings.TrimSpace(payload.Name)
+		if name == "" {
+			name = "descriptor.pb"
+		}
+		source = "file"
 	}
 
-	if strings.TrimSpace(payload.Descriptor) == "" {
-		writeErr(w, http.StatusBadRequest, "descriptor (.pb) is required")
-		return
-	}
-	raw, err := grpcx.DecodeBase64(payload.Descriptor)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, "descriptor is not valid base64")
-		return
-	}
-	loaded, err := grpcx.LoadDescriptorSet(raw)
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-	id = grpcx.DescriptorID(raw)
-	source = "file"
-	s.grpcStore(id, loaded)
+	s.grpcStore(id, files)
+	_ = db.SaveDescriptor(store.GrpcDescriptor{
+		ID: id, Name: name, Size: len(raw), Source: source,
+		Target: payload.Target, UploadedAt: time.Now().UnixMilli(),
+		Data: base64Encode(raw),
+	})
 	writeJSON(w, http.StatusOK, map[string]any{
-		"id": id, "source": source, "services": grpcx.Services(loaded),
+		"id": id, "name": name, "source": source, "services": grpcx.Services(files),
 	})
 }
 
-// grpcCall invokes a unary RPC using a previously loaded descriptor.
+// listGrpcDescriptors returns the stored .pb descriptors with their services.
+func (s *Server) listGrpcDescriptors(w http.ResponseWriter, r *http.Request) {
+	db := s.db(r)
+	out := []map[string]any{}
+	for _, d := range db.Descriptors() {
+		files, ok := s.grpcFilesFor(db, d)
+		if !ok {
+			continue
+		}
+		out = append(out, map[string]any{
+			"id": d.ID, "name": d.Name, "size": d.Size, "source": d.Source,
+			"target": d.Target, "uploadedAt": d.UploadedAt,
+			"services": grpcx.Services(files),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"descriptors": out})
+}
+
+// deleteGrpcDescriptor removes a stored descriptor.
+func (s *Server) deleteGrpcDescriptor(w http.ResponseWriter, r *http.Request) {
+	id := r.PathValue("id")
+	if err := s.db(r).DeleteDescriptor(id); err != nil {
+		writeErr(w, http.StatusNotFound, err.Error())
+		return
+	}
+	s.grpcForget(id)
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// grpcCall invokes a unary RPC using a stored descriptor.
 func (s *Server) grpcCall(w http.ResponseWriter, r *http.Request) {
 	var payload struct {
 		ID        string            `json:"id"`
@@ -88,10 +139,20 @@ func (s *Server) grpcCall(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
-	files, ok := s.grpcLoad(payload.ID)
+	db := s.db(r)
+	d, ok := db.FindDescriptor(payload.ID)
 	if !ok {
-		writeErr(w, http.StatusBadRequest, "descriptor not loaded; import a .pb file or use reflection first")
+		writeErr(w, http.StatusBadRequest, "unknown descriptor; import a .pb file or use reflection first")
 		return
+	}
+	files, ok := s.grpcFilesFor(db, d)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "stored descriptor could not be parsed")
+		return
+	}
+	target := payload.Target
+	if target == "" {
+		target = d.Target
 	}
 	timeout := time.Duration(payload.TimeoutMs) * time.Millisecond
 	if timeout <= 0 {
@@ -100,12 +161,66 @@ func (s *Server) grpcCall(w http.ResponseWriter, r *http.Request) {
 	ctx, cancel := context.WithTimeout(r.Context(), timeout)
 	defer cancel()
 
-	res, err := grpcx.Invoke(ctx, files, payload.Target, payload.Service, payload.Method, payload.Body, payload.Plaintext, keyValueMetadata(payload.Metadata))
+	res, err := grpcx.Invoke(ctx, files, target, payload.Service, payload.Method, payload.Body, payload.Plaintext, keyValueMetadata(payload.Metadata))
 	if err != nil {
 		writeErr(w, http.StatusBadRequest, err.Error())
 		return
 	}
 	writeJSON(w, http.StatusOK, res)
+}
+
+// grpcExample returns a request skeleton for a method's input message.
+func (s *Server) grpcExample(w http.ResponseWriter, r *http.Request) {
+	var payload struct {
+		ID      string `json:"id"`
+		Service string `json:"service"`
+		Method  string `json:"method"`
+	}
+	if err := decode(r, &payload); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	db := s.db(r)
+	d, ok := db.FindDescriptor(payload.ID)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "unknown descriptor")
+		return
+	}
+	files, ok := s.grpcFilesFor(db, d)
+	if !ok {
+		writeErr(w, http.StatusBadRequest, "stored descriptor could not be parsed")
+		return
+	}
+	example, err := grpcx.ExampleJSON(files, payload.Service, payload.Method)
+	if err != nil {
+		writeErr(w, http.StatusBadRequest, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"example": example})
+}
+
+// --- descriptor cache ------------------------------------------------------
+
+// grpcFilesFor returns the parsed registry for a stored descriptor, parsing and
+// caching it on first use (so calls work after a restart).
+func (s *Server) grpcFilesFor(db *store.Store, d store.GrpcDescriptor) (*protoregistry.Files, bool) {
+	s.grpcMu.Lock()
+	if f, ok := s.grpcFiles[d.ID]; ok {
+		s.grpcMu.Unlock()
+		return f, true
+	}
+	s.grpcMu.Unlock()
+
+	raw, err := grpcx.DecodeBase64(d.Data)
+	if err != nil {
+		return nil, false
+	}
+	files, err := grpcx.LoadDescriptorSet(raw)
+	if err != nil {
+		return nil, false
+	}
+	s.grpcStore(d.ID, files)
+	return files, true
 }
 
 func (s *Server) grpcStore(id string, files *protoregistry.Files) {
@@ -117,12 +232,13 @@ func (s *Server) grpcStore(id string, files *protoregistry.Files) {
 	s.grpcFiles[id] = files
 }
 
-func (s *Server) grpcLoad(id string) (*protoregistry.Files, bool) {
+func (s *Server) grpcForget(id string) {
 	s.grpcMu.Lock()
 	defer s.grpcMu.Unlock()
-	f, ok := s.grpcFiles[id]
-	return f, ok
+	delete(s.grpcFiles, id)
 }
+
+func base64Encode(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
 
 func keyValueMetadata(kvs []models.KeyValue) map[string][]string {
 	if len(kvs) == 0 {

@@ -49,6 +49,8 @@ type State = {
   // Responsive layout: the sidebar collapses to a drawer on small screens.
   sidebarOpen: boolean;
   setSidebarOpen: (v: boolean) => void;
+  sidebarTab: string;
+  setSidebarTab: (v: string) => void;
 
   // team / auth / projects
   authEnabled: boolean;
@@ -515,6 +517,10 @@ export const useStore = create<State>((set, get) => ({
 
   setSidebarOpen(v) {
     set({ sidebarOpen: v });
+  },
+  sidebarTab: "collections",
+  setSidebarTab(v) {
+    set({ sidebarTab: v });
   },
 
   renameTab(id, name) {

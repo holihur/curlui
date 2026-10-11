@@ -21,6 +21,7 @@ import type {
   GraphQLSchema,
   GrpcDescriptorResult,
   GrpcResult,
+  GrpcStoredDescriptor,
 } from "./types";
 
 const BASE = "/api";
@@ -216,6 +217,7 @@ export const api = {
   },
   grpcDescriptor(payload: {
     descriptor?: string;
+    name?: string;
     target?: string;
     plaintext?: boolean;
     reflect?: boolean;
@@ -237,6 +239,18 @@ export const api = {
     timeoutMs?: number;
   }) {
     return request<GrpcResult>("/grpc/call", { method: "POST", body: JSON.stringify(payload) });
+  },
+  listGrpcDescriptors() {
+    return request<{ descriptors: GrpcStoredDescriptor[] }>("/grpc/descriptors");
+  },
+  deleteGrpcDescriptor(id: string) {
+    return request<{ ok: boolean }>(`/grpc/descriptors/${encodeURIComponent(id)}`, { method: "DELETE" });
+  },
+  grpcExample(id: string, service: string, method: string) {
+    return request<{ example: string }>("/grpc/example", {
+      method: "POST",
+      body: JSON.stringify({ id, service, method }),
+    });
   },
 
   // OpenAPI / Swagger import

@@ -55,9 +55,6 @@ const TeamDialog = lazy(() =>
 const LoginDialog = lazy(() =>
   import("@/components/LoginDialog").then((m) => ({ default: m.LoginDialog })),
 );
-const GrpcDialog = lazy(() =>
-  import("@/components/GrpcDialog").then((m) => ({ default: m.GrpcDialog })),
-);
 import { LOCALES, useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
@@ -72,6 +69,7 @@ export function TopBar() {
   const newTab = useStore((s) => s.newTab);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
+  const setSidebarTab = useStore((s) => s.setSidebarTab);
   const selectedFolderId = useStore((s) => s.selectedFolderId);
   const refreshCollections = useStore((s) => s.refreshCollections);
   const toast = useStore((s) => s.toast);
@@ -82,7 +80,6 @@ export function TopBar() {
   const [docOpen, setDocOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
-  const [grpcOpen, setGrpcOpen] = useState(false);
   const collectionFileRef = useRef<HTMLInputElement>(null);
   const postmanFileRef = useRef<HTMLInputElement>(null);
 
@@ -163,7 +160,12 @@ export function TopBar() {
           <DropdownMenuItem onClick={() => newTab()}>
             <Plus /> {t("newRequest")}
           </DropdownMenuItem>
-          <DropdownMenuItem onClick={() => setGrpcOpen(true)}>
+          <DropdownMenuItem
+            onClick={() => {
+              setSidebarTab("grpc");
+              setSidebarOpen(true);
+            }}
+          >
             <Network /> {t("grpcNew")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
@@ -326,11 +328,6 @@ export function TopBar() {
       {loginOpen && (
         <Suspense fallback={null}>
           <LoginDialog open onOpenChange={setLoginOpen} />
-        </Suspense>
-      )}
-      {grpcOpen && (
-        <Suspense fallback={null}>
-          <GrpcDialog open onOpenChange={setGrpcOpen} />
         </Suspense>
       )}
       <PromptDialog
