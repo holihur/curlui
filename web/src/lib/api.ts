@@ -162,6 +162,23 @@ export const api = {
   },
 
   // AI assistant (BYOK)
+  aiProviders() {
+    return request<{
+      providers: { id: string; name: string; provider: string; model: string; baseUrl: string; configured: boolean }[];
+      active: string;
+      allow: string[] | null;
+      deny: string[] | null;
+    }>("/ai/providers");
+  },
+  saveAiProvider(p: { id?: string; name: string; provider: string; apiKey?: string; baseUrl: string; model: string }) {
+    return request<{ id: string }>("/ai/providers", { method: "POST", body: JSON.stringify(p) });
+  },
+  deleteAiProvider(id: string) {
+    return request<{ ok: boolean }>(`/ai/providers/${id}`, { method: "DELETE" });
+  },
+  setAiActive(id: string) {
+    return request<{ ok: boolean }>("/ai/active", { method: "PUT", body: JSON.stringify({ id }) });
+  },
   aiSettings() {
     return request<{ configured: boolean; provider: string; model: string; baseUrl: string }>(
       "/ai/settings",

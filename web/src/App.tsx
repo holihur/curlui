@@ -5,7 +5,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { RightSidebar } from "@/components/RightSidebar";
 import { BottomPanel } from "@/components/BottomPanel";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
-import { AIFab } from "@/components/AIFab";
+import { FloatingDock } from "@/components/FloatingDock";
 import { RequestTabs } from "@/components/RequestTabs";
 import { RequestEditor } from "@/components/RequestEditor";
 import { Toaster } from "@/components/Toaster";
@@ -65,7 +65,7 @@ export default function App() {
         <AuthScreen />
         <Toaster />
         <FeedbackWidget />
-        {features.ai !== false && <AIFab />}
+        <FloatingDock />
       </TooltipProvider>
     );
   }
@@ -100,7 +100,7 @@ export default function App() {
         </div>
         <Toaster />
         <FeedbackWidget />
-        {features.ai !== false && <AIFab />}
+        <FloatingDock />
         {features.proxy !== false && (
           <Suspense fallback={null}>
             <InterceptDialog />

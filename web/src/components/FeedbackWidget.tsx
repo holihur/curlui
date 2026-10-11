@@ -105,25 +105,7 @@ export function FeedbackWidget() {
 
   if (hidden) return null;
 
-  if (!open) {
-    return (
-      <button
-        ref={fabRef}
-        onMouseDown={onFabDown}
-        onClick={() => {
-          if (!dragged.current) setOpen(true);
-        }}
-        title={t("feedback")}
-        style={pos ? { left: pos.x, top: pos.y } : undefined}
-        className={cn(
-          "fixed z-40 flex h-11 w-11 cursor-grab items-center justify-center rounded-full bg-primary text-primary-foreground shadow-lg transition-transform hover:scale-105 active:cursor-grabbing",
-          !pos && "bottom-4 right-4",
-        )}
-      >
-        <MessageSquare className="h-5 w-5" />
-      </button>
-    );
-  }
+  if (!open) return null;
 
   const submit = async () => {
     if (!title.trim()) return;

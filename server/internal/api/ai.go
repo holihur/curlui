@@ -28,6 +28,65 @@ func (s *Server) aiConfig(r *http.Request) ai.Config {
 	return ai.Config{}
 }
 
+// listAIProviders returns the caller's BYOK entries (never the secrets).
+func (s *Server) listAIProviders(w http.ResponseWriter, r *http.Request) {
+	cfg := s.store.AIConfigFor(userFrom(r).ID)
+	list := []map[string]any{}
+	for _, p := range cfg.EffectiveProviders() {
+		list = append(list, map[string]any{
+			"id": p.ID, "name": p.Name, "provider": p.Provider,
+			"model": p.Model, "baseUrl": p.BaseURL, "configured": p.Ready(),
+		})
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"providers": list, "active": cfg.Active,
+		"allow": cfg.Allow, "deny": cfg.Deny,
+	})
+}
+
+// saveAIProvider adds or updates one BYOK entry.
+func (s *Server) saveAIProvider(w http.ResponseWriter, r *http.Request) {
+	var in store.AIProvider
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	in.BaseURL = strings.TrimRight(strings.TrimSpace(in.BaseURL), "/")
+	p, err := s.store.AddAIProvider(userFrom(r).ID, in)
+	if err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{
+		"id": p.ID, "name": p.Name, "provider": p.Provider, "model": p.Model, "baseUrl": p.BaseURL,
+	})
+}
+
+// deleteAIProvider removes one BYOK entry.
+func (s *Server) deleteAIProvider(w http.ResponseWriter, r *http.Request) {
+	if err := s.store.DeleteAIProvider(userFrom(r).ID, r.PathValue("id")); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
+// setAIActive selects which BYOK entry the assistant uses.
+func (s *Server) setAIActive(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID string `json:"id"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	if err := s.store.SetAIActive(userFrom(r).ID, in.ID); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
+}
+
 // getAISettings returns the caller's BYOK configuration without the secret.
 func (s *Server) getAISettings(w http.ResponseWriter, r *http.Request) {
 	cfg := s.store.AIConfigFor(userFrom(r).ID)
@@ -204,8 +263,9 @@ func (s *Server) confirmAI(w http.ResponseWriter, r *http.Request) {
 // token (or session) allows.
 func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Message   string `json:"message"`
-		SessionID string `json:"sessionId"`
+		Message    string `json:"message"`
+		SessionID  string `json:"sessionId"`
+		ProviderID string `json:"providerId"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
@@ -216,6 +276,14 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	cfg := s.aiConfig(r)
+	if in.ProviderID != "" {
+		for _, p := range s.store.AIConfigFor(userFrom(r).ID).EffectiveProviders() {
+			if p.ID == in.ProviderID {
+				cfg = ai.Config{Provider: p.Provider, APIKey: p.APIKey, BaseURL: p.BaseURL, Model: p.Model}
+				break
+			}
+		}
+	}
 	if strings.TrimSpace(cfg.APIKey) == "" || strings.TrimSpace(cfg.Model) == "" {
 		writeErr(w, http.StatusBadRequest, "no model configured — add your API key in Settings → AI")
 		return
@@ -271,4 +339,8 @@ func (s *Server) registerAIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("PUT /api/ai/settings", s.saveAISettings)
 	mux.HandleFunc("POST /api/ai/chat", s.aiChat)
 	mux.HandleFunc("POST /api/ai/confirm", s.confirmAI)
+	mux.HandleFunc("GET /api/ai/providers", s.listAIProviders)
+	mux.HandleFunc("POST /api/ai/providers", s.saveAIProvider)
+	mux.HandleFunc("DELETE /api/ai/providers/{id}", s.deleteAIProvider)
+	mux.HandleFunc("PUT /api/ai/active", s.setAIActive)
 }

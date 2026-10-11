@@ -80,6 +80,11 @@ export function SettingsDialog({
   const [aiBaseUrl, setAiBaseUrl] = useState("");
   const [aiModel, setAiModel] = useState("");
   const [aiConfigured, setAiConfigured] = useState(false);
+  const [providers, setProviders] = useState<
+    { id: string; name: string; provider: string; model: string; baseUrl: string; configured: boolean }[]
+  >([]);
+  const [aiActive, setAiActive] = useState("");
+  const [editingId, setEditingId] = useState("");
   const [aiAllow, setAiAllow] = useState("");
   const [aiDeny, setAiDeny] = useState("");
   const [tokens, setTokens] = useState<
@@ -153,21 +158,53 @@ export function SettingsDialog({
         setOidcRole(s.oidcDefaultRole || "member");
       })
       .catch(() => {});
-    api
-      .aiSettings()
-      .then((st) => {
-        setAiConfigured(st.configured);
-        setAiProvider(st.provider || "anthropic");
-        setAiBaseUrl(st.baseUrl ?? "");
-        setAiModel(st.model ?? "");
-        setAiKey("");
-        setAiAllow((st as any).allow?.join("\n") ?? "");
-        setAiDeny((st as any).deny?.join("\n") ?? "");
-      })
-      .catch(() => {});
+    void loadProviders();
     api.listScopes().then((r) => setScopes(r.scopes)).catch(() => {});
     void loadTokens();
   }, [open]);
+
+  const loadProviders = async () => {
+    try {
+      const r = await api.aiProviders();
+      setProviders(r.providers ?? []);
+      setAiActive(r.active ?? "");
+      setAiConfigured((r.providers ?? []).some((p) => p.configured));
+      setAiAllow(r.allow?.join("\n") ?? "");
+      setAiDeny(r.deny?.join("\n") ?? "");
+    } catch {
+      setProviders([]);
+    }
+  };
+
+  const resetProviderForm = () => {
+    setEditingId("");
+    setAiProvider("anthropic");
+    setAiKey("");
+    setAiBaseUrl("");
+    setAiModel("");
+  };
+
+  const saveProvider = async () => {
+    try {
+      await api.saveAiProvider({
+        id: editingId || undefined,
+        name: aiModel.trim() || "provider",
+        provider: aiProvider,
+        baseUrl: aiBaseUrl.trim(),
+        model: aiModel.trim(),
+        ...(aiKey.trim() ? { apiKey: aiKey.trim() } : {}),
+      });
+      resetProviderForm();
+      await loadProviders();
+      toast({ title: t("settingsSaved"), variant: "success" });
+    } catch (err) {
+      toast({
+        title: t("saveFailed"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    }
+  };
 
   const loadTokens = async () => {
     try {
@@ -214,16 +251,13 @@ export function SettingsDialog({
           .split("\n")
           .map((x) => x.trim())
           .filter(Boolean);
-      const ai = await api.saveAiSettings({
-        provider: aiProvider,
-        baseUrl: aiBaseUrl.trim(),
-        model: aiModel.trim(),
-        ...(aiKey.trim() ? { apiKey: aiKey.trim() } : {}),
+      await api.saveAiSettings({
+        provider: "",
+        baseUrl: "",
+        model: "",
         allow: lines(aiAllow),
         deny: lines(aiDeny),
       } as any);
-      setAiConfigured(ai.configured);
-      setAiKey("");
       await useStore.getState().loadAuth();
       toast({ title: t("settingsSaved"), variant: "success" });
       onOpenChange(false);
@@ -238,7 +272,7 @@ export function SettingsDialog({
 
   return (
     <Dialog open={open} onOpenChange={onOpenChange}>
-      <DialogContent className="max-h-[86vh] w-[min(96vw,760px)] max-w-none grid-rows-[auto_1fr_auto] gap-3 overflow-hidden">
+      <DialogContent className="h-[min(88vh,760px)] w-[min(96vw,760px)] max-w-none grid-rows-[auto_auto_1fr_auto] gap-2 overflow-hidden p-3 sm:gap-3 sm:p-6">
         <DialogHeader>
           <DialogTitle className="flex items-center gap-2">
             <SettingsIcon className="h-4 w-4" /> {t("settings")}
@@ -246,8 +280,8 @@ export function SettingsDialog({
           <DialogDescription />
         </DialogHeader>
 
-        <Tabs defaultValue="general" className="flex min-h-0 flex-col">
-          <TabsList className="h-9 w-full shrink-0 justify-start gap-1 bg-transparent p-0">
+        <Tabs defaultValue="general" className="flex min-h-0 min-w-0 flex-col">
+          <TabsList className="h-9 w-full shrink-0 justify-start gap-1 overflow-x-auto bg-transparent p-0 [scrollbar-width:none] [&::-webkit-scrollbar]:hidden">
             <TabsTrigger value="general" className="px-3 text-xs">
               {t("general")}
             </TabsTrigger>
@@ -282,7 +316,7 @@ export function SettingsDialog({
             </TabsTrigger>
           </TabsList>
 
-          <div className="mt-3 min-h-0 flex-1 overflow-y-auto pr-1">
+          <div className="mt-3 min-h-0 min-w-0 flex-1 overflow-y-auto overflow-x-hidden pr-1">
             {/* General */}
             <TabsContent value="general" className="m-0 space-y-4">
               <Field label={t("failureWebhook")}>
@@ -313,7 +347,7 @@ export function SettingsDialog({
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span>{t("theme")}</span>
                 <Select value={theme} onValueChange={(v) => setTheme(v as Theme)}>
-                  <SelectTrigger className="h-8 w-44">
+                  <SelectTrigger className="h-8 w-36 sm:w-44">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -326,7 +360,7 @@ export function SettingsDialog({
               <div className="flex items-center justify-between gap-3 text-sm">
                 <span>{t("language")}</span>
                 <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
-                  <SelectTrigger className="h-8 w-44">
+                  <SelectTrigger className="h-8 w-36 sm:w-44">
                     <SelectValue />
                   </SelectTrigger>
                   <SelectContent>
@@ -380,7 +414,7 @@ export function SettingsDialog({
                         spellCheck={false}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <Input
                         className="h-8 font-mono text-xs"
                         placeholder={t("clientId")}
@@ -396,7 +430,7 @@ export function SettingsDialog({
                         onChange={(e) => setOidcClientSecret(e.target.value)}
                       />
                     </div>
-                    <div className="grid grid-cols-2 gap-2">
+                    <div className="grid grid-cols-1 gap-2 sm:grid-cols-2">
                       <Input
                         className="h-8 text-xs"
                         placeholder={t("oidcButtonLabel")}
@@ -495,13 +529,13 @@ export function SettingsDialog({
                     <p className="text-[11px] text-muted-foreground">{t("tokenNone")}</p>
                   )}
                   {tokens.map((tk) => (
-                    <div key={tk.id} className="flex items-center gap-2 text-[11px]">
+                    <div key={tk.id} className="flex flex-wrap items-center gap-2 text-[11px]">
                       <span className="font-medium">{tk.name}</span>
                       <span className="text-muted-foreground">{tk.scopes.join(", ")}</span>
                       <Button
                         size="sm"
                         variant="ghost"
-                        className="ml-auto h-6 text-[10px] text-destructive"
+                        className="ml-auto h-6 shrink-0 text-[10px] text-destructive"
                         onClick={async () => {
                           await api.deleteToken(tk.id);
                           await loadTokens();
@@ -521,49 +555,131 @@ export function SettingsDialog({
               <TabsContent value="ai" className="m-0 space-y-3">
                 <p className="text-[11px] text-muted-foreground">{t("aiHint")}</p>
                 <p className="text-[11px] text-muted-foreground">{t("aiPerUser")}</p>
-                <div className="flex items-center justify-between gap-3 text-sm">
-                  <span>{t("aiProvider")}</span>
-                  <Select value={aiProvider} onValueChange={setAiProvider}>
-                    <SelectTrigger className="h-8 w-44">
-                      <SelectValue />
-                    </SelectTrigger>
-                    <SelectContent>
-                      <SelectItem value="anthropic">Anthropic</SelectItem>
-                      <SelectItem value="openai">OpenAI compatible</SelectItem>
-                    </SelectContent>
-                  </Select>
-                </div>
-                <Field label={t("aiApiKey")}>
-                  <Input
-                    type="password"
-                    className="font-mono text-xs"
-                    value={aiKey}
-                    onChange={(e) => setAiKey(e.target.value)}
-                    placeholder={aiConfigured ? "••••••••" : "sk-…"}
-                    spellCheck={false}
-                  />
-                  {aiConfigured && (
-                    <p className="text-[11px] text-emerald-400">{t("aiConfigured")}</p>
+
+                {/* Saved BYOK entries */}
+                <div className="space-y-1">
+                  {providers.length === 0 && (
+                    <p className="text-[11px] text-muted-foreground">{t("aiNoProviders")}</p>
                   )}
-                </Field>
-                <Field label={t("aiBaseUrl")}>
-                  <Input
-                    className="font-mono text-xs"
-                    value={aiBaseUrl}
-                    onChange={(e) => setAiBaseUrl(e.target.value)}
-                    placeholder="https://api.anthropic.com"
-                    spellCheck={false}
-                  />
-                </Field>
-                <Field label={t("aiModel")}>
-                  <Input
-                    className="font-mono text-xs"
-                    value={aiModel}
-                    onChange={(e) => setAiModel(e.target.value)}
-                    placeholder="claude-sonnet-4-5"
-                    spellCheck={false}
-                  />
-                </Field>
+                  {providers.map((p) => (
+                    <div
+                      key={p.id}
+                      className={
+                        "flex flex-wrap items-center gap-2 rounded-md border p-2 " +
+                        (p.id === aiActive ? "border-primary" : "")
+                      }
+                    >
+                      <input
+                        type="radio"
+                        name="ai-active"
+                        checked={p.id === aiActive}
+                        onChange={async () => {
+                          setAiActive(p.id);
+                          await api.setAiActive(p.id).catch(() => {});
+                        }}
+                        title={t("aiUseThis")}
+                      />
+                      <div className="min-w-0 flex-1">
+                        <div className="truncate text-sm">
+                          {p.name || p.model}
+                          {!p.configured && (
+                            <span className="ml-1 text-[10px] text-amber-400">
+                              {t("aiNoKey")}
+                            </span>
+                          )}
+                        </div>
+                        <div className="truncate break-all text-[10px] text-muted-foreground">
+                          {p.provider} · {p.model} · {p.baseUrl || "-"}
+                        </div>
+                      </div>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 shrink-0 text-[10px]"
+                        onClick={() => {
+                          setEditingId(p.id);
+                          setAiProvider(p.provider || "anthropic");
+                          setAiBaseUrl(p.baseUrl ?? "");
+                          setAiModel(p.model ?? "");
+                          setAiKey("");
+                        }}
+                      >
+                        {t("edit")}
+                      </Button>
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-7 shrink-0 text-[10px] text-destructive"
+                        onClick={async () => {
+                          await api.deleteAiProvider(p.id).catch(() => {});
+                          await loadProviders();
+                        }}
+                      >
+                        {t("delete")}
+                      </Button>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Add / edit form */}
+                <div className="space-y-2 rounded-md border p-2">
+                  <div className="flex items-center justify-between gap-3 text-sm">
+                    <span>{t("aiProvider")}</span>
+                    <Select value={aiProvider} onValueChange={setAiProvider}>
+                      <SelectTrigger className="h-8 w-36 sm:w-44">
+                        <SelectValue />
+                      </SelectTrigger>
+                      <SelectContent>
+                        <SelectItem value="anthropic">Anthropic</SelectItem>
+                        <SelectItem value="openai">OpenAI compatible</SelectItem>
+                      </SelectContent>
+                    </Select>
+                  </div>
+                  <Field label={t("aiApiKey")}>
+                    <Input
+                      type="password"
+                      className="font-mono text-xs"
+                      value={aiKey}
+                      onChange={(e) => setAiKey(e.target.value)}
+                      placeholder={editingId ? "••••••••" : "sk-…"}
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <Field label={t("aiBaseUrl")}>
+                    <Input
+                      className="font-mono text-xs"
+                      value={aiBaseUrl}
+                      onChange={(e) => setAiBaseUrl(e.target.value)}
+                      placeholder="https://api.anthropic.com"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <Field label={t("aiModel")}>
+                    <Input
+                      className="font-mono text-xs"
+                      value={aiModel}
+                      onChange={(e) => setAiModel(e.target.value)}
+                      placeholder="claude-sonnet-4-5"
+                      spellCheck={false}
+                    />
+                  </Field>
+                  <div className="flex gap-2">
+                    <Button size="sm" className="h-8 text-xs" onClick={() => void saveProvider()}>
+                      {editingId ? t("save") : t("aiAddProvider")}
+                    </Button>
+                    {editingId && (
+                      <Button
+                        size="sm"
+                        variant="ghost"
+                        className="h-8 text-xs"
+                        onClick={resetProviderForm}
+                      >
+                        {t("cancel")}
+                      </Button>
+                    )}
+                  </div>
+                </div>
+
                 <Field label={t("aiAllowList")}>
                   <Textarea
                     className="min-h-[64px] font-mono text-[11px]"
