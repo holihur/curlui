@@ -198,6 +198,18 @@ export type GraphQLSchema = {
   types: GraphQLType[];
 };
 
+export type GrpcMethod = { name: string; input: string; output: string; streaming: boolean };
+export type GrpcService = { name: string; package?: string; methods: GrpcMethod[] };
+export type GrpcDescriptorResult = { id: string; source: string; services: GrpcService[] };
+export type GrpcResult = {
+  response: string;
+  code: string;
+  message?: string;
+  headers?: Record<string, string[]>;
+  trailers?: Record<string, string[]>;
+  duration: number;
+};
+
 export type PendingIntercept = {
   id: string;
   phase: "request" | "response";

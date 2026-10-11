@@ -13,6 +13,8 @@ import (
 	"sync"
 	"time"
 
+	"google.golang.org/protobuf/reflect/protoregistry"
+
 	curlpkg "curlui/server/internal/curl"
 	"curlui/server/internal/doc"
 	"curlui/server/internal/graphql"
@@ -41,6 +43,9 @@ type Server struct {
 	proxyRunning bool
 	proxyCA      []byte
 	interceptor  *proxy.Interceptor
+
+	grpcMu    sync.Mutex
+	grpcFiles map[string]*protoregistry.Files
 }
 
 // SetInterceptor wires the proxy breakpoint controller.
@@ -119,7 +124,7 @@ func (s *Server) handleMCP(w http.ResponseWriter, r *http.Request) {
 
 // New returns a new API server.
 func New(st *store.Store, version string) *Server {
-	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}, mockHits: st.MockHits(), version: version}
+	s := &Server{store: st, executor: &curlpkg.Executor{AllowPrivate: true}, mockHits: st.MockHits(), version: version, grpcFiles: map[string]*protoregistry.Files{}}
 	s.executor.UserAgent = func() string {
 		if ua := strings.TrimSpace(st.Settings()["userAgent"]); ua != "" {
 			return ua
@@ -202,6 +207,8 @@ func (s *Server) Handler() http.Handler {
 	mux.HandleFunc("POST /api/curl/generate", s.generateCurl)
 	mux.HandleFunc("POST /api/import/postman", s.importPostman)
 	mux.HandleFunc("POST /api/graphql/introspect", s.introspectGraphQL)
+	mux.HandleFunc("POST /api/grpc/descriptor", s.grpcDescriptor)
+	mux.HandleFunc("POST /api/grpc/call", s.grpcCall)
 
 	mux.HandleFunc("POST /api/openapi/parse", s.parseOpenAPI)
 	mux.HandleFunc("POST /api/collections/import", s.importCollections)

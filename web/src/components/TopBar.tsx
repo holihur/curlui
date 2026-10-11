@@ -13,6 +13,7 @@ import {
   Menu,
   Moon,
   MoreHorizontal,
+  Network,
   Plus,
   Settings as SettingsIcon,
   Sun,
@@ -54,6 +55,9 @@ const TeamDialog = lazy(() =>
 const LoginDialog = lazy(() =>
   import("@/components/LoginDialog").then((m) => ({ default: m.LoginDialog })),
 );
+const GrpcDialog = lazy(() =>
+  import("@/components/GrpcDialog").then((m) => ({ default: m.GrpcDialog })),
+);
 import { LOCALES, useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
@@ -78,6 +82,7 @@ export function TopBar() {
   const [docOpen, setDocOpen] = useState(false);
   const [teamOpen, setTeamOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
+  const [grpcOpen, setGrpcOpen] = useState(false);
   const collectionFileRef = useRef<HTMLInputElement>(null);
   const postmanFileRef = useRef<HTMLInputElement>(null);
 
@@ -157,6 +162,9 @@ export function TopBar() {
         <DropdownMenuContent align="start">
           <DropdownMenuItem onClick={() => newTab()}>
             <Plus /> {t("newRequest")}
+          </DropdownMenuItem>
+          <DropdownMenuItem onClick={() => setGrpcOpen(true)}>
+            <Network /> {t("grpcNew")}
           </DropdownMenuItem>
           <DropdownMenuSeparator />
           <DropdownMenuItem onClick={() => setImportOpen(true)}>
@@ -318,6 +326,11 @@ export function TopBar() {
       {loginOpen && (
         <Suspense fallback={null}>
           <LoginDialog open onOpenChange={setLoginOpen} />
+        </Suspense>
+      )}
+      {grpcOpen && (
+        <Suspense fallback={null}>
+          <GrpcDialog open onOpenChange={setGrpcOpen} />
         </Suspense>
       )}
       <PromptDialog

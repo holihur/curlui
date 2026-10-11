@@ -19,6 +19,8 @@ import type {
   User,
   Project,
   GraphQLSchema,
+  GrpcDescriptorResult,
+  GrpcResult,
 } from "./types";
 
 const BASE = "/api";
@@ -211,6 +213,30 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ request: req }),
     });
+  },
+  grpcDescriptor(payload: {
+    descriptor?: string;
+    target?: string;
+    plaintext?: boolean;
+    reflect?: boolean;
+    metadata?: KeyValue[];
+  }) {
+    return request<GrpcDescriptorResult>("/grpc/descriptor", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  grpcCall(payload: {
+    id: string;
+    target: string;
+    service: string;
+    method: string;
+    body: string;
+    plaintext: boolean;
+    metadata?: KeyValue[];
+    timeoutMs?: number;
+  }) {
+    return request<GrpcResult>("/grpc/call", { method: "POST", body: JSON.stringify(payload) });
   },
 
   // OpenAPI / Swagger import

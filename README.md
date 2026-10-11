@@ -106,6 +106,10 @@ the refreshed images back).
   the initial payload is ~150 KB instead of ~600 KB.
 - **GraphQL** — a dedicated body type sends `{query, variables, operationName}`
   as `POST application/json`, with a query editor and JSON variables.
+- **gRPC** — import a protobuf descriptor (`.pb`, i.e.
+  `protoc --descriptor_set_out --include_imports`) or fetch it live via **server
+  reflection**, browse services/methods, and invoke unary RPCs with a JSON
+  request body and metadata (TLS or plaintext).
 - **Run as a service** — `curlui -service install` sets up systemd / launchd / sc.
 - **Deep links** — every request has a UUID; the URL (`#/r/<uuid>`) restores the
   exact request on refresh and is shareable.
@@ -285,6 +289,9 @@ web/
 | -------- | ----------------------------- | -------------------------------- |
 | `POST`   | `/api/send`                   | Execute a request                |
 | `POST`   | `/api/import/postman`         | Import a Postman Collection v2.1 |
+| `POST`   | `/api/graphql/introspect`     | Fetch a GraphQL schema           |
+| `POST`   | `/api/grpc/descriptor`        | Load a .pb descriptor / reflect  |
+| `POST`   | `/api/grpc/call`              | Invoke a unary gRPC method       |
 | `GET`    | `/api/auth/status`            | Auth state, current user + projects |
 | `POST`   | `/api/auth/login`             | Sign in (sets a session cookie)  |
 | `POST`   | `/api/auth/logout`            | Sign out                         |
