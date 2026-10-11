@@ -97,6 +97,8 @@ export const ja: Record<MessageKey, string> = {
   collections: "コレクション",
   history: "履歴",
   close: "閉じる",
+  maximize: "最大化",
+  restore: "元に戻す",
   toggleSidebar: "サイドバー切替",
   environments: "環境",
   apis: "API",

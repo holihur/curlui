@@ -98,6 +98,8 @@ export const en = {
   collections: "Collections",
   history: "History",
   close: "Close",
+  maximize: "Maximize",
+  restore: "Restore",
   toggleSidebar: "Toggle sidebar",
   environments: "Environments",
   apis: "APIs",

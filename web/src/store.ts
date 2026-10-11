@@ -63,6 +63,8 @@ type State = {
   setBottomOpen: (v: boolean) => void;
   bottomHeight: number;
   setBottomHeight: (v: number) => void;
+  bottomMaximized: boolean;
+  setBottomMaximized: (v: boolean) => void;
 
   // team / auth / projects
   authEnabled: boolean;
@@ -572,6 +574,11 @@ export const useStore = create<State>((set, get) => ({
     const h = Math.min(Math.max(v, 120), 760);
     localStorage.setItem("curlui.bottomHeight", String(h));
     set({ bottomHeight: h });
+  },
+  bottomMaximized: localStorage.getItem("curlui.bottomMaximized") === "1",
+  setBottomMaximized(v) {
+    localStorage.setItem("curlui.bottomMaximized", v ? "1" : "0");
+    set({ bottomMaximized: v });
   },
 
   renameTab(id, name) {

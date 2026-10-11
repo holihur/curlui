@@ -97,6 +97,8 @@ export const zh: Record<MessageKey, string> = {
   collections: "集合",
   history: "历史",
   close: "关闭",
+  maximize: "最大化",
+  restore: "还原",
   toggleSidebar: "折叠/展开侧栏",
   environments: "环境",
   apis: "接口",
