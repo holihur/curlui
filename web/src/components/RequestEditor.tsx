@@ -128,7 +128,8 @@ export function RequestEditor() {
   return (
     <div className="flex min-h-0 flex-1 flex-col">
       {/* URL bar */}
-      <div className="flex flex-wrap items-center gap-2 border-b p-2 sm:p-2.5">
+      <div className="flex flex-col gap-1.5 border-b p-2 sm:p-2.5">
+        <div className="flex flex-wrap items-center gap-2">
         {features.grpc !== false && (
         <Button
           variant="outline"
@@ -209,36 +210,6 @@ export function RequestEditor() {
         )}
 
         <div className="flex">
-          {tab.request.protocol !== "grpc" && (
-            <button
-              type="button"
-              onClick={() => setStreamMode(!streamMode)}
-              title={t("stream")}
-              className={cn(
-                "flex h-9 items-center gap-1 rounded-l-md border px-2 text-xs font-medium transition-colors",
-                streamMode
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-input bg-background text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Radio className="h-4 w-4" />
-            </button>
-          )}
-          {tab.request.protocol !== "grpc" && streamMode && (
-            <button
-              type="button"
-              onClick={() => setAutoReconnect(!autoReconnect)}
-              title={t("autoReconnect")}
-              className={cn(
-                "flex h-9 items-center rounded-md border px-2 text-xs font-medium transition-colors",
-                autoReconnect
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-input bg-background text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
-          )}
           <Button
             className={cn(
               "h-9 w-9 gap-1.5 rounded-r-none px-0 sm:w-[96px] sm:px-4",
@@ -288,30 +259,64 @@ export function RequestEditor() {
             </DropdownMenuContent>
           </DropdownMenu>
         </div>
+        </div>
 
-        {req.options.sendVia === "browser" && (
-          <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-400">
-            {t("browserBadge")}
-          </span>
-        )}
+        {/* Actions live under the Send button. */}
+        <div className="flex flex-wrap items-center gap-1.5">
+          {tab.request.protocol !== "grpc" && (
+            <button
+              type="button"
+              onClick={() => setStreamMode(!streamMode)}
+              title={t("stream")}
+              className={cn(
+                "flex h-8 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
+                streamMode
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input bg-background text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Radio className="h-4 w-4" />
+            </button>
+          )}
+          {tab.request.protocol !== "grpc" && streamMode && (
+            <button
+              type="button"
+              onClick={() => setAutoReconnect(!autoReconnect)}
+              title={t("autoReconnect")}
+              className={cn(
+                "flex h-8 items-center rounded-md border px-2 text-xs font-medium transition-colors",
+                autoReconnect
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input bg-background text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <RefreshCw className="h-4 w-4" />
+            </button>
+          )}
+          {req.options.sendVia === "browser" && (
+            <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-400">
+              {t("browserBadge")}
+            </span>
+          )}
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => void saveActiveTab()}>
-              <Save className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("saveTooltip")}</TooltipContent>
-        </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => void saveActiveTab()}>
+                <Save className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("saveTooltip")}</TooltipContent>
+          </Tooltip>
 
-        <Tooltip>
-          <TooltipTrigger asChild>
-            <Button variant="outline" size="icon" className="h-9 w-9" onClick={() => setCodeOpen(true)}>
-              <Code2 className="h-4 w-4" />
-            </Button>
-          </TooltipTrigger>
-          <TooltipContent>{t("codeTooltip")}</TooltipContent>
-        </Tooltip>
+          <Tooltip>
+            <TooltipTrigger asChild>
+              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCodeOpen(true)}>
+                <Code2 className="h-4 w-4" />
+              </Button>
+            </TooltipTrigger>
+            <TooltipContent>{t("codeTooltip")}</TooltipContent>
+          </Tooltip>
+        </div>
       </div>
 
       {tab.error && !tab.response && (

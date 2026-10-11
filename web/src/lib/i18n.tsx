@@ -151,14 +151,18 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     api
       .getSettings()
       .then((s) => {
+        // The backend setting is a shared default: only adopt it when this
+        // browser has no preference of its own (otherwise one user's choice
+        // would override everyone else's, including a fresh "auto").
         const l = s.language;
-        if (l === "auto" || l === "en" || l === "zh" || l === "ja") {
+        const hasLocal = localStorage.getItem(STORAGE_KEY);
+        if (!hasLocal && (l === "auto" || l === "en" || l === "zh" || l === "ja")) {
           setGlobalLocale(l);
           setLocaleState(l);
           localStorage.setItem(STORAGE_KEY, l);
         }
         const th = s.theme;
-        if (th === "auto" || th === "light" || th === "dark") {
+        if (!localStorage.getItem(THEME_KEY) && (th === "auto" || th === "light" || th === "dark")) {
           setThemeState(th);
           localStorage.setItem(THEME_KEY, th);
         }

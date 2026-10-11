@@ -11,7 +11,14 @@ import {
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
-import { useI18n } from "@/lib/i18n";
+import {
+  Select,
+  SelectContent,
+  SelectItem,
+  SelectTrigger,
+  SelectValue,
+} from "@/components/ui/select";
+import { LOCALES, useI18n, type Locale, type Theme } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
 
@@ -31,7 +38,7 @@ export function SettingsDialog({
   open: boolean;
   onOpenChange: (open: boolean) => void;
 }) {
-  const { t } = useI18n();
+  const { t, theme, setTheme, locale, setLocale } = useI18n();
   const toast = useStore((s) => s.toast);
   const features = useStore((s) => s.features);
   const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
@@ -174,6 +181,38 @@ export function SettingsDialog({
           />
           <p className="text-[11px] text-muted-foreground">{t("userAgentHint")}</p>
         </Field>
+
+        <div className="border-t pt-4">
+          <div className="mb-2 text-sm font-medium">{t("appearance")}</div>
+          <div className="flex items-center justify-between gap-3 text-sm">
+            <span>{t("theme")}</span>
+            <Select value={theme} onValueChange={(v) => setTheme(v as Theme)}>
+              <SelectTrigger className="h-8 w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                <SelectItem value="auto">{t("themeAuto")}</SelectItem>
+                <SelectItem value="light">{t("themeLight")}</SelectItem>
+                <SelectItem value="dark">{t("themeDark")}</SelectItem>
+              </SelectContent>
+            </Select>
+          </div>
+          <div className="mt-2 flex items-center justify-between gap-3 text-sm">
+            <span>{t("language")}</span>
+            <Select value={locale} onValueChange={(v) => setLocale(v as Locale)}>
+              <SelectTrigger className="h-8 w-44">
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {LOCALES.map((l) => (
+                  <SelectItem key={l.value} value={l.value}>
+                    {l.label}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+          </div>
+        </div>
 
         <div className="border-t pt-4">
           <div className="mb-2 text-sm font-medium">{t("view")}</div>

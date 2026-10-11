@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { ArrowLeft, ExternalLink, EyeOff, Loader2, MessageSquare, Send, X } from "lucide-react";
+import { ArrowLeft, ExternalLink, EyeOff, Loader2, Maximize2, MessageSquare, Minimize2, Send, X } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -73,6 +73,7 @@ export function FeedbackWidget() {
   const [body, setBody] = useState("");
   const [issues, setIssues] = useState<FeedbackIssue[]>([]);
   const [selected, setSelected] = useState<FeedbackIssue | null>(null);
+  const [maximized, setMaximized] = useState(false);
   const [reply, setReply] = useState("");
   const [busy, setBusy] = useState(false);
 
@@ -173,10 +174,13 @@ export function FeedbackWidget() {
 
   return (
     <div
-      style={panelStyle(pos)}
+      style={maximized ? undefined : panelStyle(pos)}
       className={cn(
-        "fixed z-40 flex max-h-[70vh] w-[min(92vw,380px)] flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-2xl",
-        !pos && "bottom-4 right-4",
+        "fixed z-40 flex flex-col overflow-hidden rounded-xl border bg-card text-card-foreground shadow-2xl",
+        maximized
+          ? "inset-2 h-[calc(100vh-1rem)] w-[calc(100vw-1rem)]"
+          : "max-h-[70vh] w-[min(92vw,380px)]",
+        !maximized && !pos && "bottom-4 right-4",
       )}
     >
       <div className="flex items-center gap-2 border-b px-3 py-2">
@@ -189,8 +193,15 @@ export function FeedbackWidget() {
           </span>
         )}
         <button
-          onClick={() => setHidden(true)}
+          onClick={() => setMaximized(!maximized)}
           className="ml-auto rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
+          title={maximized ? t("restore") : t("maximize")}
+        >
+          {maximized ? <Minimize2 className="h-3.5 w-3.5" /> : <Maximize2 className="h-3.5 w-3.5" />}
+        </button>
+        <button
+          onClick={() => setHidden(true)}
+          className="rounded p-1 text-muted-foreground hover:bg-accent hover:text-foreground"
           title={t("feedbackHide")}
         >
           <EyeOff className="h-3.5 w-3.5" />

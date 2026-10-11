@@ -1,6 +1,5 @@
 import { lazy, Suspense, useRef, useState } from "react";
 import {
-  Activity,
   Check,
   ChevronDown,
   FileJson2,
@@ -8,20 +7,14 @@ import {
   FileUp,
   FolderInput,
   FolderKanban,
-  Globe,
-  History,
-  Laptop,
   LogIn,
   LogOut,
   Menu,
-  Moon,
   MoreHorizontal,
   Radio,
   Network,
-  PanelLeft,
   Plus,
   Settings as SettingsIcon,
-  Sun,
   TerminalSquare,
   Users,
   Zap,
@@ -34,9 +27,6 @@ import {
   DropdownMenuItem,
   DropdownMenuLabel,
   DropdownMenuSeparator,
-  DropdownMenuSub,
-  DropdownMenuSubContent,
-  DropdownMenuSubTrigger,
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { PromptDialog } from "@/components/PromptDialog";
@@ -63,7 +53,7 @@ const TeamDialog = lazy(() =>
 const LoginDialog = lazy(() =>
   import("@/components/LoginDialog").then((m) => ({ default: m.LoginDialog })),
 );
-import { LOCALES, useI18n } from "@/lib/i18n";
+import { useI18n } from "@/lib/i18n";
 import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
@@ -71,7 +61,7 @@ import { useStore } from "@/store";
 const NONE = "__none__";
 
 export function TopBar() {
-  const { t, locale, setLocale, theme, setTheme } = useI18n();
+  const { t } = useI18n();
   const environments = useStore((s) => s.environments);
   const activeEnvId = useStore((s) => s.activeEnvId);
   const setActiveEnv = useStore((s) => s.setActiveEnv);
@@ -79,12 +69,6 @@ export function TopBar() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const setSidebarTab = useStore((s) => s.setSidebarTab);
-  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
-  const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
-  const rightOpen = useStore((s) => s.rightOpen);
-  const setRightOpen = useStore((s) => s.setRightOpen);
-  const bottomOpen = useStore((s) => s.bottomOpen);
-  const setBottomOpen = useStore((s) => s.setBottomOpen);
   const features = useStore((s) => s.features);
   const selectedFolderId = useStore((s) => s.selectedFolderId);
   const refreshCollections = useStore((s) => s.refreshCollections);
@@ -293,54 +277,7 @@ export function TopBar() {
               </DropdownMenuItem>
             )}
 
-            <DropdownMenuSeparator />
 
-            {/* Panels */}
-            <DropdownMenuLabel>{t("view")}</DropdownMenuLabel>
-            <DropdownMenuItem onClick={() => setSidebarCollapsed(!sidebarCollapsed)}>
-              {!sidebarCollapsed ? <Check /> : <PanelLeft />} {t("panelLeft")}
-            </DropdownMenuItem>
-            {features.proxy !== false && (
-              <DropdownMenuItem onClick={() => setBottomOpen(!bottomOpen)}>
-                {bottomOpen ? <Check /> : <Activity />} {t("panelBottom")}
-              </DropdownMenuItem>
-            )}
-            <DropdownMenuItem onClick={() => setRightOpen(!rightOpen)}>
-              {rightOpen ? <Check /> : <History />} {t("panelRight")}
-            </DropdownMenuItem>
-
-            <DropdownMenuSeparator />
-
-            {/* Preferences last, in submenus */}
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                {theme === "auto" ? <Laptop /> : theme === "dark" ? <Moon /> : <Sun />} {t("theme")}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                <DropdownMenuItem onClick={() => setTheme("auto")}>
-                  {theme === "auto" ? <Check /> : <Laptop />} {t("themeAuto")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setTheme("light")}>
-                  {theme === "light" ? <Check /> : <Sun />} {t("themeLight")}
-                </DropdownMenuItem>
-                <DropdownMenuItem onClick={() => setTheme("dark")}>
-                  {theme === "dark" ? <Check /> : <Moon />} {t("themeDark")}
-                </DropdownMenuItem>
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
-
-            <DropdownMenuSub>
-              <DropdownMenuSubTrigger>
-                <Globe /> {t("language")}
-              </DropdownMenuSubTrigger>
-              <DropdownMenuSubContent>
-                {LOCALES.map((l) => (
-                  <DropdownMenuItem key={l.value} onClick={() => setLocale(l.value)}>
-                    {locale === l.value ? <Check /> : <Globe />} {l.label}
-                  </DropdownMenuItem>
-                ))}
-              </DropdownMenuSubContent>
-            </DropdownMenuSub>
           </DropdownMenuContent>
         </DropdownMenu>
       </div>
