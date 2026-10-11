@@ -6,10 +6,10 @@ import { Textarea } from "@/components/ui/textarea";
 import { cn } from "@/lib/utils";
 import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
+import { useStore, type AIMessage } from "@/store";
+import { Markdown } from "@/components/Markdown";
 
-type Tool = { name: string; args?: any };
 type ConfirmReq = { id: string; tool: string; subject: string; args?: any; rule?: string };
-type Msg = { role: "user" | "assistant"; text: string; tools: Tool[]; error?: string };
 
 // AIChatDialog talks to the server-side agent. The agent runs with the caller's
 // scopes, so it can only do what the session (or token) allows.
@@ -21,12 +21,14 @@ export function AIChatDialog({
   onOpenChange: (v: boolean) => void;
 }) {
   const { t } = useI18n();
-  const [messages, setMessages] = useState<Msg[]>([]);
+  const messages = useStore((s) => s.aiMessages);
+  const setMessages = useStore((s) => s.setAiMessages);
+  const sessionId = useStore((s) => s.aiSessionId);
+  const setSessionId = useStore((s) => s.setAiSessionId);
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
   const [confirmReq, setConfirmReq] = useState<ConfirmReq | null>(null);
-  const sessionRef = useRef("");
   const logRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
 
@@ -42,7 +44,7 @@ export function AIChatDialog({
     if (logRef.current) logRef.current.scrollTop = logRef.current.scrollHeight;
   }, [messages]);
 
-  const patchLast = (fn: (m: Msg) => Msg) =>
+  const patchLast = (fn: (m: AIMessage) => AIMessage) =>
     setMessages((cur) => cur.map((m, i) => (i === cur.length - 1 ? fn(m) : m)));
 
   const decide = async (decision: "once" | "always" | "deny") => {
@@ -70,9 +72,9 @@ export function AIChatDialog({
     try {
       await api.aiChat(
         text,
-        sessionRef.current,
+        sessionId,
         (ev) => {
-          if (ev.sessionId) sessionRef.current = ev.sessionId;
+          if (ev.sessionId) setSessionId(ev.sessionId);
           if (ev.tool) patchLast((m) => ({ ...m, tools: [...m.tools, { name: ev.tool!, args: ev.args }] }));
           if ((ev as any).confirm) setConfirmReq((ev as any).confirm);
           if (ev.text) patchLast((m) => ({ ...m, text: m.text + ev.text }));
@@ -113,11 +115,17 @@ export function AIChatDialog({
             <div key={i} className={cn("flex flex-col gap-1", m.role === "user" && "items-end")}>
               <div
                 className={cn(
-                  "max-w-[85%] whitespace-pre-wrap break-words rounded-lg px-3 py-2 text-sm",
-                  m.role === "user" ? "bg-primary text-primary-foreground" : "bg-muted",
+                  "max-w-[85%] break-words rounded-lg px-3 py-2",
+                  m.role === "user" ? "whitespace-pre-wrap bg-primary text-sm text-primary-foreground" : "bg-muted",
                 )}
               >
-                {m.text || (busy && i === messages.length - 1 ? t("aiThinking") : "")}
+                {m.role === "user" ? (
+                  m.text
+                ) : m.text ? (
+                  <Markdown text={m.text} />
+                ) : busy && i === messages.length - 1 ? (
+                  <span className="text-sm text-muted-foreground">{t("aiThinking")}</span>
+                ) : null}
               </div>
               {m.tools.length > 0 && (
                 <div className="flex flex-wrap gap-1">
@@ -194,8 +202,8 @@ export function AIChatDialog({
               variant="ghost"
               className="h-7 gap-1 text-xs"
               onClick={() => {
-                setMessages([]);
-                sessionRef.current = "";
+                setMessages(() => []);
+                setSessionId("");
               }}
             >
               <Trash2 className="h-3.5 w-3.5" /> {t("aiClear")}

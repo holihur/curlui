@@ -73,6 +73,10 @@ type State = {
   setFeedbackPos: (p: { x: number; y: number } | null) => void;
   aiOpen: boolean;
   setAiOpen: (v: boolean) => void;
+  aiMessages: AIMessage[];
+  setAiMessages: (fn: (prev: AIMessage[]) => AIMessage[]) => void;
+  aiSessionId: string;
+  setAiSessionId: (v: string) => void;
   aiPos: { x: number; y: number } | null;
   setAiPos: (p: { x: number; y: number } | null) => void;
 
@@ -314,6 +318,14 @@ function lastEventID(body: string): string {
   }
   return id;
 }
+
+// AIMessage is one turn of the assistant conversation.
+export type AIMessage = {
+  role: "user" | "assistant";
+  text: string;
+  tools: { name: string; args?: unknown }[];
+  error?: string;
+};
 
 function computeStatus(res: ApiResponse): TestStatus | undefined {
   const assertions = res.assertions ?? [];
@@ -656,6 +668,36 @@ export const useStore = create<State>((set, get) => ({
   aiOpen: false,
   setAiOpen(v) {
     set({ aiOpen: v });
+  },
+  // The conversation lives in the store so closing the panel (which unmounts
+  // it) does not throw it away; sessionStorage keeps it across a reload.
+  aiMessages: (() => {
+    try {
+      const raw = sessionStorage.getItem("curlui.aiMessages");
+      return raw ? (JSON.parse(raw) as AIMessage[]) : [];
+    } catch {
+      return [];
+    }
+  })(),
+  setAiMessages(fn) {
+    set((s) => {
+      const next = fn(s.aiMessages);
+      try {
+        sessionStorage.setItem("curlui.aiMessages", JSON.stringify(next));
+      } catch {
+        /* quota — keep it in memory only */
+      }
+      return { aiMessages: next };
+    });
+  },
+  aiSessionId: sessionStorage.getItem("curlui.aiSessionId") ?? "",
+  setAiSessionId(v) {
+    try {
+      sessionStorage.setItem("curlui.aiSessionId", v);
+    } catch {
+      /* ignore */
+    }
+    set({ aiSessionId: v });
   },
   aiPos: (() => {
     try {
