@@ -91,10 +91,12 @@ make dev        # server on :8080 + Vite on :5173 (hot reload)
 | `-addr` | `CURLUI_ADDR` | `:8080` | Listen address |
 | `-db` | `CURLUI_DATABASE_URL` | — | PostgreSQL DSN (else a JSON file) |
 | `-data` | `CURLUI_DATA` | `data/store.json` | JSON store path |
-| `-proxy` | `CURLUI_PROXY` | off | Capture proxy, e.g. `:8899` |
-| `-proxy-mitm` | `CURLUI_PROXY_MITM` | `1` | Decrypt HTTPS in the proxy |
+| `-pprof` | `CURLUI_PPROF` | off | `:6060`, or `main` for `/debug/pprof` on the main port |
 | `-mcp` | — | — | MCP server over stdio |
 | `-service` | — | — | `install` / `uninstall` / `status` / `print` |
+
+The capture proxy is **toggled from the UI** (Traffic panel), not a flag; its
+address and on/off state are remembered.
 
 With `-db`, the schema is auto-migrated and an existing `data/store.json` is
 imported once. The default `local` project keeps anonymous use working.
