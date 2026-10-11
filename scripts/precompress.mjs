@@ -8,7 +8,7 @@ import zlib from "node:zlib";
 
 const DIST = path.resolve(process.argv[2] || "web/dist");
 const MIN = 1024; // skip tiny files where compression is not worth it
-const EXT = new Set([".js", ".css", ".html", ".svg", ".json", ".map", ".txt", ".webmanifest"]);
+const EXT = new Set([".js", ".mjs", ".css", ".html", ".svg", ".json", ".map", ".txt", ".webmanifest"]);
 
 function walk(dir, out = []) {
   for (const e of fs.readdirSync(dir, { withFileTypes: true })) {

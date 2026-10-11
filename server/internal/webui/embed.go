@@ -1,3 +1,5 @@
+//go:build !core
+
 // Package webui embeds the built frontend so curlui ships as a single
 // self-contained binary. The build pipeline copies web/dist into
 // internal/webui/dist before compiling; when it is absent (e.g. during

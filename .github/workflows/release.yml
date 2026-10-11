@@ -22,17 +22,22 @@ jobs:
         with:
           node-version: "20"
 
-      - name: Build frontend
+      - name: Build frontend (full)
         working-directory: web
         run: |
           npm ci || npm install
-          npm run build
+          CURLUI_DIST=dist npm run build
 
-      - name: Embed frontend into the server
+      - name: Build frontend (core, no pdf.js)
+        working-directory: web
+        run: CURLUI_PDF=0 CURLUI_DIST=dist-core npm run build
+
+      - name: Embed frontends into the server
         run: |
-          rm -rf server/internal/webui/dist
-          mkdir -p server/internal/webui/dist
+          rm -rf server/internal/webui/dist server/internal/webui/dist_core
+          mkdir -p server/internal/webui/dist server/internal/webui/dist_core
           cp -r web/dist/. server/internal/webui/dist/
+          cp -r web/dist-core/. server/internal/webui/dist_core/
 
       - name: Cross-compile single-file binaries
         working-directory: server

@@ -13,6 +13,9 @@ dist/
 # embedded frontend (generated at build time; .gitkeep keeps the dir present)
 server/internal/webui/dist/*
 !server/internal/webui/dist/.gitkeep
+web/dist-core/
+server/internal/webui/dist_core/*
+!server/internal/webui/dist_core/.gitkeep
 
 # runtime data
 data/
