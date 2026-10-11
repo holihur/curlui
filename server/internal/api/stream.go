@@ -7,6 +7,7 @@ import (
 	"net/http"
 	"time"
 
+	"curlui/server/internal/models"
 	"curlui/server/internal/variables"
 )
 
@@ -30,6 +31,13 @@ func (s *Server) streamRequest(w http.ResponseWriter, r *http.Request) {
 	if payload.Request.Protocol == "grpc" {
 		writeErr(w, http.StatusBadRequest, "use /api/grpc/call for gRPC requests")
 		return
+	}
+
+	// Forward Last-Event-ID so SSE sources can resume where they left off.
+	if payload.LastEventID != "" {
+		payload.Request.Headers = append(payload.Request.Headers, models.KeyValue{
+			Key: "Last-Event-ID", Value: payload.LastEventID, Enabled: true,
+		})
 	}
 
 	st := s.db(r)
@@ -88,7 +96,10 @@ func (s *Server) streamRequest(w http.ResponseWriter, r *http.Request) {
 		n, rerr := resp.Body.Read(buf)
 		if n > 0 {
 			total += n
-			send("chunk", map[string]any{"text": string(buf[:n]), "size": total})
+			send("chunk", map[string]any{
+				"text": string(buf[:n]), "size": total,
+				"at": time.Since(started).Milliseconds(),
+			})
 			if total >= maxStreamBytes {
 				send("done", map[string]any{"size": total, "truncated": true})
 				return

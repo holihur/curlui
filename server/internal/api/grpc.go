@@ -16,6 +16,7 @@ import (
 	"github.com/coder/websocket"
 	"github.com/coder/websocket/wsjson"
 	"google.golang.org/grpc"
+	"google.golang.org/grpc/encoding/gzip"
 	"google.golang.org/grpc/metadata"
 	"google.golang.org/grpc/status"
 	"google.golang.org/protobuf/encoding/protojson"
@@ -425,6 +426,11 @@ func grpcWSBridge(ctx context.Context, st *store.Store, c *websocket.Conn, first
 		ClientStreams: mdesc.IsStreamingClient(),
 	}
 	sctx := ctx
+	var cancel context.CancelFunc
+	if first.DeadlineMs > 0 {
+		sctx, cancel = context.WithTimeout(sctx, time.Duration(first.DeadlineMs)*time.Millisecond)
+		defer cancel()
+	}
 	if len(first.Metadata) > 0 {
 		md := metadata.MD{}
 		for k, v := range first.Metadata {
@@ -432,7 +438,11 @@ func grpcWSBridge(ctx context.Context, st *store.Store, c *websocket.Conn, first
 		}
 		sctx = metadata.NewOutgoingContext(sctx, md)
 	}
-	stream, err := conn.NewStream(sctx, streamDesc, "/"+first.Service+"/"+first.Method)
+	var callOpts []grpc.CallOption
+	if first.Compression == "gzip" {
+		callOpts = append(callOpts, grpc.UseCompressor(gzip.Name))
+	}
+	stream, err := conn.NewStream(sctx, streamDesc, "/"+first.Service+"/"+first.Method, callOpts...)
 	if err != nil {
 		return err
 	}
@@ -493,6 +503,11 @@ func grpcWSBridge(ctx context.Context, st *store.Store, c *websocket.Conn, first
 			_ = stream.CloseSend()
 			_ = write(wsFrame{Type: "info", Reason: "half-closed"})
 		case "close":
+			// Cancelling the context makes the RPC return CANCELLED, which the
+			// reader goroutine reports as the final status.
+			if cancel != nil {
+				cancel()
+			}
 			return nil
 		}
 	}

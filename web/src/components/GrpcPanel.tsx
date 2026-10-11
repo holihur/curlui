@@ -67,6 +67,8 @@ export function GrpcPanel() {
   const [streamLog, setStreamLog] = useState<{ kind: string; text: string }[]>([]);
   const [streaming, setStreaming] = useState(false);
   const [streamDraft, setStreamDraft] = useState("");
+  const [deadline, setDeadline] = useState("");
+  const [gzip, setGzip] = useState(false);
   const wsRef = useRef<WebSocket | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
@@ -222,6 +224,8 @@ export function GrpcPanel() {
           method,
           plaintext,
           metadata: md,
+          deadlineMs: deadline ? Number(deadline) || 0 : 0,
+          compression: gzip ? "gzip" : "",
         }),
       );
     };
@@ -515,6 +519,21 @@ export function GrpcPanel() {
               )}
             </div>
             <CodeEditor value={body} onChange={setBody} language="json" className="min-h-[110px]" />
+            {isStreamingMethod && (
+              <div className="mt-1 flex items-center gap-2 text-[10px] text-muted-foreground">
+                <span>{t("grpcDeadline")}</span>
+                <Input
+                  className="h-6 w-20 font-mono text-[10px]"
+                  value={deadline}
+                  onChange={(e) => setDeadline(e.target.value)}
+                  placeholder="ms"
+                />
+                <label className="flex items-center gap-1">
+                  <input type="checkbox" checked={gzip} onChange={(e) => setGzip(e.target.checked)} />
+                  gzip
+                </label>
+              </div>
+            )}
             {streaming && (
               <div className="mt-1 flex gap-1">
                 <Input

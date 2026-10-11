@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Binary, Plug, Send, Trash2, Unplug } from "lucide-react";
+import { Activity, Binary, Plug, Send, Trash2, Unplug } from "lucide-react";
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
@@ -125,6 +125,8 @@ export function WebSocketDialog({
         } else {
           push({ dir: "recv", text: f.data ?? "", bytes: (f.data ?? "").length });
         }
+      } else if (f.type === "pong") {
+        push({ dir: "info", text: `pong · ${f.reason ?? ""}` });
       } else if (f.type === "error") {
         push({ dir: "error", text: f.error ?? "error" });
       } else if (f.type === "close") {
@@ -183,9 +185,19 @@ export function WebSocketDialog({
             disabled={connected}
           />
           {connected ? (
-            <Button variant="destructive" className="h-9 gap-1.5" onClick={disconnect}>
-              <Unplug className="h-4 w-4" /> {t("wsDisconnect")}
-            </Button>
+            <>
+              <Button
+                variant="secondary"
+                className="h-9 gap-1.5"
+                title={t("wsPing")}
+                onClick={() => wsRef.current?.send(JSON.stringify({ type: "ping" }))}
+              >
+                <Activity className="h-4 w-4" /> {t("wsPing")}
+              </Button>
+              <Button variant="destructive" className="h-9 gap-1.5" onClick={disconnect}>
+                <Unplug className="h-4 w-4" /> {t("wsDisconnect")}
+              </Button>
+            </>
           ) : (
             <Button className="h-9 gap-1.5" onClick={connect}>
               <Plug className="h-4 w-4" /> {t("wsConnect")}

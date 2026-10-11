@@ -4,6 +4,7 @@ import (
 	"context"
 	"crypto/tls"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strings"
 	"sync"
@@ -33,6 +34,8 @@ type wsFrame struct {
 	Method       string            `json:"method,omitempty"`
 	Plaintext    bool              `json:"plaintext,omitempty"`
 	Metadata     map[string]string `json:"metadata,omitempty"`
+	DeadlineMs   int               `json:"deadlineMs,omitempty"`
+	Compression  string            `json:"compression,omitempty"`
 	// Payloads
 	Data      string `json:"data,omitempty"`
 	Binary    bool   `json:"binary,omitempty"`
@@ -170,6 +173,14 @@ func (s *Server) wsBridge(w http.ResponseWriter, r *http.Request) {
 			}
 			if err := tc.Write(ctx, mt, payload); err != nil {
 				_ = write(wsFrame{Type: "error", Error: err.Error()})
+			}
+		case "ping":
+			// Manual ping: measures the round-trip time to the target.
+			pingStart := time.Now()
+			if perr := tc.Ping(ctx); perr != nil {
+				_ = write(wsFrame{Type: "error", Error: perr.Error()})
+			} else {
+				_ = write(wsFrame{Type: "pong", Reason: fmt.Sprintf("%d ms", time.Since(pingStart).Milliseconds())})
 			}
 		case "close":
 			_ = tc.Close(websocket.StatusNormalClosure, f.Reason)

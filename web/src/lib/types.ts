@@ -403,6 +403,8 @@ export type ApiResponse = {
   hooks?: HookResult[];
   assertions?: AssertionResult[];
   error?: string;
+  /** Received chunk sizes + arrival times (live streaming only). */
+  chunks?: { size: number; at: number }[];
 };
 
 export const blankRequest = (): RequestDef => ({

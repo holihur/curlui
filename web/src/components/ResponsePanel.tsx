@@ -1,4 +1,4 @@
-import { useMemo, useState, type ReactNode } from "react";
+import { useEffect, useMemo, useRef, useState, type ReactNode } from "react";
 import { Check, CheckCircle2, Copy, Download, FileWarning, Inbox, Search, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
@@ -117,15 +117,22 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
   const [view, setView] = useState<"pretty" | "raw">("pretty");
   const [query, setQuery] = useState("");
   const [jsonPath, setJsonPath] = useState("");
+  const [frozen, setFrozen] = useState<string | null>(null);
+  const [autoScroll, setAutoScroll] = useState(true);
+  const bodyRef = useRef<HTMLPreElement>(null);
+  const chunks = res.chunks ?? [];
+  const streaming = chunks.length > 0;
+  // While paused the view keeps showing the snapshot taken at pause time.
+  const liveBody = frozen ?? res.body;
   const headerCount = Object.keys(res.headers ?? {}).length;
   const cookieCount = res.cookies?.length ?? 0;
 
   const pretty = useMemo(() => {
     if (res.isBinary) return null;
-    return prettyJSON(res.body);
-  }, [res]);
+    return prettyJSON(liveBody);
+  }, [res.isBinary, liveBody]);
 
-  const shown = view === "pretty" && pretty ? pretty : res.body;
+  const shown = view === "pretty" && pretty ? pretty : liveBody;
   const matchCount = useMemo(() => {
     const q = query.trim().toLowerCase();
     if (!q) return 0;
@@ -143,11 +150,11 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
   const pathMatches = useMemo(() => {
     if (!jsonPath.trim()) return null;
     try {
-      return evaluateJSONPath(JSON.parse(res.body), jsonPath);
+      return evaluateJSONPath(JSON.parse(liveBody), jsonPath);
     } catch {
       return null;
     }
-  }, [jsonPath, res.body]);
+  }, [jsonPath, liveBody]);
   const requestBodyPretty = useMemo(
     () => (res.request.body ? prettyJSON(res.request.body) : null),
     [res.request.body],
@@ -161,6 +168,12 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
   const hooks = res.hooks ?? [];
   const hookTests = hooks.flatMap((h) => h.tests ?? []);
   const allTests = [...assertionResults, ...hookTests];
+  useEffect(() => {
+    if (autoScroll && !frozen && bodyRef.current) {
+      bodyRef.current.scrollTop = bodyRef.current.scrollHeight;
+    }
+  }, [res.body, autoScroll, frozen]);
+
   const hasTests = allTests.length > 0 || hooks.length > 0;
   const passCount = allTests.filter((x) => x.passed).length;
   const failCount = allTests.length - passCount;
@@ -184,6 +197,15 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
               )}
             </TabsTrigger>
           ))}
+          {chunks.length > 0 && (
+            <TabsTrigger
+              value="chunks"
+              className="rounded-none border-b-2 border-transparent !bg-transparent px-3 py-2 text-xs data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {t("respChunks")}
+              <span className="ml-1 text-[10px] text-muted-foreground">{chunks.length}</span>
+            </TabsTrigger>
+          )}
           {isSSE && (
             <TabsTrigger
               value="events"
@@ -216,6 +238,32 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
         </TabsList>
 
         <div className="flex items-center gap-1 pr-1">
+          {streaming && (
+            <>
+              <button
+                type="button"
+                onClick={() => setFrozen(frozen === null ? res.body : null)}
+                title={frozen === null ? t("pause") : t("resume")}
+                className={cn(
+                  "h-6 rounded border px-1.5 text-[10px]",
+                  frozen !== null ? "border-primary text-primary" : "text-muted-foreground",
+                )}
+              >
+                {frozen === null ? t("pause") : t("resume")}
+              </button>
+              <button
+                type="button"
+                onClick={() => setAutoScroll(!autoScroll)}
+                title={t("autoScroll")}
+                className={cn(
+                  "h-6 rounded border px-1.5 text-[10px]",
+                  autoScroll ? "border-primary text-primary" : "text-muted-foreground",
+                )}
+              >
+                ⇩
+              </button>
+            </>
+          )}
           <div className="relative">
             <Search className="pointer-events-none absolute left-1.5 top-1/2 h-3 w-3 -translate-y-1/2 text-muted-foreground" />
             <input
@@ -266,7 +314,10 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
           ) : res.isBinary ? (
             <BinaryView res={res} />
           ) : (
-            <pre className="m-0 h-full overflow-auto whitespace-pre-wrap break-words bg-background p-3 font-mono text-xs leading-relaxed">
+            <pre
+              ref={bodyRef}
+              className="m-0 h-full overflow-auto whitespace-pre-wrap break-words bg-background p-3 font-mono text-xs leading-relaxed"
+            >
               {jsonPath.trim() ? (
                 pathMatches === null ? (
                   <span className="text-destructive">body is not valid JSON</span>
@@ -291,6 +342,20 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
             </pre>
           )}
         </TabsContent>
+
+        {chunks.length > 0 && (
+          <TabsContent value="chunks" className="m-0 h-full overflow-auto">
+            <KeyValueTable
+              head={["#", "Size", "+", "At"]}
+              rows={chunks.map((c, i) => [
+                String(i + 1),
+                formatBytes(c.size),
+                formatBytes(c.size - (chunks[i - 1]?.size ?? 0)),
+                `${c.at} ms`,
+              ])}
+            />
+          </TabsContent>
+        )}
 
         {isSSE && (
           <TabsContent value="events" className="m-0 h-full overflow-auto p-3">

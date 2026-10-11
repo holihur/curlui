@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, lazy, Suspense, type ReactNode } from "react";
-import { AlertCircle, Bug, CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, Database, FlaskConical, Loader2, Play, Radio, Save, Send, Square, Wand2, XCircle } from "lucide-react";
+import { AlertCircle, Bug, CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, Database, FlaskConical, Loader2, Play, Radio, RefreshCw, Save, Send, Square, Wand2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -61,6 +61,8 @@ export function RequestEditor() {
   const streamMode = useStore((s) => s.streamMode);
   const setStreamMode = useStore((s) => s.setStreamMode);
   const stopStream = useStore((s) => s.stopStream);
+  const autoReconnect = useStore((s) => s.autoReconnect);
+  const setAutoReconnect = useStore((s) => s.setAutoReconnect);
   const saveActiveTab = useStore((s) => s.saveActiveTab);
   const status = useStore((s) => (tab?.sourceId ? s.testStatus[tab.sourceId] : undefined));
   const features = useStore((s) => s.features);
@@ -220,6 +222,21 @@ export function RequestEditor() {
               )}
             >
               <Radio className="h-4 w-4" />
+            </button>
+          )}
+          {tab.request.protocol !== "grpc" && streamMode && (
+            <button
+              type="button"
+              onClick={() => setAutoReconnect(!autoReconnect)}
+              title={t("autoReconnect")}
+              className={cn(
+                "flex h-9 items-center rounded-md border px-2 text-xs font-medium transition-colors",
+                autoReconnect
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input bg-background text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <RefreshCw className="h-4 w-4" />
             </button>
           )}
           <Button

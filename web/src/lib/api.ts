@@ -119,6 +119,7 @@ export const api = {
     parents: RequestDef[] | undefined,
     onEvent: (ev: { type: string; data: any }) => void,
     signal?: AbortSignal,
+    lastEventId?: string,
   ) {
     const res = await fetch("/api/stream", {
       method: "POST",
@@ -128,6 +129,7 @@ export const api = {
         envId: envId ?? "",
         variables: variables ?? {},
         parents: parents ?? [],
+        lastEventId: lastEventId ?? "",
       }),
       signal,
     });

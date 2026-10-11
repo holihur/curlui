@@ -126,10 +126,12 @@ type State = {
 
   // executing
   send: (opts?: { mock?: boolean }) => Promise<void>;
-  sendStream: () => Promise<void>;
+  sendStream: (opts?: { lastEventId?: string; append?: boolean }) => Promise<void>;
   streamMode: boolean;
   setStreamMode: (v: boolean) => void;
   stopStream: () => void;
+  autoReconnect: boolean;
+  setAutoReconnect: (v: boolean) => void;
 
   // collections
   createFolder: (name: string, parentId?: string) => Promise<void>;
@@ -298,6 +300,16 @@ export function buildChain(
 
 // computeStatus derives the green/red indicator from assertions and hook tests.
 let streamController: AbortController | null = null;
+let streamReconnectTimer: ReturnType<typeof setTimeout> | null = null;
+
+// lastEventID returns the id of the last SSE event in a body (for resumption).
+function lastEventID(body: string): string {
+  let id = "";
+  for (const line of body.split(/\r?\n/)) {
+    if (line.startsWith("id:")) id = line.slice(3).trim();
+  }
+  return id;
+}
 
 function computeStatus(res: ApiResponse): TestStatus | undefined {
   const assertions = res.assertions ?? [];
@@ -622,7 +634,14 @@ export const useStore = create<State>((set, get) => ({
     localStorage.setItem("curlui.streamMode", v ? "1" : "0");
     set({ streamMode: v });
   },
+  autoReconnect: localStorage.getItem("curlui.autoReconnect") === "1",
+  setAutoReconnect(v) {
+    localStorage.setItem("curlui.autoReconnect", v ? "1" : "0");
+    set({ autoReconnect: v });
+  },
   stopStream() {
+    if (streamReconnectTimer) clearTimeout(streamReconnectTimer);
+    streamReconnectTimer = null;
     streamController?.abort();
     streamController = null;
   },
@@ -748,7 +767,8 @@ export const useStore = create<State>((set, get) => ({
   },
 
   // sendStream runs the request server-side and renders the body as it arrives.
-  async sendStream() {
+  // With auto-reconnect it resumes an SSE source using Last-Event-ID.
+  async sendStream(opts) {
     const { tabs, activeTabId, activeEnvId } = get();
     const tab = tabs.find((t) => t.id === activeTabId);
     if (!tab) return;
@@ -758,27 +778,35 @@ export const useStore = create<State>((set, get) => ({
     }
     const chain = buildChain(get().collections, tab.sourceId ?? "", tab.request);
     const variables = { ...chain.folderVars, ...get().runtimeVars };
-    const partial: ApiResponse = {
-      status: 0,
-      statusText: "",
-      headers: {},
-      cookies: [],
-      body: "",
-      contentType: "",
-      isBinary: false,
-      size: 0,
-      duration: 0,
-      timing: { dns: 0, connect: 0, tls: 0, firstByte: 0, total: 0 },
-      request: { method: tab.request.method, url: tab.request.url, headers: {}, body: "" },
-    };
+    const prior = opts?.append ? tab.response : undefined;
+    const partial: ApiResponse = prior
+      ? { ...prior }
+      : {
+          status: 0,
+          statusText: "",
+          headers: {},
+          cookies: [],
+          body: "",
+          contentType: "",
+          isBinary: false,
+          size: 0,
+          duration: 0,
+          timing: { dns: 0, connect: 0, tls: 0, firstByte: 0, total: 0 },
+          request: { method: tab.request.method, url: tab.request.url, headers: {}, body: "" },
+          chunks: [],
+        };
+    if (!partial.chunks) partial.chunks = [];
     const push = () =>
       set((s) => ({
         tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, response: { ...partial } } : t)),
       }));
     set((s) => ({
-      tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: true, error: undefined, response: { ...partial } } : t)),
+      tabs: s.tabs.map((t) =>
+        t.id === tab.id ? { ...t, sending: true, error: undefined, response: { ...partial } } : t,
+      ),
     }));
-    streamController = new AbortController();
+    const controller = new AbortController();
+    streamController = controller;
     try {
       await api.stream(
         tab.request,
@@ -797,6 +825,7 @@ export const useStore = create<State>((set, get) => ({
           } else if (ev.type === "chunk") {
             partial.body += ev.data.text ?? "";
             partial.size = ev.data.size ?? partial.body.length;
+            partial.chunks!.push({ size: partial.size, at: ev.data.at ?? 0 });
           } else if (ev.type === "done") {
             if (typeof ev.data?.duration === "number") partial.duration = ev.data.duration;
           } else if (ev.type === "error") {
@@ -804,7 +833,8 @@ export const useStore = create<State>((set, get) => ({
           }
           push();
         },
-        streamController.signal,
+        controller.signal,
+        opts?.lastEventId,
       );
     } catch (err) {
       const message = err instanceof Error ? err.message : String(err);
@@ -814,11 +844,20 @@ export const useStore = create<State>((set, get) => ({
         partial.error = message;
       }
     } finally {
-      streamController = null;
+      if (streamController === controller) streamController = null;
       set((s) => ({
         tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: false, error: partial.error } : t)),
       }));
       get().refreshHistory();
+      // SSE auto-reconnect: resume from the last event id.
+      const isSSE = (partial.contentType || "").toLowerCase().includes("text/event-stream");
+      if (get().autoReconnect && isSSE && !partial.error && !controller.signal.aborted) {
+        const id = lastEventID(partial.body);
+        streamReconnectTimer = setTimeout(() => {
+          streamReconnectTimer = null;
+          void get().sendStream({ lastEventId: id, append: true });
+        }, 3000);
+      }
     }
   },
 

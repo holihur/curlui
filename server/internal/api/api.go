@@ -337,11 +337,12 @@ func (s *Server) health(w http.ResponseWriter, r *http.Request) {
 }
 
 type sendPayload struct {
-	Request   models.RequestDef   `json:"request"`
-	EnvID     string              `json:"envId"`
-	Variables map[string]string   `json:"variables"`
-	Parents   []models.RequestDef `json:"parents"`
-	Mock      bool                `json:"mock"`
+	Request     models.RequestDef   `json:"request"`
+	EnvID       string              `json:"envId"`
+	Variables   map[string]string   `json:"variables"`
+	Parents     []models.RequestDef `json:"parents"`
+	Mock        bool                `json:"mock"`
+	LastEventID string              `json:"lastEventId,omitempty"`
 }
 
 type sendResult struct {
