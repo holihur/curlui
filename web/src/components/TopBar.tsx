@@ -1,5 +1,6 @@
 import { lazy, Suspense, useRef, useState } from "react";
 import {
+  Activity,
   Check,
   ChevronDown,
   FileJson2,
@@ -78,6 +79,8 @@ export function TopBar() {
   const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
   const rightOpen = useStore((s) => s.rightOpen);
   const setRightOpen = useStore((s) => s.setRightOpen);
+  const bottomOpen = useStore((s) => s.bottomOpen);
+  const setBottomOpen = useStore((s) => s.setBottomOpen);
   const selectedFolderId = useStore((s) => s.selectedFolderId);
   const refreshCollections = useStore((s) => s.refreshCollections);
   const toast = useStore((s) => s.toast);
@@ -228,6 +231,15 @@ export function TopBar() {
       </DropdownMenu>
 
       <div className="ml-auto flex min-w-0 items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("h-8 w-8 shrink-0", bottomOpen && "bg-accent")}
+          onClick={() => setBottomOpen(!bottomOpen)}
+          title={t("traffic")}
+        >
+          <Activity className="h-4 w-4" />
+        </Button>
         <Button
           variant="ghost"
           size="icon"

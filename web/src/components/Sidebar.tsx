@@ -1,26 +1,22 @@
 import { lazy, Suspense } from "react";
-import { Activity, FolderTree, Network, Settings2 } from "lucide-react";
+import { FolderTree, Network, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useStore } from "@/store";
 import { CollectionsPanel } from "@/components/CollectionsPanel";
 import { EnvPanel } from "@/components/EnvPanel";
 
-// Loaded on demand: these tabs are not part of the first paint.
-const TrafficPanel = lazy(() =>
-  import("@/components/TrafficPanel").then((m) => ({ default: m.TrafficPanel })),
-);
+// Loaded on demand: this tab is not part of the first paint.
 const GrpcPanel = lazy(() =>
   import("@/components/GrpcPanel").then((m) => ({ default: m.GrpcPanel })),
 );
 
-type TabKey = "collections" | "grpc" | "env" | "traffic";
+type TabKey = "collections" | "grpc" | "env";
 
 const TABS: { key: TabKey; label: MessageKey; icon: typeof FolderTree }[] = [
   { key: "collections", label: "apis", icon: FolderTree },
   { key: "grpc", label: "grpc", icon: Network },
   { key: "env", label: "envShort", icon: Settings2 },
-  { key: "traffic", label: "traffic", icon: Activity },
 ];
 
 export function Sidebar() {
@@ -57,7 +53,7 @@ export function Sidebar() {
         collapsed && "md:hidden",
       )}
     >
-      <div className="grid shrink-0 grid-cols-4 items-center gap-1 border-b p-1.5">
+      <div className="grid shrink-0 grid-cols-3 items-center gap-1 border-b p-1.5">
         {TABS.map((item) => (
           <button
             key={item.key}
@@ -83,11 +79,6 @@ export function Sidebar() {
           </Suspense>
         )}
         {tab === "env" && <EnvPanel />}
-        {tab === "traffic" && (
-          <Suspense fallback={null}>
-            <TrafficPanel />
-          </Suspense>
-        )}
       </div>
 
       {/* Drag to resize (desktop only) */}

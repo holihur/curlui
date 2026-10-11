@@ -3,6 +3,7 @@ import { TooltipProvider } from "@/components/ui/tooltip";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
 import { RightSidebar } from "@/components/RightSidebar";
+import { BottomPanel } from "@/components/BottomPanel";
 import { RequestTabs } from "@/components/RequestTabs";
 import { RequestEditor } from "@/components/RequestEditor";
 import { Toaster } from "@/components/Toaster";
@@ -72,10 +73,13 @@ export default function App() {
             onClick={() => setSidebarOpen(false)}
           />
           <Sidebar />
-          <main className="flex min-w-0 flex-1 flex-col">
-            <RequestTabs />
-            <RequestEditor />
-          </main>
+          <div className="flex min-w-0 flex-1 flex-col">
+            <main className="flex min-h-0 flex-1 flex-col">
+              <RequestTabs />
+              <RequestEditor />
+            </main>
+            <BottomPanel />
+          </div>
           {rightOpen && (
             <div
               className="absolute inset-0 z-20 bg-black/50 backdrop-blur-sm md:hidden"
