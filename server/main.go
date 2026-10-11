@@ -12,10 +12,10 @@ import (
 	"log"
 	"mime"
 	"net/http"
+	"net/http/pprof"
 	"os"
 	"path"
 	"path/filepath"
-	"regexp"
 	"strconv"
 	"strings"
 	"time"
@@ -23,8 +23,6 @@ import (
 	"curlui/server/internal/api"
 	"curlui/server/internal/mcp"
 	"curlui/server/internal/mitm"
-	"curlui/server/internal/models"
-	"curlui/server/internal/proxy"
 	"curlui/server/internal/store"
 	"curlui/server/internal/webui"
 )
@@ -41,9 +39,8 @@ func main() {
 	staticDir := flag.String("static", envOr("CURLUI_STATIC", "web/dist"), "directory with the built frontend (fallback when not embedded)")
 	showVersion := flag.Bool("version", false, "print the version and exit")
 	service := flag.String("service", "", "manage a system service: install | uninstall | status | print")
-	proxyAddr := flag.String("proxy", envOr("CURLUI_PROXY", ""), "run an HTTP capture proxy on this address (e.g. :8899); empty disables")
-	proxyMITM := flag.Bool("proxy-mitm", envOr("CURLUI_PROXY_MITM", "1") != "0", "intercept HTTPS through the capture proxy (clients must trust the CA)")
 	mcpMode := flag.Bool("mcp", false, "run an MCP (Model Context Protocol) server over stdio and exit")
+	pprofAddr := flag.String("pprof", envOr("CURLUI_PPROF", ""), "enable pprof: an address like :6060, or 'main' to serve /debug/pprof on the main port")
 	flag.Parse()
 
 	if *showVersion {
@@ -70,59 +67,13 @@ func main() {
 		return
 	}
 
-	if *proxyAddr != "" {
-		var ca *mitm.CA
-		if c, err := mitm.LoadOrCreate(filepath.Dir(absOr(*dataPath))); err != nil {
-			log.Printf("HTTPS interception disabled: %v", err)
-		} else {
-			ca = c
-			apiServer.SetProxyCA(c.CertPEM())
-			if st.Settings()["proxyMITM"] == "" {
-				v := "0"
-				if *proxyMITM {
-					v = "1"
-				}
-				_ = st.SaveSettings(map[string]string{"proxyMITM": v})
-			}
-		}
-		p := proxy.New(*proxyAddr, func(c models.CaptureEntry) {
-			settings := st.Settings()
-			if settings["proxyCapture"] == "0" {
-				return
-			}
-			if !matchCaptureFilter(settings["proxyCaptureFilter"], c.URL) {
-				return
-			}
-			_ = st.AddCapture(c)
-		}, proxy.Options{
-			CA:                   ca,
-			RequestBreakEnabled:  func() bool { return st.Settings()["proxyBreak"] == "1" },
-			RequestBreakFilter:   func(url string) bool { return matchCaptureFilter(st.Settings()["proxyBreakFilter"], url) },
-			ResponseBreakEnabled: func() bool { return st.Settings()["proxyBreakResponse"] == "1" },
-			ResponseBreakFilter:  func(url string) bool { return matchCaptureFilter(st.Settings()["proxyBreakResponseFilter"], url) },
-			MITMEnabled:          func() bool { return st.Settings()["proxyMITM"] != "0" },
-			MITMFilter:           func(host string) bool { return matchCaptureFilter(st.Settings()["proxyMITMFilter"], host) },
-		})
-		apiServer.SetInterceptor(p.Interceptor())
-		go func() {
-			log.Printf("capture proxy listening on %s (HTTPS interception: %v)", *proxyAddr, ca != nil)
-			if err := p.ListenAndServe(); err != nil {
-				log.Printf("proxy stopped: %v", err)
-			}
-		}()
-		apiServer.SetProxy(*proxyAddr, true)
-
-		// Expire captures past the configured TTL.
-		go func() {
-			ticker := time.NewTicker(30 * time.Second)
-			defer ticker.Stop()
-			for range ticker.C {
-				if secs, _ := strconv.Atoi(st.Settings()["proxyTTL"]); secs > 0 {
-					_ = st.PurgeCaptures(time.Duration(secs) * time.Second)
-				}
-			}
-		}()
+	// HTTPS interception CA (the capture proxy is toggled from the UI).
+	if ca, err := mitm.LoadOrCreate(filepath.Dir(absOr(*dataPath))); err != nil {
+		log.Printf("HTTPS interception disabled: %v", err)
+	} else {
+		apiServer.SetProxyCA(ca)
 	}
+	apiServer.MaybeStartProxy()
 
 	mux := http.NewServeMux()
 	mux.Handle("/api/", apiServer.Handler())
@@ -137,6 +88,22 @@ func main() {
 	} else {
 		log.Printf("serving frontend from %s", absOr(*staticDir))
 		mux.Handle("/", spaHandler(*staticDir))
+	}
+
+	// Profiling (off by default).
+	switch *pprofAddr {
+	case "":
+		// disabled
+	case "main", "on", "1":
+		registerPprof(mux)
+		log.Printf("pprof enabled on the main port at /debug/pprof/")
+	default:
+		go func() {
+			log.Printf("pprof listening on %s", *pprofAddr)
+			if err := http.ListenAndServe(*pprofAddr, nil); err != nil {
+				log.Printf("pprof stopped: %v", err)
+			}
+		}()
 	}
 
 	srv := &http.Server{
@@ -259,22 +226,13 @@ func spaHandler(dir string) http.Handler {
 // matchCaptureFilter reports whether url passes the capture filter. The filter
 // is a newline-separated list of patterns ('*' wildcards, case-insensitive); an
 // empty filter captures everything.
-func matchCaptureFilter(patterns, url string) bool {
-	patterns = strings.TrimSpace(patterns)
-	if patterns == "" {
-		return true
-	}
-	for _, line := range strings.Split(patterns, "\n") {
-		p := strings.TrimSpace(line)
-		if p == "" {
-			continue
-		}
-		expr := "(?i)" + strings.ReplaceAll(regexp.QuoteMeta(p), `\*`, ".*")
-		if re, err := regexp.Compile(expr); err == nil && re.MatchString(url) {
-			return true
-		}
-	}
-	return false
+// registerPprof mounts the standard pprof handlers on a custom mux.
+func registerPprof(mux *http.ServeMux) {
+	mux.HandleFunc("/debug/pprof/", pprof.Index)
+	mux.HandleFunc("/debug/pprof/cmdline", pprof.Cmdline)
+	mux.HandleFunc("/debug/pprof/profile", pprof.Profile)
+	mux.HandleFunc("/debug/pprof/symbol", pprof.Symbol)
+	mux.HandleFunc("/debug/pprof/trace", pprof.Trace)
 }
 
 func envOr(key, fallback string) string {

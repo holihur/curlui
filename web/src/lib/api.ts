@@ -343,6 +343,12 @@ export const api = {
       entries: CaptureEntry[];
     }>("/proxy");
   },
+  proxyServer(enabled: boolean, addr: string) {
+    return request<{ running: boolean; addr: string }>("/proxy/server", {
+      method: "POST",
+      body: JSON.stringify({ enabled, addr }),
+    });
+  },
   proxyConfig(payload: {
     capture: boolean;
     ttlSeconds: number;

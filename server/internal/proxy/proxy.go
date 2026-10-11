@@ -12,6 +12,7 @@ import (
 	"io"
 	"net"
 	"net/http"
+	"sync"
 	"time"
 
 	"curlui/server/internal/mitm"
@@ -29,6 +30,10 @@ type Proxy struct {
 	interceptor *Interceptor
 	mitmEnabled func() bool
 	mitmFilter  func(string) bool
+
+	mu  sync.Mutex
+	srv *http.Server
+	ln  net.Listener
 }
 
 // Options configures the proxy.
@@ -92,12 +97,39 @@ func (p *Proxy) mitm(host string) bool {
 
 // ListenAndServe blocks serving the proxy.
 func (p *Proxy) ListenAndServe() error {
+	ln, err := net.Listen("tcp", p.addr)
+	if err != nil {
+		return err
+	}
+	return p.Serve(ln)
+}
+
+// Serve serves the proxy on an existing listener (blocks until Close).
+func (p *Proxy) Serve(ln net.Listener) error {
 	srv := &http.Server{
-		Addr:              p.addr,
 		Handler:           http.HandlerFunc(p.handle),
 		ReadHeaderTimeout: 15 * time.Second,
 	}
-	return srv.ListenAndServe()
+	p.mu.Lock()
+	p.srv = srv
+	p.ln = ln
+	p.mu.Unlock()
+	return srv.Serve(ln)
+}
+
+// Close stops the proxy.
+func (p *Proxy) Close() error {
+	p.mu.Lock()
+	srv, ln := p.srv, p.ln
+	p.srv, p.ln = nil, nil
+	p.mu.Unlock()
+	if srv != nil {
+		return srv.Close()
+	}
+	if ln != nil {
+		return ln.Close()
+	}
+	return nil
 }
 
 func (p *Proxy) handle(w http.ResponseWriter, r *http.Request) {

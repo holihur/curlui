@@ -8,12 +8,15 @@ import {
   FolderInput,
   FolderKanban,
   Globe,
+  History,
+  Laptop,
   LogIn,
   LogOut,
   Menu,
   Moon,
   MoreHorizontal,
   Network,
+  PanelLeft,
   Plus,
   Settings as SettingsIcon,
   Sun,
@@ -56,6 +59,7 @@ const LoginDialog = lazy(() =>
   import("@/components/LoginDialog").then((m) => ({ default: m.LoginDialog })),
 );
 import { LOCALES, useI18n } from "@/lib/i18n";
+import { cn } from "@/lib/utils";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
 
@@ -70,6 +74,10 @@ export function TopBar() {
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
   const setSidebarTab = useStore((s) => s.setSidebarTab);
+  const sidebarCollapsed = useStore((s) => s.sidebarCollapsed);
+  const setSidebarCollapsed = useStore((s) => s.setSidebarCollapsed);
+  const rightOpen = useStore((s) => s.rightOpen);
+  const setRightOpen = useStore((s) => s.setRightOpen);
   const selectedFolderId = useStore((s) => s.selectedFolderId);
   const refreshCollections = useStore((s) => s.refreshCollections);
   const toast = useStore((s) => s.toast);
@@ -136,6 +144,16 @@ export function TopBar() {
         title="Menu"
       >
         <Menu className="h-4 w-4" />
+      </Button>
+
+      <Button
+        variant="ghost"
+        size="icon"
+        className="hidden h-8 w-8 shrink-0 md:inline-flex"
+        onClick={() => setSidebarCollapsed(!sidebarCollapsed)}
+        title={t("toggleSidebar")}
+      >
+        <PanelLeft className="h-4 w-4" />
       </Button>
 
       <div className="flex select-none items-center gap-2 pr-1 sm:pr-2">
@@ -210,6 +228,15 @@ export function TopBar() {
       </DropdownMenu>
 
       <div className="ml-auto flex min-w-0 items-center gap-2">
+        <Button
+          variant="ghost"
+          size="icon"
+          className={cn("h-8 w-8 shrink-0", rightOpen && "bg-accent")}
+          onClick={() => setRightOpen(!rightOpen)}
+          title={t("history")}
+        >
+          <History className="h-4 w-4" />
+        </Button>
         <div className="hidden items-center gap-1.5 text-xs text-muted-foreground lg:flex">
           <Zap className="h-3.5 w-3.5" />
           {t("environment")}
@@ -272,9 +299,12 @@ export function TopBar() {
             {/* Preferences last, in submenus */}
             <DropdownMenuSub>
               <DropdownMenuSubTrigger>
-                {theme === "dark" ? <Moon /> : <Sun />} {t("theme")}
+                {theme === "auto" ? <Laptop /> : theme === "dark" ? <Moon /> : <Sun />} {t("theme")}
               </DropdownMenuSubTrigger>
               <DropdownMenuSubContent>
+                <DropdownMenuItem onClick={() => setTheme("auto")}>
+                  {theme === "auto" ? <Check /> : <Laptop />} {t("themeAuto")}
+                </DropdownMenuItem>
                 <DropdownMenuItem onClick={() => setTheme("light")}>
                   {theme === "light" ? <Check /> : <Sun />} {t("themeLight")}
                 </DropdownMenuItem>

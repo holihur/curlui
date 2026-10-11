@@ -18,6 +18,7 @@ import (
 	curlpkg "curlui/server/internal/curl"
 	"curlui/server/internal/doc"
 	"curlui/server/internal/graphql"
+	"curlui/server/internal/mitm"
 	"curlui/server/internal/jsonpath"
 	"curlui/server/internal/mcp"
 	"curlui/server/internal/models"
@@ -42,6 +43,8 @@ type Server struct {
 	proxyAddr    string
 	proxyRunning bool
 	proxyCA      []byte
+	ca           *mitm.CA
+	proxySrv     *proxy.Proxy
 	interceptor  *proxy.Interceptor
 
 	grpcMu    sync.Mutex
@@ -63,11 +66,16 @@ func (s *Server) SetProxy(addr string, running bool) {
 	s.proxyRunning = running
 }
 
-// SetProxyCA stores the CA certificate offered to clients for HTTPS interception.
-func (s *Server) SetProxyCA(pem []byte) {
+// SetProxyCA stores the CA used for HTTPS interception.
+func (s *Server) SetProxyCA(ca *mitm.CA) {
 	s.mu.Lock()
 	defer s.mu.Unlock()
-	s.proxyCA = pem
+	s.ca = ca
+	if ca != nil {
+		s.proxyCA = ca.CertPEM()
+	} else {
+		s.proxyCA = nil
+	}
 }
 
 // --- Backend implementation for the MCP server -----------------------------
@@ -143,6 +151,17 @@ func New(st *store.Store, version string) *Server {
 		func(job models.ScheduleJob, res models.ScheduleResult) { s.notifyFailure(st, job, res) },
 	)
 	s.scheduler.Load(st.Schedules())
+
+	// Expire captures past the configured TTL.
+	go func() {
+		ticker := time.NewTicker(30 * time.Second)
+		defer ticker.Stop()
+		for range ticker.C {
+			if secs, _ := strconv.Atoi(st.Settings()["proxyTTL"]); secs > 0 {
+				_ = st.PurgeCaptures(time.Duration(secs) * time.Second)
+			}
+		}
+	}()
 	return s
 }
 
@@ -223,6 +242,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/proxy", s.listProxy)
 	mux.HandleFunc("POST /api/proxy/config", s.proxyConfig)
+	mux.HandleFunc("POST /api/proxy/server", s.proxyServerControl)
 	mux.HandleFunc("GET /api/proxy/export", s.exportCaptures)
 	mux.HandleFunc("POST /api/proxy/save", s.saveCaptures)
 	mux.HandleFunc("GET /api/intercept", s.listIntercepts)

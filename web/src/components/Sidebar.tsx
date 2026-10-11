@@ -1,16 +1,12 @@
 import { lazy, Suspense } from "react";
-import { Activity, Clock, FolderTree, Network, Settings2, Timer } from "lucide-react";
+import { Activity, FolderTree, Network, Settings2 } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useStore } from "@/store";
 import { CollectionsPanel } from "@/components/CollectionsPanel";
-import { HistoryPanel } from "@/components/HistoryPanel";
 import { EnvPanel } from "@/components/EnvPanel";
 
 // Loaded on demand: these tabs are not part of the first paint.
-const SchedulePanel = lazy(() =>
-  import("@/components/SchedulePanel").then((m) => ({ default: m.SchedulePanel })),
-);
 const TrafficPanel = lazy(() =>
   import("@/components/TrafficPanel").then((m) => ({ default: m.TrafficPanel })),
 );
@@ -18,14 +14,12 @@ const GrpcPanel = lazy(() =>
   import("@/components/GrpcPanel").then((m) => ({ default: m.GrpcPanel })),
 );
 
-type TabKey = "collections" | "grpc" | "history" | "env" | "schedules" | "traffic";
+type TabKey = "collections" | "grpc" | "env" | "traffic";
 
 const TABS: { key: TabKey; label: MessageKey; icon: typeof FolderTree }[] = [
   { key: "collections", label: "apis", icon: FolderTree },
   { key: "grpc", label: "grpc", icon: Network },
-  { key: "history", label: "history", icon: Clock },
   { key: "env", label: "envShort", icon: Settings2 },
-  { key: "schedules", label: "jobsShort", icon: Timer },
   { key: "traffic", label: "traffic", icon: Activity },
 ];
 
@@ -34,15 +28,36 @@ export function Sidebar() {
   const tab = useStore((s) => s.sidebarTab) as TabKey;
   const setTab = useStore((s) => s.setSidebarTab);
   const open = useStore((s) => s.sidebarOpen);
+  const width = useStore((s) => s.sidebarWidth);
+  const setWidth = useStore((s) => s.setSidebarWidth);
+  const collapsed = useStore((s) => s.sidebarCollapsed);
+
+  const startResize = (e: React.MouseEvent) => {
+    e.preventDefault();
+    const onMove = (ev: MouseEvent) => setWidth(ev.clientX);
+    const onUp = () => {
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      document.body.style.cursor = "";
+      document.body.style.userSelect = "";
+    };
+    document.body.style.cursor = "col-resize";
+    document.body.style.userSelect = "none";
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
   return (
     <aside
+      style={{ ["--sbw" as string]: `${width}px` }}
       className={cn(
         "absolute inset-y-0 left-0 z-30 flex w-[86vw] max-w-[320px] shrink-0 flex-col border-r bg-sidebar text-sidebar-foreground transition-transform duration-200",
-        "md:static md:w-[320px] md:max-w-none md:translate-x-0",
+        "md:static md:max-w-none md:translate-x-0 md:w-[var(--sbw)]",
         open ? "translate-x-0" : "-translate-x-full md:translate-x-0",
+        collapsed && "md:hidden",
       )}
     >
-      <div className="grid shrink-0 grid-cols-6 items-center gap-1 border-b p-1.5">
+      <div className="grid shrink-0 grid-cols-4 items-center gap-1 border-b p-1.5">
         {TABS.map((item) => (
           <button
             key={item.key}
@@ -67,19 +82,20 @@ export function Sidebar() {
             <GrpcPanel />
           </Suspense>
         )}
-        {tab === "history" && <HistoryPanel />}
         {tab === "env" && <EnvPanel />}
-        {tab === "schedules" && (
-          <Suspense fallback={null}>
-            <SchedulePanel />
-          </Suspense>
-        )}
         {tab === "traffic" && (
           <Suspense fallback={null}>
             <TrafficPanel />
           </Suspense>
         )}
       </div>
+
+      {/* Drag to resize (desktop only) */}
+      <div
+        onMouseDown={startResize}
+        title="Drag to resize"
+        className="absolute inset-y-0 -right-1 z-40 hidden w-2 cursor-col-resize hover:bg-primary/20 md:block"
+      />
     </aside>
   );
 }

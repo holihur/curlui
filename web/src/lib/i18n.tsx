@@ -10,38 +10,49 @@ import {
 import { api } from "@/lib/api";
 import { en, type MessageKey } from "@/lib/locales/en";
 
-export type Locale = "en" | "zh" | "ja";
+export type Locale = "auto" | "en" | "zh" | "ja";
+type Concrete = "en" | "zh" | "ja";
 export type { MessageKey };
 
 type Vars = Record<string, string | number>;
 
 // English is bundled as the fallback; the other locales are code-split and
 // fetched the first time they are selected.
-const cache: Partial<Record<Locale, Record<MessageKey, string>>> = { en };
-let currentLocale: Locale = "en";
+const cache: Partial<Record<Concrete, Record<MessageKey, string>>> = { en };
+let currentLocale: Concrete = "en";
 let current: Record<MessageKey, string> = en;
+
+/** resolveLocale turns "auto" into a concrete locale from the browser. */
+export function resolveLocale(locale: Locale): Concrete {
+  if (locale === "en" || locale === "zh" || locale === "ja") return locale;
+  const lang = (typeof navigator !== "undefined" ? navigator.language : "").toLowerCase();
+  if (lang.startsWith("zh")) return "zh";
+  if (lang.startsWith("ja")) return "ja";
+  return "en";
+}
 
 /** loadLocale fetches (and caches) a locale's messages on demand. */
 export async function loadLocale(locale: Locale): Promise<void> {
-  if (cache[locale]) {
-    if (currentLocale === locale) current = cache[locale]!;
+  const target = resolveLocale(locale);
+  if (cache[target]) {
+    if (currentLocale === target) current = cache[target]!;
     return;
   }
-  if (locale === "zh") {
+  if (target === "zh") {
     const m = await import("@/lib/locales/zh");
     cache.zh = m.zh;
-  } else if (locale === "ja") {
+  } else if (target === "ja") {
     const m = await import("@/lib/locales/ja");
     cache.ja = m.ja;
   }
-  if (currentLocale === locale) current = cache[locale] ?? en;
+  if (currentLocale === target) current = cache[target] ?? en;
 }
 
 /** setGlobalLocale points the module-level translator at a locale (using the
  * bundled English dictionary until the requested one has loaded). */
 export function setGlobalLocale(locale: Locale) {
-  currentLocale = locale;
-  current = cache[locale] ?? en;
+  currentLocale = resolveLocale(locale);
+  current = cache[currentLocale] ?? en;
 }
 
 function format(str: string, vars?: Vars): string {
@@ -58,12 +69,22 @@ export function translate(key: MessageKey, vars?: Vars): string {
 }
 
 export const LOCALES: { value: Locale; label: string }[] = [
+  { value: "auto", label: "Auto" },
   { value: "en", label: "English" },
   { value: "zh", label: "简体中文" },
   { value: "ja", label: "日本語" },
 ];
 
-export type Theme = "light" | "dark";
+export type Theme = "auto" | "light" | "dark";
+
+/** resolveTheme turns "auto" into a concrete theme from the OS preference. */
+export function resolveTheme(theme: Theme): "light" | "dark" {
+  if (theme === "light" || theme === "dark") return theme;
+  return typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-color-scheme: dark)").matches
+    ? "dark"
+    : "light";
+}
 
 type I18nContextValue = {
   locale: Locale;
@@ -81,16 +102,14 @@ const THEME_KEY = "curlui.theme";
 
 function readLocale(): Locale {
   const saved = localStorage.getItem(STORAGE_KEY);
-  if (saved === "en" || saved === "zh" || saved === "ja") return saved;
-  const lang = navigator.language?.toLowerCase() ?? "";
-  if (lang.startsWith("zh")) return "zh";
-  if (lang.startsWith("ja")) return "ja";
-  return "en";
+  if (saved === "auto" || saved === "en" || saved === "zh" || saved === "ja") return saved;
+  return "auto";
 }
 
 function readTheme(): Theme {
   const saved = localStorage.getItem(THEME_KEY);
-  return saved === "light" || saved === "dark" ? saved : "dark";
+  if (saved === "auto" || saved === "light" || saved === "dark") return saved;
+  return "auto";
 }
 
 export function I18nProvider({ children }: { children: ReactNode }) {
@@ -102,7 +121,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
 
   // Apply language and load its dictionary on demand.
   useEffect(() => {
-    document.documentElement.lang = locale;
+    document.documentElement.lang = resolveLocale(locale);
     setGlobalLocale(locale);
     let active = true;
     void loadLocale(locale).then(() => {
@@ -113,9 +132,15 @@ export function I18nProvider({ children }: { children: ReactNode }) {
     };
   }, [locale]);
 
-  // Apply theme.
+  // Apply theme (following the OS when set to "auto").
   useEffect(() => {
-    document.documentElement.classList.toggle("dark", theme === "dark");
+    const apply = () => document.documentElement.classList.toggle("dark", resolveTheme(theme) === "dark");
+    apply();
+    if (theme !== "auto") return;
+    const mq = window.matchMedia?.("(prefers-color-scheme: dark)");
+    if (!mq) return;
+    mq.addEventListener("change", apply);
+    return () => mq.removeEventListener("change", apply);
   }, [theme]);
 
   // Pull persisted preferences from the backend once (survives cleared cache
@@ -127,13 +152,13 @@ export function I18nProvider({ children }: { children: ReactNode }) {
       .getSettings()
       .then((s) => {
         const l = s.language;
-        if (l === "en" || l === "zh" || l === "ja") {
+        if (l === "auto" || l === "en" || l === "zh" || l === "ja") {
           setGlobalLocale(l);
           setLocaleState(l);
           localStorage.setItem(STORAGE_KEY, l);
         }
         const th = s.theme;
-        if (th === "light" || th === "dark") {
+        if (th === "auto" || th === "light" || th === "dark") {
           setThemeState(th);
           localStorage.setItem(THEME_KEY, th);
         }
@@ -155,7 +180,7 @@ export function I18nProvider({ children }: { children: ReactNode }) {
   }, []);
 
   const toggleTheme = useCallback(() => {
-    setTheme(theme === "dark" ? "light" : "dark");
+    setTheme(resolveTheme(theme) === "dark" ? "light" : "dark");
   }, [theme, setTheme]);
 
   const t = useCallback(

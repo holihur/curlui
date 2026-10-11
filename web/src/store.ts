@@ -51,6 +51,14 @@ type State = {
   setSidebarOpen: (v: boolean) => void;
   sidebarTab: string;
   setSidebarTab: (v: string) => void;
+  sidebarWidth: number;
+  setSidebarWidth: (v: number) => void;
+  sidebarCollapsed: boolean;
+  setSidebarCollapsed: (v: boolean) => void;
+  rightOpen: boolean;
+  setRightOpen: (v: boolean) => void;
+  rightWidth: number;
+  setRightWidth: (v: number) => void;
 
   // team / auth / projects
   authEnabled: boolean;
@@ -521,6 +529,34 @@ export const useStore = create<State>((set, get) => ({
   sidebarTab: "collections",
   setSidebarTab(v) {
     set({ sidebarTab: v });
+  },
+  sidebarWidth: Number(localStorage.getItem("curlui.sidebarWidth")) || 320,
+  setSidebarWidth(v) {
+    const w = Math.min(Math.max(v, 240), 560);
+    localStorage.setItem("curlui.sidebarWidth", String(w));
+    set({ sidebarWidth: w });
+  },
+  sidebarCollapsed: localStorage.getItem("curlui.sidebarCollapsed") === "1",
+  setSidebarCollapsed(v) {
+    localStorage.setItem("curlui.sidebarCollapsed", v ? "1" : "0");
+    set({ sidebarCollapsed: v });
+  },
+  rightOpen: (() => {
+    const saved = localStorage.getItem("curlui.rightOpen");
+    if (saved === "0") return false;
+    if (saved === "1") return true;
+    // Default: open on desktop, closed on phones/tablets.
+    return typeof window !== "undefined" ? window.innerWidth >= 1024 : true;
+  })(),
+  setRightOpen(v) {
+    localStorage.setItem("curlui.rightOpen", v ? "1" : "0");
+    set({ rightOpen: v });
+  },
+  rightWidth: Number(localStorage.getItem("curlui.rightWidth")) || 340,
+  setRightWidth(v) {
+    const w = Math.min(Math.max(v, 240), 560);
+    localStorage.setItem("curlui.rightWidth", String(w));
+    set({ rightWidth: w });
   },
 
   renameTab(id, name) {

@@ -55,6 +55,7 @@ export function TrafficPanel() {
 
   const [running, setRunning] = useState(false);
   const [addr, setAddr] = useState("");
+  const [proxyAddrInput, setProxyAddrInput] = useState(":8899");
   const [capture, setCapture] = useState(true);
   const [ttl, setTtl] = useState(0);
   const [filter, setFilter] = useState("");
@@ -71,8 +72,7 @@ export function TrafficPanel() {
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   const inited = useRef(false);
 
-  const refresh = useCallback(async () => {
-    try {
+  const refresh = useCallback(async () => {    try {
       const d = await api.listProxy();
       setRunning(d.running);
       setAddr(d.addr);
@@ -220,8 +220,35 @@ export function TrafficPanel() {
           </Button>
         </div>
 
-        {!running && <div className="mt-1.5 text-[11px] text-muted-foreground">{t("proxyHint")}</div>}
+        <div className="mt-2 flex items-center gap-2 text-[11px]">
+          <Switch
+            checked={running}
+            onCheckedChange={async (v) => {
+              try {
+                const d = await api.proxyServer(v, proxyAddrInput);
+                setRunning(d.running);
+                setAddr(d.addr);
+                void refresh();
+              } catch (err) {
+                toast({
+                  title: t("proxy"),
+                  description: err instanceof Error ? err.message : String(err),
+                  variant: "error",
+                });
+              }
+            }}
+          />
+          <span className={running ? "text-emerald-400" : "text-muted-foreground"}>{t("proxy")}</span>
+          <Input
+            value={running ? addr : proxyAddrInput}
+            onChange={(e) => setProxyAddrInput(e.target.value)}
+            disabled={running}
+            placeholder=":8899"
+            className="ml-auto h-6 w-24 font-mono text-[11px]"
+          />
+        </div>
 
+        {!running && <div className="mt-1.5 text-[11px] text-muted-foreground">{t("proxyHint")}</div>}
         {running && (
           <>
             <div className="mt-2 flex items-center gap-2 text-[11px]">

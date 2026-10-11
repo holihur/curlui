@@ -67,6 +67,7 @@ export const en = {
   theme: "Theme",
   themeLight: "Light",
   themeDark: "Dark",
+  themeAuto: "System",
   failureWebhook: "Failure webhook URL",
   failureWebhookHint:
     "POSTed as JSON when a scheduled request fails (error or status \u2265 400).",
@@ -92,6 +93,8 @@ export const en = {
   // sidebar
   collections: "Collections",
   history: "History",
+  close: "Close",
+  toggleSidebar: "Toggle sidebar",
   environments: "Environments",
   apis: "APIs",
   envShort: "Env",
@@ -445,7 +448,7 @@ export const en = {
   traffic: "Traffic",
   proxyRunning: "Capture proxy",
   proxyOff: "Proxy off",
-  proxyHint: "Start with  curlui -proxy :8899  and point your client's HTTP proxy here.",
+  proxyHint: "Turn the proxy on here, then point your client's HTTP proxy at this address.",
   noCaptures: "No captured traffic yet.",
   replay: "Replay",
   openInEditor: "Open in editor",

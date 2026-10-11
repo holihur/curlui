@@ -2,6 +2,7 @@ import { lazy, Suspense, useEffect, useRef } from "react";
 import { TooltipProvider } from "@/components/ui/tooltip";
 import { TopBar } from "@/components/TopBar";
 import { Sidebar } from "@/components/Sidebar";
+import { RightSidebar } from "@/components/RightSidebar";
 import { RequestTabs } from "@/components/RequestTabs";
 import { RequestEditor } from "@/components/RequestEditor";
 import { Toaster } from "@/components/Toaster";
@@ -19,6 +20,8 @@ export default function App() {
   const newTab = useStore((s) => s.newTab);
   const sidebarOpen = useStore((s) => s.sidebarOpen);
   const setSidebarOpen = useStore((s) => s.setSidebarOpen);
+  const rightOpen = useStore((s) => s.rightOpen);
+  const setRightOpen = useStore((s) => s.setRightOpen);
   const authEnabled = useStore((s) => s.authEnabled);
   const authenticated = useStore((s) => s.authenticated);
   const syncProject = useStore((s) => s.syncProject);
@@ -73,6 +76,13 @@ export default function App() {
             <RequestTabs />
             <RequestEditor />
           </main>
+          {rightOpen && (
+            <div
+              className="absolute inset-0 z-20 bg-black/50 backdrop-blur-sm md:hidden"
+              onClick={() => setRightOpen(false)}
+            />
+          )}
+          <RightSidebar />
         </div>
         <Toaster />
         <Suspense fallback={null}>

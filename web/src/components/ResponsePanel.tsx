@@ -4,6 +4,7 @@ import { Button } from "@/components/ui/button";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import { cn, copyText, formatBytes, formatMs, prettyJSON, statusColor } from "@/lib/utils";
 import { highlightJSON } from "@/lib/highlight";
+import { evaluateJSONPath } from "@/lib/jsonpath";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import type { Tab } from "@/store";
 import type { ApiResponse } from "@/lib/types";
@@ -115,6 +116,7 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
   const { t } = useI18n();
   const [view, setView] = useState<"pretty" | "raw">("pretty");
   const [query, setQuery] = useState("");
+  const [jsonPath, setJsonPath] = useState("");
   const headerCount = Object.keys(res.headers ?? {}).length;
   const cookieCount = res.cookies?.length ?? 0;
 
@@ -136,6 +138,16 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
     }
     return n;
   }, [query, shown]);
+
+  // JSONPath filter over the JSON body (null = path set but body not JSON).
+  const pathMatches = useMemo(() => {
+    if (!jsonPath.trim()) return null;
+    try {
+      return evaluateJSONPath(JSON.parse(res.body), jsonPath);
+    } catch {
+      return null;
+    }
+  }, [jsonPath, res.body]);
   const requestBodyPretty = useMemo(
     () => (res.request.body ? prettyJSON(res.request.body) : null),
     [res.request.body],
@@ -198,6 +210,19 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
               className="h-6 w-28 rounded border bg-background pl-6 pr-1 text-[11px] outline-none focus:w-40"
             />
           </div>
+          <input
+            value={jsonPath}
+            onChange={(e) => setJsonPath(e.target.value)}
+            placeholder="JSONPath  $.a.b[*]"
+            title="JSONPath filter"
+            className="h-6 w-32 rounded border bg-background px-1.5 font-mono text-[11px] outline-none focus:w-48"
+            spellCheck={false}
+          />
+          {jsonPath.trim() && (
+            <span className={cn("text-[10]", pathMatches?.length ? "text-muted-foreground" : "text-destructive")}>
+              {pathMatches ? pathMatches.length : "!"}
+            </span>
+          )}
           {query && (
             <span className={cn("text-[10px]", matchCount ? "text-muted-foreground" : "text-destructive")}>
               {matchCount}
@@ -227,7 +252,17 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
             <BinaryView res={res} />
           ) : (
             <pre className="m-0 h-full overflow-auto whitespace-pre-wrap break-words bg-background p-3 font-mono text-xs leading-relaxed">
-              {shown ? (
+              {jsonPath.trim() ? (
+                pathMatches === null ? (
+                  <span className="text-destructive">body is not valid JSON</span>
+                ) : pathMatches.length === 0 ? (
+                  <span className="text-muted-foreground">no matches</span>
+                ) : (
+                  highlightJSON(
+                    JSON.stringify(pathMatches.length === 1 ? pathMatches[0] : pathMatches, null, 2),
+                  )
+                )
+              ) : shown ? (
                 query.trim() ? (
                   <HighlightedBody text={shown} query={query.trim()} />
                 ) : pretty ? (

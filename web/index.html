@@ -9,10 +9,17 @@
       (function () {
         try {
           var theme = localStorage.getItem("curlui.theme");
-          if (theme !== "light" && theme !== "dark") theme = "dark";
-          document.documentElement.classList.toggle("dark", theme === "dark");
+          if (theme !== "light" && theme !== "dark" && theme !== "auto") theme = "auto";
+          var dark =
+            theme === "dark" ||
+            (theme === "auto" && window.matchMedia("(prefers-color-scheme: dark)").matches);
+          document.documentElement.classList.toggle("dark", dark);
           var locale = localStorage.getItem("curlui.locale");
-          if (locale === "en" || locale === "zh") document.documentElement.lang = locale;
+          if (locale !== "en" && locale !== "zh" && locale !== "ja") {
+            var n = (navigator.language || "").toLowerCase();
+            locale = n.indexOf("zh") === 0 ? "zh" : n.indexOf("ja") === 0 ? "ja" : "en";
+          }
+          document.documentElement.lang = locale;
         } catch (e) {}
       })();
     </script>
