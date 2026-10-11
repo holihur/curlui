@@ -173,6 +173,12 @@ export const api = {
       { method: "PUT", body: JSON.stringify(payload) },
     );
   },
+  confirmAI(id: string, decision: "once" | "always" | "deny") {
+    return request<{ ok: boolean }>("/ai/confirm", {
+      method: "POST",
+      body: JSON.stringify({ id, decision }),
+    });
+  },
   aiStatus() {
     return request<{ configured: boolean; provider: string; model: string; baseUrl: string }>(
       "/ai/status",

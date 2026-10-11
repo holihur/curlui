@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Send, Sparkles, Trash2 } from "lucide-react";
+import { Loader2, Send, ShieldAlert, Sparkles, Trash2 } from "lucide-react";
 import { Dialog, DialogContent, DialogDescription, DialogHeader, DialogTitle } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Textarea } from "@/components/ui/textarea";
@@ -8,6 +8,7 @@ import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 
 type Tool = { name: string; args?: any };
+type ConfirmReq = { id: string; tool: string; subject: string; args?: any; rule?: string };
 type Msg = { role: "user" | "assistant"; text: string; tools: Tool[]; error?: string };
 
 // AIChatDialog talks to the server-side agent. The agent runs with the caller's
@@ -24,6 +25,7 @@ export function AIChatDialog({
   const [draft, setDraft] = useState("");
   const [busy, setBusy] = useState(false);
   const [configured, setConfigured] = useState<boolean | null>(null);
+  const [confirmReq, setConfirmReq] = useState<ConfirmReq | null>(null);
   const sessionRef = useRef("");
   const logRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
@@ -43,6 +45,17 @@ export function AIChatDialog({
   const patchLast = (fn: (m: Msg) => Msg) =>
     setMessages((cur) => cur.map((m, i) => (i === cur.length - 1 ? fn(m) : m)));
 
+  const decide = async (decision: "once" | "always" | "deny") => {
+    const req = confirmReq;
+    if (!req) return;
+    setConfirmReq(null);
+    try {
+      await api.confirmAI(req.id, decision);
+    } catch {
+      /* the turn will surface the timeout */
+    }
+  };
+
   const send = async () => {
     const text = draft.trim();
     if (!text || busy) return;
@@ -61,6 +74,7 @@ export function AIChatDialog({
         (ev) => {
           if (ev.sessionId) sessionRef.current = ev.sessionId;
           if (ev.tool) patchLast((m) => ({ ...m, tools: [...m.tools, { name: ev.tool!, args: ev.args }] }));
+          if ((ev as any).confirm) setConfirmReq((ev as any).confirm);
           if (ev.text) patchLast((m) => ({ ...m, text: m.text + ev.text }));
           if (ev.error) patchLast((m) => ({ ...m, error: ev.error }));
         },
@@ -122,6 +136,40 @@ export function AIChatDialog({
             </div>
           ))}
         </div>
+
+        {confirmReq && (
+          <div className="rounded-md border border-amber-500/50 bg-amber-500/10 p-3">
+            <div className="flex items-center gap-2 text-sm font-medium text-amber-400">
+              <ShieldAlert className="h-4 w-4" /> {t("aiConfirmTitle")}
+            </div>
+            <p className="mt-1 text-xs text-muted-foreground">
+              {t("aiConfirmAsk")} <code className="font-mono text-foreground">{confirmReq.tool}</code>
+              {confirmReq.subject && (
+                <>
+                  {" · "}
+                  <code className="break-all font-mono text-foreground">{confirmReq.subject}</code>
+                </>
+              )}
+            </p>
+            {confirmReq.args && Object.keys(confirmReq.args).length > 0 && (
+              <pre className="mt-1 max-h-24 overflow-auto rounded bg-background/60 p-1.5 font-mono text-[10px]">
+                {JSON.stringify(confirmReq.args, null, 2)}
+              </pre>
+            )}
+            <div className="mt-2 flex flex-wrap gap-1.5">
+              <Button size="sm" className="h-7 text-xs" onClick={() => void decide("once")}>
+                {t("aiAllowOnce")}
+              </Button>
+              <Button size="sm" variant="secondary" className="h-7 text-xs" onClick={() => void decide("always")}>
+                {t("aiAllowAlways")}
+                {confirmReq.rule && <span className="ml-1 opacity-70">({confirmReq.rule})</span>}
+              </Button>
+              <Button size="sm" variant="destructive" className="h-7 text-xs" onClick={() => void decide("deny")}>
+                {t("aiDeny")}
+              </Button>
+            </div>
+          </div>
+        )}
 
         <div className="flex gap-2">
           <Textarea

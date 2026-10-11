@@ -76,6 +76,12 @@ type UserAI struct {
 	APIKey   string `json:"apiKey,omitempty"`
 	BaseURL  string `json:"baseUrl,omitempty"`
 	Model    string `json:"model,omitempty"`
+	// Allow lists tool rules that may run without asking. A rule is either a
+	// tool name ("send_request"), "tool:glob" or "*" — matched against
+	// "<tool> <subject>", where subject is the URL / name the tool acts on.
+	Allow []string `json:"allow,omitempty"`
+	// Deny is checked first: a matching rule refuses the call outright.
+	Deny []string `json:"deny,omitempty"`
 }
 
 // Configured reports whether the user has a usable key.
@@ -935,6 +941,43 @@ func (s *Store) SetAIConfig(userID string, cfg UserAI) error {
 	u.AI.Provider = cfg.Provider
 	u.AI.BaseURL = cfg.BaseURL
 	u.AI.Model = cfg.Model
+	if cfg.Allow != nil {
+		u.AI.Allow = cfg.Allow
+	}
+	if cfg.Deny != nil {
+		u.AI.Deny = cfg.Deny
+	}
+	if s.db != nil {
+		return s.pgSaveUserAI(userID, *u.AI)
+	}
+	return s.persistFile()
+}
+
+// AddAIRule appends a rule to the user's allow or deny list (idempotent).
+func (s *Store) AddAIRule(userID, list, rule string) error {
+	rule = strings.TrimSpace(rule)
+	if rule == "" {
+		return nil
+	}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.root.Users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	if u.AI == nil {
+		u.AI = &UserAI{}
+	}
+	target := &u.AI.Allow
+	if list == "deny" {
+		target = &u.AI.Deny
+	}
+	for _, r := range *target {
+		if r == rule {
+			return nil
+		}
+	}
+	*target = append(*target, rule)
 	if s.db != nil {
 		return s.pgSaveUserAI(userID, *u.AI)
 	}

@@ -43,7 +43,10 @@ func denied(need string) error {
 
 // BuildTools exposes curlui operations to the model. Every tool re-checks the
 // caller's scopes, so a read-only token can never mutate anything.
-func BuildTools(b Backend, scopes []string) ([]tool.Tool, error) {
+func BuildTools(b Backend, scopes []string, guard Guard) ([]tool.Tool, error) {
+	if guard == nil {
+		guard = allowAll{}
+	}
 	read := func(name, desc string, fn func(tool.Context, map[string]any) (any, error)) (tool.Tool, error) {
 		return functiontool.New(functiontool.Config{Name: name, Description: desc},
 			func(ctx tool.Context, args map[string]any) (any, error) {
@@ -59,6 +62,9 @@ func BuildTools(b Backend, scopes []string) ([]tool.Tool, error) {
 				if !allow(scopes, store.ScopeSend) {
 					return nil, denied(store.ScopeSend)
 				}
+				if err := guard.Approve(ctx, name, SubjectFor(name, args), args); err != nil {
+					return nil, err
+				}
 				return fn(ctx, args)
 			})
 	}
@@ -67,6 +73,9 @@ func BuildTools(b Backend, scopes []string) ([]tool.Tool, error) {
 			func(ctx tool.Context, args map[string]any) (any, error) {
 				if !allow(scopes, store.ScopeWrite) {
 					return nil, denied(store.ScopeWrite)
+				}
+				if err := guard.Approve(ctx, name, SubjectFor(name, args), args); err != nil {
+					return nil, err
 				}
 				return fn(ctx, args)
 			})

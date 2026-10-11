@@ -10,6 +10,7 @@ import {
 } from "@/components/ui/dialog";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
+import { Textarea } from "@/components/ui/textarea";
 import { Switch } from "@/components/ui/switch";
 import { Tabs, TabsContent, TabsList, TabsTrigger } from "@/components/ui/tabs";
 import {
@@ -79,6 +80,8 @@ export function SettingsDialog({
   const [aiBaseUrl, setAiBaseUrl] = useState("");
   const [aiModel, setAiModel] = useState("");
   const [aiConfigured, setAiConfigured] = useState(false);
+  const [aiAllow, setAiAllow] = useState("");
+  const [aiDeny, setAiDeny] = useState("");
   const [tokens, setTokens] = useState<
     { id: string; name: string; scopes: string[]; createdAt: string }[]
   >([]);
@@ -158,6 +161,8 @@ export function SettingsDialog({
         setAiBaseUrl(st.baseUrl ?? "");
         setAiModel(st.model ?? "");
         setAiKey("");
+        setAiAllow((st as any).allow?.join("\n") ?? "");
+        setAiDeny((st as any).deny?.join("\n") ?? "");
       })
       .catch(() => {});
     api.listScopes().then((r) => setScopes(r.scopes)).catch(() => {});
@@ -204,12 +209,19 @@ export function SettingsDialog({
         oidcAutoCreate: oidcAutoCreate ? "1" : "0",
         oidcDefaultRole: oidcRole,
       });
+      const lines = (v: string) =>
+        v
+          .split("\n")
+          .map((x) => x.trim())
+          .filter(Boolean);
       const ai = await api.saveAiSettings({
         provider: aiProvider,
         baseUrl: aiBaseUrl.trim(),
         model: aiModel.trim(),
         ...(aiKey.trim() ? { apiKey: aiKey.trim() } : {}),
-      });
+        allow: lines(aiAllow),
+        deny: lines(aiDeny),
+      } as any);
       setAiConfigured(ai.configured);
       setAiKey("");
       await useStore.getState().loadAuth();
@@ -538,6 +550,25 @@ export function SettingsDialog({
                     value={aiModel}
                     onChange={(e) => setAiModel(e.target.value)}
                     placeholder="claude-sonnet-4-5"
+                    spellCheck={false}
+                  />
+                </Field>
+                <Field label={t("aiAllowList")}>
+                  <Textarea
+                    className="min-h-[64px] font-mono text-[11px]"
+                    value={aiAllow}
+                    onChange={(e) => setAiAllow(e.target.value)}
+                    placeholder={"send_request:*httpbin.org*\nrun_saved_request"}
+                    spellCheck={false}
+                  />
+                  <p className="text-[11px] text-muted-foreground">{t("aiRuleHint")}</p>
+                </Field>
+                <Field label={t("aiDenyList")}>
+                  <Textarea
+                    className="min-h-[64px] font-mono text-[11px]"
+                    value={aiDeny}
+                    onChange={(e) => setAiDeny(e.target.value)}
+                    placeholder={"send_request:*internal.corp*"}
                     spellCheck={false}
                   />
                 </Field>

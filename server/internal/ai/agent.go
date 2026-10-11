@@ -29,12 +29,22 @@ Rules:
 
 // Event is one step of an assistant turn.
 type Event struct {
-	Text      string `json:"text,omitempty"`
-	SessionID string `json:"sessionId,omitempty"`
-	Tool      string `json:"tool,omitempty"`
-	Args      any    `json:"args,omitempty"`
-	Error     string `json:"error,omitempty"`
-	Final     bool   `json:"final,omitempty"`
+	Text      string   `json:"text,omitempty"`
+	SessionID string   `json:"sessionId,omitempty"`
+	Tool      string   `json:"tool,omitempty"`
+	Args      any      `json:"args,omitempty"`
+	Error     string   `json:"error,omitempty"`
+	Confirm   *Confirm `json:"confirm,omitempty"`
+	Final     bool     `json:"final,omitempty"`
+}
+
+// Confirm asks the human to approve one mutating tool call.
+type Confirm struct {
+	ID      string         `json:"id"`
+	Tool    string         `json:"tool"`
+	Subject string         `json:"subject"`
+	Args    map[string]any `json:"args,omitempty"`
+	Rule    string         `json:"rule,omitempty"`
 }
 
 // Agent runs an ADK agent bound to an in-memory session service. Tools are
@@ -45,12 +55,12 @@ type Agent struct {
 }
 
 // NewAgent builds the assistant for one BYOK configuration and scope set.
-func NewAgent(cfg Config, backend Backend, scopes []string) (*Agent, error) {
+func NewAgent(cfg Config, backend Backend, scopes []string, guard Guard) (*Agent, error) {
 	llm, err := NewLLM(cfg)
 	if err != nil {
 		return nil, err
 	}
-	tools, err := BuildTools(backend, scopes)
+	tools, err := BuildTools(backend, scopes, guard)
 	if err != nil {
 		return nil, err
 	}

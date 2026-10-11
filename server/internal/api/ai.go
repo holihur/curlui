@@ -3,10 +3,13 @@
 package api
 
 import (
+	"context"
 	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
+	"sync"
+	"time"
 
 	"curlui/server/internal/ai"
 	"curlui/server/internal/models"
@@ -34,6 +37,8 @@ func (s *Server) getAISettings(w http.ResponseWriter, r *http.Request) {
 		"provider":   cfg.Provider,
 		"model":      cfg.Model,
 		"baseUrl":    cfg.BaseURL,
+		"allow":      cfg.Allow,
+		"deny":       cfg.Deny,
 	})
 }
 
@@ -41,31 +46,43 @@ func (s *Server) getAISettings(w http.ResponseWriter, r *http.Request) {
 // existing secret so it never has to travel back to the browser.
 func (s *Server) saveAISettings(w http.ResponseWriter, r *http.Request) {
 	var in struct {
-		Provider string `json:"provider"`
-		APIKey   string `json:"apiKey"`
-		BaseURL  string `json:"baseUrl"`
-		Model    string `json:"model"`
+		Provider string    `json:"provider"`
+		APIKey   string    `json:"apiKey"`
+		BaseURL  string    `json:"baseUrl"`
+		Model    string    `json:"model"`
+		Allow    *[]string `json:"allow"`
+		Deny     *[]string `json:"deny"`
 	}
 	if err := decode(r, &in); err != nil {
 		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
 		return
 	}
 	user := userFrom(r)
-	if err := s.store.SetAIConfig(user.ID, store.UserAI{
+	cfg := store.UserAI{
 		Provider: in.Provider,
 		APIKey:   in.APIKey,
 		BaseURL:  strings.TrimRight(in.BaseURL, "/"),
 		Model:    in.Model,
-	}); err != nil {
+	}
+	// Only touch the lists when the client actually sends them.
+	if in.Allow != nil {
+		cfg.Allow = *in.Allow
+	}
+	if in.Deny != nil {
+		cfg.Deny = *in.Deny
+	}
+	if err := s.store.SetAIConfig(user.ID, cfg); err != nil {
 		writeErr(w, http.StatusInternalServerError, err.Error())
 		return
 	}
-	cfg := s.store.AIConfigFor(user.ID)
+	out := s.store.AIConfigFor(user.ID)
 	writeJSON(w, http.StatusOK, map[string]any{
-		"configured": cfg.Configured(),
-		"provider":   cfg.Provider,
-		"model":      cfg.Model,
-		"baseUrl":    cfg.BaseURL,
+		"configured": out.Configured(),
+		"provider":   out.Provider,
+		"model":      out.Model,
+		"baseUrl":    out.BaseURL,
+		"allow":      out.Allow,
+		"deny":       out.Deny,
 	})
 }
 
@@ -78,6 +95,105 @@ func (s *Server) aiStatus(w http.ResponseWriter, r *http.Request) {
 		"model":      cfg.Model,
 		"baseUrl":    cfg.BaseURL,
 	})
+}
+
+// --- human-in-the-loop approval ---------------------------------------------
+
+type pending struct {
+	user string
+	ch   chan string
+}
+
+// confirmRegistry holds the tool calls waiting for a human decision.
+var (
+	confirmMu  sync.Mutex
+	confirmReg = map[string]*pending{}
+)
+
+func registerConfirm(id, user string) chan string {
+	ch := make(chan string, 1)
+	confirmMu.Lock()
+	confirmReg[id] = &pending{user: user, ch: ch}
+	confirmMu.Unlock()
+	return ch
+}
+
+func resolveConfirm(id, user, decision string) bool {
+	confirmMu.Lock()
+	p, ok := confirmReg[id]
+	if ok && p.user == user {
+		delete(confirmReg, id)
+	}
+	confirmMu.Unlock()
+	if !ok || p.user != user {
+		return false
+	}
+	select {
+	case p.ch <- decision:
+	default:
+	}
+	return true
+}
+
+// sseGuard enforces the user's allow/deny rules and asks the browser to approve
+// anything else, blocking the tool call until the human answers.
+type sseGuard struct {
+	s     *Server
+	rules ai.Rules
+	user  string
+	emit  func(ai.Event) error
+}
+
+func (g *sseGuard) Approve(ctx context.Context, tool, subject string, args map[string]any) error {
+	if !ai.NeedsApproval(tool) {
+		return nil
+	}
+	if allowed, reason := g.rules.Decide(tool, subject); allowed != nil {
+		if *allowed {
+			return nil
+		}
+		return fmt.Errorf("refused: %s", reason)
+	}
+	id := models.NewID()
+	ch := registerConfirm(id, g.user)
+	rule := ai.RuleFor(tool, subject)
+	if err := g.emit(ai.Event{Confirm: &ai.Confirm{ID: id, Tool: tool, Subject: subject, Args: args, Rule: rule}}); err != nil {
+		return err
+	}
+	select {
+	case decision := <-ch:
+		switch decision {
+		case "once", "always":
+			if decision == "always" {
+				_ = g.s.store.AddAIRule(g.user, "allow", rule)
+			}
+			return nil
+		default:
+			return fmt.Errorf("the user denied this action")
+		}
+	case <-ctx.Done():
+		return ctx.Err()
+	case <-time.After(5 * time.Minute):
+		return fmt.Errorf("no confirmation was received")
+	}
+}
+
+// confirmAI resolves a pending tool approval.
+func (s *Server) confirmAI(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		ID       string `json:"id"`
+		Decision string `json:"decision"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	user := userFrom(r)
+	if !resolveConfirm(in.ID, user.ID, in.Decision) {
+		writeErr(w, http.StatusNotFound, "no such pending confirmation")
+		return
+	}
+	writeJSON(w, http.StatusOK, map[string]any{"ok": true})
 }
 
 // aiScope gates the assistant behind the token scope when a PAT is used.
@@ -109,12 +225,6 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 
-	agent, err := ai.NewAgent(cfg, s, scopesFrom(r))
-	if err != nil {
-		writeErr(w, http.StatusBadRequest, err.Error())
-		return
-	}
-
 	sessionID := strings.TrimSpace(in.SessionID)
 	if sessionID == "" {
 		sessionID = models.NewID()
@@ -126,13 +236,29 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 	w.Header().Set("Connection", "keep-alive")
 	w.Header().Set("X-Accel-Buffering", "no")
 	w.WriteHeader(http.StatusOK)
+	var writeMu sync.Mutex
 	send := func(ev ai.Event) error {
+		writeMu.Lock()
+		defer writeMu.Unlock()
 		ev.SessionID = sessionID
 		b, _ := json.Marshal(ev)
 		fmt.Fprintf(w, "data: %s\n\n", b)
 		flusher.Flush()
 		return nil
 	}
+	ucfg := s.store.AIConfigFor(user.ID)
+	guard := &sseGuard{
+		s:     s,
+		user:  user.ID,
+		rules: ai.Rules{Allow: ucfg.Allow, Deny: ucfg.Deny},
+		emit:  send,
+	}
+	agent, err := ai.NewAgent(cfg, s, scopesFrom(r), guard)
+	if err != nil {
+		_ = send(ai.Event{Error: err.Error()})
+		return
+	}
+
 	if err := agent.Chat(r.Context(), user.ID, sessionID, in.Message, send); err != nil {
 		_ = send(ai.Event{Error: err.Error()})
 	}
@@ -143,4 +269,5 @@ func (s *Server) registerAIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/ai/settings", s.getAISettings)
 	mux.HandleFunc("PUT /api/ai/settings", s.saveAISettings)
 	mux.HandleFunc("POST /api/ai/chat", s.aiChat)
+	mux.HandleFunc("POST /api/ai/confirm", s.confirmAI)
 }
