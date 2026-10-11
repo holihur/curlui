@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"crypto/tls"
+	"encoding/base64"
 	"net/http"
 	"strings"
 	"sync"
@@ -20,21 +21,28 @@ import (
 type wsFrame struct {
 	Type    string            `json:"type"`
 	URL     string            `json:"url,omitempty"`
-	Headers map[string]string `json:"headers,omitempty"`
+	Headers map[string]string `json:"headers,omitempty"` // request headers (connect)
+	// WebSocket negotiation
+	Subprotocols []string `json:"subprotocols,omitempty"`
+	Subprotocol  string   `json:"subprotocol,omitempty"`
 	// gRPC streaming mode (protocol == "grpc")
-	Protocol     string              `json:"protocol,omitempty"`
-	DescriptorID string              `json:"descriptorId,omitempty"`
-	Target       string              `json:"target,omitempty"`
-	Service      string              `json:"service,omitempty"`
-	Method       string              `json:"method,omitempty"`
-	Plaintext    bool                `json:"plaintext,omitempty"`
-	Metadata     map[string]string   `json:"metadata,omitempty"`
-	Data         string              `json:"data,omitempty"`
-	Binary       bool                `json:"binary,omitempty"`
-	Code         string              `json:"code,omitempty"`
-	Reason       string              `json:"reason,omitempty"`
-	Error        string              `json:"error,omitempty"`
-	Trailers     map[string][]string `json:"trailers,omitempty"`
+	Protocol     string            `json:"protocol,omitempty"`
+	DescriptorID string            `json:"descriptorId,omitempty"`
+	Target       string            `json:"target,omitempty"`
+	Service      string            `json:"service,omitempty"`
+	Method       string            `json:"method,omitempty"`
+	Plaintext    bool              `json:"plaintext,omitempty"`
+	Metadata     map[string]string `json:"metadata,omitempty"`
+	// Payloads
+	Data      string `json:"data,omitempty"`
+	Binary    bool   `json:"binary,omitempty"`
+	Code      string `json:"code,omitempty"`
+	CloseCode int    `json:"closeCode,omitempty"`
+	Reason    string `json:"reason,omitempty"`
+	Error     string `json:"error,omitempty"`
+	// gRPC metadata (multi-valued)
+	HeaderMD map[string][]string `json:"headerMd,omitempty"`
+	Trailers map[string][]string `json:"trailers,omitempty"`
 }
 
 // wsGrpcHandler is installed by the full build (grpc.go) to bridge interactive
@@ -95,7 +103,8 @@ func (s *Server) wsBridge(w http.ResponseWriter, r *http.Request) {
 
 	dialCtx, cancel := context.WithTimeout(ctx, 30*time.Second)
 	tc, _, err := websocket.Dial(dialCtx, first.URL, &websocket.DialOptions{
-		HTTPHeader: header,
+		Subprotocols: first.Subprotocols,
+		HTTPHeader:   header,
 		HTTPClient: &http.Client{
 			Transport: &http.Transport{
 				Proxy:           http.ProxyFromEnvironment,
@@ -109,7 +118,7 @@ func (s *Server) wsBridge(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	defer tc.CloseNow()
-	_ = write(wsFrame{Type: "open", URL: first.URL})
+	_ = write(wsFrame{Type: "open", URL: first.URL, Subprotocol: tc.Subprotocol()})
 
 	// Upstream -> browser.
 	done := make(chan struct{})
@@ -118,11 +127,18 @@ func (s *Server) wsBridge(w http.ResponseWriter, r *http.Request) {
 		for {
 			typ, data, err := tc.Read(ctx)
 			if err != nil {
-				_ = write(wsFrame{Type: "close", Reason: err.Error()})
+				st := websocket.CloseStatus(err)
+				_ = write(wsFrame{Type: "close", CloseCode: int(st), Reason: err.Error()})
 				_ = c.Close(websocket.StatusNormalClosure, "")
 				return
 			}
-			if err := write(wsFrame{Type: "message", Data: string(data), Binary: typ == websocket.MessageBinary}); err != nil {
+			frame := wsFrame{Type: "message", Binary: typ == websocket.MessageBinary}
+			if frame.Binary {
+				frame.Data = base64.StdEncoding.EncodeToString(data)
+			} else {
+				frame.Data = string(data)
+			}
+			if err := write(frame); err != nil {
 				return
 			}
 		}
@@ -142,10 +158,17 @@ func (s *Server) wsBridge(w http.ResponseWriter, r *http.Request) {
 		switch f.Type {
 		case "send":
 			mt := websocket.MessageText
+			payload := []byte(f.Data)
 			if f.Binary {
 				mt = websocket.MessageBinary
+				raw, derr := base64.StdEncoding.DecodeString(f.Data)
+				if derr != nil {
+					_ = write(wsFrame{Type: "error", Error: "binary payload must be base64"})
+					continue
+				}
+				payload = raw
 			}
-			if err := tc.Write(ctx, mt, []byte(f.Data)); err != nil {
+			if err := tc.Write(ctx, mt, payload); err != nil {
 				_ = write(wsFrame{Type: "error", Error: err.Error()})
 			}
 		case "close":

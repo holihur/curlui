@@ -441,6 +441,9 @@ func grpcWSBridge(ctx context.Context, st *store.Store, c *websocket.Conn, first
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		if hdr, hErr := stream.Header(); hErr == nil && len(hdr) > 0 {
+			_ = write(wsFrame{Type: "meta", HeaderMD: hdr})
+		}
 		for {
 			resp := dynamicpb.NewMessage(mdesc.Output())
 			err := stream.RecvMsg(resp)

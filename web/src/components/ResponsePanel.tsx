@@ -153,6 +153,10 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
     [res.request.body],
   );
 
+  // Server-Sent Events get a structured view alongside the raw body.
+  const isSSE = (res.contentType || "").toLowerCase().includes("text/event-stream");
+  const sseEvents = useMemo(() => (isSSE ? parseSSE(res.body) : []), [isSSE, res.body]);
+
   const assertionResults = res.assertions ?? [];
   const hooks = res.hooks ?? [];
   const hookTests = hooks.flatMap((h) => h.tests ?? []);
@@ -180,6 +184,17 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
               )}
             </TabsTrigger>
           ))}
+          {isSSE && (
+            <TabsTrigger
+              value="events"
+              className="rounded-none border-b-2 border-transparent !bg-transparent px-3 py-2 text-xs data-[state=active]:border-primary data-[state=active]:text-foreground data-[state=active]:shadow-none"
+            >
+              {t("respEvents")}
+              {sseEvents.length > 0 && (
+                <span className="ml-1 text-[10px] text-muted-foreground">{sseEvents.length}</span>
+              )}
+            </TabsTrigger>
+          )}
           {hasTests && (
             <TabsTrigger
               value="tests"
@@ -276,6 +291,32 @@ function ResponseTabs({ res }: { res: ApiResponse }) {
             </pre>
           )}
         </TabsContent>
+
+        {isSSE && (
+          <TabsContent value="events" className="m-0 h-full overflow-auto p-3">
+            {sseEvents.length === 0 ? (
+              <span className="text-xs text-muted-foreground">{t("emptyBody")}</span>
+            ) : (
+              <div className="flex flex-col gap-2">
+                {sseEvents.map((ev, i) => (
+                  <div key={i} className="rounded-md border bg-background p-2">
+                    <div className="mb-1 flex flex-wrap items-center gap-2 text-[10px] text-muted-foreground">
+                      <span className="rounded bg-muted px-1 font-medium">#{i + 1}</span>
+                      {ev.event && (
+                        <span className="rounded bg-primary/15 px-1 text-primary">{ev.event}</span>
+                      )}
+                      {ev.id && <span>id: {ev.id}</span>}
+                      {ev.retry && <span>retry: {ev.retry}</span>}
+                    </div>
+                    <pre className="m-0 whitespace-pre-wrap break-words font-mono text-xs">
+                      {prettyJSON(ev.data) || ev.data}
+                    </pre>
+                  </div>
+                ))}
+              </div>
+            )}
+          </TabsContent>
+        )}
 
         <TabsContent value="headers" className="m-0 h-full overflow-auto">
           <KeyValueTable
@@ -529,6 +570,32 @@ function saveResponse(res: ApiResponse) {
   a.click();
   a.remove();
   URL.revokeObjectURL(href);
+}
+
+type SSEEvent = { id?: string; event?: string; data: string; retry?: string };
+
+// parseSSE splits a text/event-stream body into its events (comments and
+// keep-alives are ignored).
+function parseSSE(body: string): SSEEvent[] {
+  const out: SSEEvent[] = [];
+  for (const block of body.split(/\r?\n\r?\n/)) {
+    if (!block.trim()) continue;
+    const ev: SSEEvent = { data: "" };
+    const dataLines: string[] = [];
+    for (const line of block.split(/\r?\n/)) {
+      if (line.startsWith(":")) continue;
+      const i = line.indexOf(":");
+      const field = i < 0 ? line : line.slice(0, i);
+      const value = i < 0 ? "" : line.slice(i + 1).replace(/^ /, "");
+      if (field === "data") dataLines.push(value);
+      else if (field === "event") ev.event = value;
+      else if (field === "id") ev.id = value;
+      else if (field === "retry") ev.retry = value;
+    }
+    ev.data = dataLines.join("\n");
+    out.push(ev);
+  }
+  return out;
 }
 
 // HighlightedBody renders text with every occurrence of query wrapped in <mark>.

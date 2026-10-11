@@ -226,7 +226,15 @@ export function GrpcPanel() {
       );
     };
     sock.onmessage = (e) => {
-      let f: { type: string; data?: string; code?: string; reason?: string; error?: string };
+      let f: {
+        type: string;
+        data?: string;
+        code?: string;
+        reason?: string;
+        error?: string;
+        headerMd?: Record<string, string[]>;
+        trailers?: Record<string, string[]>;
+      };
       try {
         f = JSON.parse(String(e.data));
       } catch {
@@ -243,8 +251,17 @@ export function GrpcPanel() {
         if (!selectedMethod?.clientStreaming) sock.send(JSON.stringify({ type: "end" }));
       } else if (f.type === "message") {
         setStreamLog((l) => [...l, { kind: "message", text: f.data ?? "" }]);
+      } else if (f.type === "meta") {
+        const md = Object.entries(f.headerMd ?? {})
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
+          .join("\n");
+        if (md) setStreamLog((l) => [...l, { kind: "headers", text: md }]);
       } else if (f.type === "status") {
         setStreamLog((l) => [...l, { kind: "status", text: `${f.code ?? "OK"}${f.reason ? ": " + f.reason : ""}` }]);
+        const tr = Object.entries(f.trailers ?? {})
+          .map(([k, v]) => `${k}: ${Array.isArray(v) ? v.join(", ") : v}`)
+          .join("\n");
+        if (tr) setStreamLog((l) => [...l, { kind: "trailers", text: tr }]);
         setStreaming(false);
       } else if (f.type === "info") {
         setStreamLog((l) => [...l, { kind: "meta", text: f.reason ?? "" }]);
@@ -559,6 +576,8 @@ export function GrpcPanel() {
                     "max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-2 font-mono text-[10px]",
                     e.kind === "error" && "text-red-400",
                     e.kind === "meta" && "text-muted-foreground",
+                    e.kind === "headers" && "text-muted-foreground",
+                    e.kind === "trailers" && "text-muted-foreground",
                     e.kind === "sent" && "text-blue-400",
                     e.kind === "status" && "text-emerald-400",
                   )}
