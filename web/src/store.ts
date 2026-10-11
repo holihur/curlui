@@ -550,7 +550,7 @@ export const useStore = create<State>((set, get) => ({
     const { tabs, activeTabId, activeEnvId, environments } = get();
     const tab = tabs.find((t) => t.id === activeTabId);
     if (!tab) return;
-    if (!tab.request.url.trim()) {
+    if (tab.request.protocol !== "grpc" && !tab.request.url.trim()) {
       get().toast({ title: translate("urlRequiredToast"), variant: "error" });
       return;
     }

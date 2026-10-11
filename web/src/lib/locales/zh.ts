@@ -7,6 +7,7 @@ export const zh: Record<MessageKey, string> = {
   rename: "重命名",
   delete: "删除",
   save: "保存",
+  saved: "已保存",
   duplicate: "复制",
   copyAsCurl: "复制为 cURL",
   duplicated: "已复制",

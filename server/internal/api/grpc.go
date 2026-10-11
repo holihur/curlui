@@ -3,6 +3,7 @@ package api
 import (
 	"context"
 	"encoding/base64"
+	"fmt"
 	"net/http"
 	"strings"
 	"time"
@@ -197,6 +198,58 @@ func (s *Server) grpcExample(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	writeJSON(w, http.StatusOK, map[string]any{"example": example})
+}
+
+// invokeGrpc executes a saved gRPC request and maps the result onto the normal
+// response shape so it renders in the standard response panel.
+func (s *Server) invokeGrpc(ctx context.Context, st *store.Store, req models.RequestDef) (models.Response, error) {
+	g := req.Grpc
+	if g == nil {
+		return models.Response{}, fmt.Errorf("grpc: call configuration is missing")
+	}
+	d, ok := st.FindDescriptor(g.DescriptorID)
+	if !ok {
+		return models.Response{}, fmt.Errorf("grpc: descriptor not found — import it in the gRPC tab")
+	}
+	files, ok := s.grpcFilesFor(st, d)
+	if !ok {
+		return models.Response{}, fmt.Errorf("grpc: stored descriptor could not be parsed")
+	}
+	target := g.Target
+	if target == "" {
+		target = d.Target
+	}
+	start := time.Now()
+	res, err := grpcx.Invoke(ctx, files, target, g.Service, g.Method, g.Body, g.Plaintext, keyValueMetadata(g.Metadata))
+	if err != nil {
+		return models.Response{
+			StatusText: "ERROR", Error: err.Error(),
+			Duration: time.Since(start).Milliseconds(),
+			Request:  models.SentRequest{Method: "GRPC", URL: target + "/" + g.Service + "/" + g.Method},
+		}, nil
+	}
+
+	status := 200
+	body := res.Response
+	if res.Code != "OK" {
+		status = 502
+		if res.Message != "" {
+			body = res.Message
+		}
+	}
+	headers := map[string][]string{}
+	for k, v := range res.Headers {
+		headers[k] = v
+	}
+	for k, v := range res.Trailers {
+		headers["trailer:"+k] = v
+	}
+	return models.Response{
+		Status: status, StatusText: res.Code, Body: body, ContentType: "application/json",
+		Size: len(body), Duration: res.Duration, Timing: models.Timing{Total: res.Duration},
+		Headers: headers,
+		Request: models.SentRequest{Method: "GRPC", URL: target + "/" + g.Service + "/" + g.Method},
+	}, nil
 }
 
 // --- descriptor cache ------------------------------------------------------

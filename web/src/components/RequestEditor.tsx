@@ -36,7 +36,7 @@ const CodeDialog = lazy(() => import("@/components/CodeDialog").then((m) => ({ d
 import { tryPrettyJSON } from "@/lib/highlight";
 import { useI18n, type MessageKey } from "@/lib/i18n";
 import { useActiveTab, useStore } from "@/store";
-import type { AuthType, BodyType, GraphQLSchema, RequestDef } from "@/lib/types";
+import type { AuthType, BodyType, GraphQLSchema, GrpcCall, GrpcStoredDescriptor, RequestDef } from "@/lib/types";
 import { api } from "@/lib/api";
 
 const METHODS = ["GET", "POST", "PUT", "PATCH", "DELETE", "HEAD", "OPTIONS"];
@@ -123,29 +123,82 @@ export function RequestEditor() {
     <div className="flex min-h-0 flex-1 flex-col">
       {/* URL bar */}
       <div className="flex flex-wrap items-center gap-2 border-b p-2 sm:p-2.5">
-        <Select value={req.method} onValueChange={(v) => updateActiveRequest({ method: v })}>
-          <SelectTrigger className={cn("h-9 w-[110px] shrink-0 font-semibold", `method-${req.method}`)}>
-            <SelectValue />
-          </SelectTrigger>
-          <SelectContent>
-            {METHODS.map((m) => (
-              <SelectItem key={m} value={m} className={cn("font-semibold", `method-${m}`)}>
-                {m}
-              </SelectItem>
-            ))}
-          </SelectContent>
-        </Select>
+        <Button
+          variant="outline"
+          size="sm"
+          className="h-9 shrink-0 px-2 text-[11px] font-semibold"
+          title={t("grpc")}
+          onClick={() =>
+            updateActiveRequest(
+              req.protocol === "grpc"
+                ? { protocol: "http" }
+                : {
+                    protocol: "grpc",
+                    grpc: req.grpc ?? {
+                      target: "localhost:50051",
+                      service: "",
+                      method: "",
+                      descriptorId: "",
+                      plaintext: true,
+                      body: "{}",
+                    },
+                  },
+            )
+          }
+        >
+          {req.protocol === "grpc" ? "gRPC" : "HTTP"}
+        </Button>
 
-        <Input
-          value={req.url}
-          onChange={(e) => updateActiveRequest({ url: e.target.value })}
-          onKeyDown={(e) => {
-            if (e.key === "Enter") void send();
-          }}
-          placeholder={t("urlPlaceholder")}
-          className="h-9 min-w-[140px] flex-1 font-mono text-sm"
-          spellCheck={false}
-        />
+        {req.protocol === "grpc" ? (
+          <Input
+            value={req.grpc?.target ?? ""}
+            onChange={(e) =>
+              updateActiveRequest({
+                grpc: {
+                  service: "",
+                  method: "",
+                  descriptorId: "",
+                  plaintext: true,
+                  body: "{}",
+                  ...(req.grpc ?? {}),
+                  target: e.target.value,
+                },
+              })
+            }
+            onKeyDown={(e) => {
+              if (e.key === "Enter") void send();
+            }}
+            placeholder="localhost:50051"
+            className="h-9 min-w-[140px] flex-1 font-mono text-sm"
+            spellCheck={false}
+          />
+        ) : (
+          <>
+            <Select value={req.method} onValueChange={(v) => updateActiveRequest({ method: v })}>
+              <SelectTrigger className={cn("h-9 w-[110px] shrink-0 font-semibold", `method-${req.method}`)}>
+                <SelectValue />
+              </SelectTrigger>
+              <SelectContent>
+                {METHODS.map((m) => (
+                  <SelectItem key={m} value={m} className={cn("font-semibold", `method-${m}`)}>
+                    {m}
+                  </SelectItem>
+                ))}
+              </SelectContent>
+            </Select>
+
+            <Input
+              value={req.url}
+              onChange={(e) => updateActiveRequest({ url: e.target.value })}
+              onKeyDown={(e) => {
+                if (e.key === "Enter") void send();
+              }}
+              placeholder={t("urlPlaceholder")}
+              className="h-9 min-w-[140px] flex-1 font-mono text-sm"
+              spellCheck={false}
+            />
+          </>
+        )}
 
         <div className="flex">
           <Button
@@ -226,6 +279,9 @@ export function RequestEditor() {
         className="flex shrink-0 flex-col overflow-hidden border-b bg-card/40"
         style={{ height: configHeight }}
       >
+        {req.protocol === "grpc" ? (
+          <GrpcEditor req={req} onChange={updateActiveRequest} />
+        ) : (
         <Tabs defaultValue="params" className="flex min-h-0 flex-1 flex-col">
           <div className="shrink-0 overflow-x-auto border-b px-2 pt-1.5">
             <TabsList className="h-8 bg-transparent p-0">
@@ -279,6 +335,7 @@ export function RequestEditor() {
             </TabsContent>
           </div>
         </Tabs>
+        )}
       </div>
 
       {/* Drag handle */}
@@ -999,6 +1056,128 @@ function OptionsEditor({
           spellCheck={false}
         />
       </Field>
+    </div>
+  );
+}
+
+// GrpcEditor configures a saved gRPC request (protocol === "grpc").
+function GrpcEditor({
+  req,
+  onChange,
+}: {
+  req: RequestDef;
+  onChange: (patch: Partial<RequestDef>) => void;
+}) {
+  const { t } = useI18n();
+  const [descriptors, setDescriptors] = useState<GrpcStoredDescriptor[]>([]);
+
+  useEffect(() => {
+    api
+      .listGrpcDescriptors()
+      .then((r) => setDescriptors(r.descriptors ?? []))
+      .catch(() => {});
+  }, []);
+
+  const g: GrpcCall = req.grpc ?? {
+    target: "localhost:50051",
+    service: "",
+    method: "",
+    descriptorId: "",
+    plaintext: true,
+    body: "{}",
+  };
+  const setG = (patch: Partial<GrpcCall>) => onChange({ grpc: { ...g, ...patch } });
+
+  const services = descriptors.find((d) => d.id === g.descriptorId)?.services ?? [];
+  const current = services.find((s) => `${s.package ? s.package + "." : ""}${s.name}` === g.service);
+
+  return (
+    <div className="flex min-h-0 flex-1 flex-col gap-3 overflow-y-auto p-3">
+      <div className="grid gap-3 sm:grid-cols-3">
+        <Field label={t("grpcSaved")}>
+          <Select
+            value={g.descriptorId}
+            onValueChange={(v) => {
+              const first = descriptors.find((d) => d.id === v)?.services?.[0];
+              setG({
+                descriptorId: v,
+                service: first ? `${first.package ? first.package + "." : ""}${first.name}` : "",
+                method: first?.methods?.[0]?.name ?? "",
+              });
+            }}
+          >
+            <SelectTrigger className="h-9 font-mono text-xs">
+              <SelectValue placeholder={t("grpcNoDescriptors")} />
+            </SelectTrigger>
+            <SelectContent>
+              {descriptors.map((d) => (
+                <SelectItem key={d.id} value={d.id}>
+                  {d.name}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field label={t("grpcService")}>
+          <Select
+            value={g.service}
+            onValueChange={(v) => {
+              const svc = services.find((s) => `${s.package ? s.package + "." : ""}${s.name}` === v);
+              setG({ service: v, method: svc?.methods?.[0]?.name ?? "" });
+            }}
+          >
+            <SelectTrigger className="h-9 font-mono text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {services.map((s) => {
+                const full = `${s.package ? s.package + "." : ""}${s.name}`;
+                return (
+                  <SelectItem key={full} value={full}>
+                    {full}
+                  </SelectItem>
+                );
+              })}
+            </SelectContent>
+          </Select>
+        </Field>
+        <Field label={t("grpcMethod")}>
+          <Select value={g.method} onValueChange={(v) => setG({ method: v })}>
+            <SelectTrigger className="h-9 font-mono text-xs">
+              <SelectValue />
+            </SelectTrigger>
+            <SelectContent>
+              {(current?.methods ?? []).map((m) => (
+                <SelectItem key={m.name} value={m.name}>
+                  {m.name}
+                  {m.streaming ? " (stream)" : ""}
+                </SelectItem>
+              ))}
+            </SelectContent>
+          </Select>
+        </Field>
+      </div>
+
+      <label className="flex items-center gap-2 text-xs text-muted-foreground">
+        <Switch checked={g.plaintext} onCheckedChange={(v) => setG({ plaintext: v })} />
+        {t("grpcPlaintext")}
+      </label>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">{t("grpcMetadata")}</span>
+        <KeyValueEditor items={g.metadata ?? []} onChange={(metadata) => setG({ metadata })} showDescription />
+      </div>
+
+      <div className="flex flex-col gap-1.5">
+        <span className="text-xs font-medium text-muted-foreground">JSON</span>
+        <CodeEditor
+          value={g.body}
+          onChange={(body) => setG({ body })}
+          language="json"
+          className="min-h-[140px]"
+          placeholder={'{\n  "service": ""\n}'}
+        />
+      </div>
     </div>
   );
 }

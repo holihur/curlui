@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Network, Play, Radio, Sparkles, Trash2, Upload } from "lucide-react";
+import { Loader2, Network, Play, Radio, Save, Sparkles, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -16,6 +16,7 @@ import { useI18n } from "@/lib/i18n";
 import { api } from "@/lib/api";
 import { useStore } from "@/store";
 import type { GrpcResult, GrpcService, GrpcStoredDescriptor, KeyValue } from "@/lib/types";
+import { blankRequest } from "@/lib/types";
 
 const TARGET_KEY = "curlui.grpc.target";
 const DESC_KEY = "curlui.grpc.descriptor";
@@ -48,6 +49,8 @@ function parseMetadata(text: string): KeyValue[] {
 export function GrpcPanel() {
   const { t } = useI18n();
   const toast = useStore((s) => s.toast);
+  const createRequest = useStore((s) => s.createRequest);
+  const selectedFolderId = useStore((s) => s.selectedFolderId);
 
   const [target, setTarget] = useState(() => localStorage.getItem(TARGET_KEY) ?? "localhost:50051");
   const [plaintext, setPlaintext] = useState(true);
@@ -184,6 +187,30 @@ export function GrpcPanel() {
       fail(err);
     } finally {
       setBusy(false);
+    }
+  };
+
+  // Save the current call into the collection tree (protocol: grpc) so it can
+  // be reopened, exported and shared like any HTTP request.
+  const saveToCollection = async () => {
+    try {
+      const id = await createRequest(`gRPC ${method || service || "call"}`, selectedFolderId ?? "", {
+        ...blankRequest(),
+        protocol: "grpc",
+        name: `gRPC ${method || service || "call"}`,
+        grpc: {
+          target,
+          service,
+          method,
+          descriptorId: selectedId,
+          plaintext,
+          body,
+          metadata: parseMetadata(metadata),
+        },
+      });
+      if (id) toast({ title: t("saved"), variant: "success" });
+    } catch (err) {
+      fail(err);
     }
   };
 
@@ -352,8 +379,18 @@ export function GrpcPanel() {
             <div className="flex items-center gap-1">
               <span className="text-[11px] font-medium text-muted-foreground">JSON</span>
               <Button
+                variant="ghost"
                 size="xs"
-                className="ml-auto h-6 gap-1 text-[10px]"
+                className="ml-auto h-6 gap-1 text-[10px] text-muted-foreground"
+                disabled={!selectedId || !service || !method}
+                onClick={() => void saveToCollection()}
+                title={t("save")}
+              >
+                <Save className="h-3 w-3" /> {t("save")}
+              </Button>
+              <Button
+                size="xs"
+                className="h-6 gap-1 text-[10px]"
                 disabled={busy || !selectedId || !service || !method}
                 onClick={() => void invoke()}
               >

@@ -371,6 +371,23 @@ func (s *Server) runRequest(ctx context.Context, st *store.Store, payload sendPa
 		envSet = envSet.Merge(variables.Set(payload.Variables))
 	}
 
+	// gRPC requests are executed with the gRPC client instead of HTTP.
+	if payload.Request.Protocol == "grpc" {
+		resp, err := s.invokeGrpc(ctx, st, payload.Request)
+		if err != nil {
+			resp.Error = err.Error()
+		}
+		entry := models.HistoryEntry{
+			ID: models.NewID(), Request: payload.Request, Status: resp.Status,
+			StatusText: resp.StatusText, Duration: resp.Duration, Size: resp.Size,
+			Error: resp.Error, EnvID: payload.EnvID, CreatedAt: time.Now().UnixMilli(),
+		}
+		if err := st.AddHistory(entry); err != nil {
+			log.Printf("history save failed: %v", err)
+		}
+		return resp, envSet
+	}
+
 	// Run parent (ancestor) requests first so their responses can be
 	// referenced by this request. Values are extracted into variables.
 	for _, parent := range payload.Parents {

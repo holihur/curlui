@@ -6,6 +6,7 @@ export const en = {
   rename: "Rename",
   delete: "Delete",
   save: "Save",
+  saved: "Saved",
   duplicate: "Duplicate",
   copyAsCurl: "Copy as cURL",
   duplicated: "Duplicated",

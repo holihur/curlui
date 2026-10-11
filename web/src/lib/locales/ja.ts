@@ -7,6 +7,7 @@ export const ja: Record<MessageKey, string> = {
   rename: "名前を変更",
   delete: "削除",
   save: "保存",
+  saved: "保存しました",
   duplicate: "複製",
   copyAsCurl: "cURL としてコピー",
   duplicated: "複製しました",

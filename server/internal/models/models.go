@@ -82,6 +82,17 @@ type Auth struct {
 	AWSSessionToken string `json:"awsSessionToken,omitempty"`
 }
 
+// GrpcCall describes a saved gRPC request.
+type GrpcCall struct {
+	Target       string     `json:"target"`
+	Service      string     `json:"service"`
+	Method       string     `json:"method"`
+	DescriptorID string     `json:"descriptorId"`
+	Plaintext    bool       `json:"plaintext"`
+	Body         string     `json:"body"`
+	Metadata     []KeyValue `json:"metadata,omitempty"`
+}
+
 // Options controls how the request is executed.
 type Options struct {
 	Timeout         int    `json:"timeout"`         // milliseconds
@@ -129,6 +140,11 @@ type RequestDef struct {
 	Auth    Auth       `json:"auth"`
 	Options Options    `json:"options"`
 	Scripts Scripts    `json:"scripts"`
+
+	// Protocol is "http" (default) or "grpc". When "grpc", the call is
+	// described by Grpc and executed with the gRPC client.
+	Protocol string    `json:"protocol,omitempty"`
+	Grpc     *GrpcCall `json:"grpc,omitempty"`
 	// DependsOn lists collection node IDs of parent requests that must run
 	// before this one. Their response values can be referenced via Extract.
 	DependsOn []string `json:"dependsOn,omitempty"`

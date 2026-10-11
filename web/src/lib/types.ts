@@ -284,6 +284,16 @@ export type HookResult = {
   duration: number;
 };
 
+export type GrpcCall = {
+  target: string;
+  service: string;
+  method: string;
+  descriptorId: string;
+  plaintext: boolean;
+  body: string;
+  metadata?: KeyValue[];
+};
+
 export type RequestDef = {
   id: string;
   name: string;
@@ -299,6 +309,9 @@ export type RequestDef = {
   extract: ExtractRule[];
   assertions: Assertion[];
   mocks: MockResponse[];
+  // protocol: "http" (default) or "grpc".
+  protocol?: "http" | "grpc";
+  grpc?: GrpcCall;
 };
 
 export type Environment = {
@@ -391,6 +404,7 @@ export const blankRequest = (): RequestDef => ({
   extract: [],
   assertions: [],
   mocks: [],
+  protocol: "http",
 });
 
 export const emptyKV = (): KeyValue => ({
