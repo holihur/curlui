@@ -7,12 +7,21 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
+	"io"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"github.com/coder/websocket"
+	"github.com/coder/websocket/wsjson"
+	"google.golang.org/grpc"
+	"google.golang.org/grpc/metadata"
+	"google.golang.org/grpc/status"
+	"google.golang.org/protobuf/encoding/protojson"
+	"google.golang.org/protobuf/reflect/protoreflect"
 	"google.golang.org/protobuf/reflect/protoregistry"
+	"google.golang.org/protobuf/types/dynamicpb"
 
 	"curlui/server/internal/grpcx"
 	"curlui/server/internal/models"
@@ -370,6 +379,121 @@ func (s *Server) registerGrpcRoutes(mux *http.ServeMux) {
 }
 
 func base64Encode(b []byte) string { return base64.StdEncoding.EncodeToString(b) }
+
+func init() { wsGrpcHandler = grpcWSBridge }
+
+// grpcWSBridge drives an interactive streaming RPC over the WebSocket bridge:
+// the browser can send messages at any time while responses stream back.
+func grpcWSBridge(ctx context.Context, st *store.Store, c *websocket.Conn, first wsFrame, write func(wsFrame) error) error {
+	d, ok := st.FindDescriptor(first.DescriptorID)
+	if !ok {
+		return fmt.Errorf("unknown descriptor; import a .pb file or use reflection first")
+	}
+	files, ok := grpcFilesFor(d)
+	if !ok {
+		return fmt.Errorf("stored descriptor could not be parsed")
+	}
+	target := first.Target
+	if target == "" {
+		target = d.Target
+	}
+	desc, err := files.FindDescriptorByName(protoreflect.FullName(first.Service))
+	if err != nil {
+		return fmt.Errorf("service %q not found in descriptor", first.Service)
+	}
+	sd, ok := desc.(protoreflect.ServiceDescriptor)
+	if !ok {
+		return fmt.Errorf("%q is not a service", first.Service)
+	}
+	mdesc := sd.Methods().ByName(protoreflect.Name(first.Method))
+	if mdesc == nil {
+		return fmt.Errorf("method %q not found on %s", first.Method, first.Service)
+	}
+	if !mdesc.IsStreamingClient() && !mdesc.IsStreamingServer() {
+		return fmt.Errorf("%s/%s is a unary method", first.Service, first.Method)
+	}
+
+	conn, err := grpcx.Dial(target, first.Plaintext)
+	if err != nil {
+		return err
+	}
+	defer conn.Close()
+
+	streamDesc := &grpc.StreamDesc{
+		StreamName:    first.Method,
+		ServerStreams: mdesc.IsStreamingServer(),
+		ClientStreams: mdesc.IsStreamingClient(),
+	}
+	sctx := ctx
+	if len(first.Metadata) > 0 {
+		md := metadata.MD{}
+		for k, v := range first.Metadata {
+			md.Append(k, v)
+		}
+		sctx = metadata.NewOutgoingContext(sctx, md)
+	}
+	stream, err := conn.NewStream(sctx, streamDesc, "/"+first.Service+"/"+first.Method)
+	if err != nil {
+		return err
+	}
+	_ = write(wsFrame{Type: "open"})
+
+	done := make(chan struct{})
+	go func() {
+		defer close(done)
+		for {
+			resp := dynamicpb.NewMessage(mdesc.Output())
+			err := stream.RecvMsg(resp)
+			if err == io.EOF {
+				_ = write(wsFrame{Type: "status", Code: "OK", Trailers: stream.Trailer()})
+				_ = c.Close(websocket.StatusNormalClosure, "")
+				return
+			}
+			if err != nil {
+				stt, _ := status.FromError(err)
+				_ = write(wsFrame{Type: "status", Code: stt.Code().String(), Reason: stt.Message(), Trailers: stream.Trailer()})
+				_ = c.Close(websocket.StatusNormalClosure, "")
+				return
+			}
+			js, mErr := protojson.MarshalOptions{Indent: "  ", EmitUnpopulated: true}.Marshal(resp)
+			if mErr != nil {
+				_ = write(wsFrame{Type: "error", Error: mErr.Error()})
+				continue
+			}
+			_ = write(wsFrame{Type: "message", Data: string(js)})
+		}
+	}()
+
+	for {
+		select {
+		case <-done:
+			return nil
+		default:
+		}
+		var f wsFrame
+		if err := wsjson.Read(ctx, c, &f); err != nil {
+			return nil
+		}
+		switch f.Type {
+		case "send":
+			msg := dynamicpb.NewMessage(mdesc.Input())
+			if strings.TrimSpace(f.Data) != "" {
+				if err := protojson.Unmarshal([]byte(f.Data), msg); err != nil {
+					_ = write(wsFrame{Type: "error", Error: err.Error()})
+					continue
+				}
+			}
+			if err := stream.SendMsg(msg); err != nil {
+				_ = write(wsFrame{Type: "error", Error: err.Error()})
+			}
+		case "end":
+			_ = stream.CloseSend()
+			_ = write(wsFrame{Type: "info", Reason: "half-closed"})
+		case "close":
+			return nil
+		}
+	}
+}
 
 func keyValueMetadata(kvs []models.KeyValue) map[string][]string {
 	if len(kvs) == 0 {

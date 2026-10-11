@@ -148,6 +148,7 @@ export const zh: Record<MessageKey, string> = {
 
   renameRequest: "重命名请求",
 
+  grpcEndSend: "结束发送",
   grpcStream: "流式调用",
   grpcStreamOpen: "流已打开",
   stream: "流式（SSE / 分块）",

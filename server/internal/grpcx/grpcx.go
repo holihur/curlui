@@ -36,10 +36,12 @@ import (
 
 // Method describes an RPC method.
 type Method struct {
-	Name      string `json:"name"`
-	Input     string `json:"input"`
-	Output    string `json:"output"`
-	Streaming bool   `json:"streaming"`
+	Name            string `json:"name"`
+	Input           string `json:"input"`
+	Output          string `json:"output"`
+	Streaming       bool   `json:"streaming"`
+	ClientStreaming bool   `json:"clientStreaming,omitempty"`
+	ServerStreaming bool   `json:"serverStreaming,omitempty"`
 }
 
 // Service describes a gRPC service.
@@ -204,10 +206,12 @@ func Services(files *protoregistry.Files) []Service {
 			for j := 0; j < methods.Len(); j++ {
 				md := methods.Get(j)
 				svc.Methods = append(svc.Methods, Method{
-					Name:      string(md.Name()),
-					Input:     string(md.Input().FullName()),
-					Output:    string(md.Output().FullName()),
-					Streaming: md.IsStreamingClient() || md.IsStreamingServer(),
+					Name:            string(md.Name()),
+					Input:           string(md.Input().FullName()),
+					Output:          string(md.Output().FullName()),
+					Streaming:       md.IsStreamingClient() || md.IsStreamingServer(),
+					ClientStreaming: md.IsStreamingClient(),
+					ServerStreaming: md.IsStreamingServer(),
 				})
 			}
 			out = append(out, svc)

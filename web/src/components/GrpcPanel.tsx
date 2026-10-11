@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { Loader2, Network, Play, Radio, Save, Sparkles, Square, Trash2, Upload } from "lucide-react";
+import { Loader2, Network, Play, Radio, Save, Send, Sparkles, Square, Trash2, Upload } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Switch } from "@/components/ui/switch";
@@ -66,13 +66,17 @@ export function GrpcPanel() {
   const [loaded, setLoaded] = useState(false);
   const [streamLog, setStreamLog] = useState<{ kind: string; text: string }[]>([]);
   const [streaming, setStreaming] = useState(false);
-  const streamAbort = useRef<AbortController | null>(null);
+  const [streamDraft, setStreamDraft] = useState("");
+  const wsRef = useRef<WebSocket | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
 
   const fullName = (svc: GrpcService) => (svc.package ? svc.package + "." : "") + svc.name;
   const isStreamingMethod = services.some(
     (svc) => fullName(svc) === service && svc.methods.some((m) => m.name === method && m.streaming),
   );
+  const selectedMethod = services
+    .find((svc) => fullName(svc) === service)
+    ?.methods.find((m) => m.name === method);
 
   const fail = (err: unknown) =>
     toast({
@@ -198,33 +202,79 @@ export function GrpcPanel() {
     }
   };
 
-  // streamCall runs a streaming RPC and renders each message as it arrives.
-  const streamCall = async () => {
-    setStreaming(true);
+  // streamCall opens an interactive streaming RPC over the WebSocket bridge, so
+  // messages can be sent and received at the same time (true bidi).
+  const streamCall = () => {
     setStreamLog([]);
-    streamAbort.current = new AbortController();
-    try {
-      await api.grpcStream(
-        { id: selectedId, target, service, method, body, plaintext, metadata: parseMetadata(metadata) },
-        (ev) => {
-          if (ev.type === "meta") {
-            setStreamLog((l) => [...l, { kind: "meta", text: t("grpcStreamOpen") }]);
-          } else if (ev.type === "message") {
-            setStreamLog((l) => [...l, { kind: "message", text: ev.response ?? "" }]);
-          } else if (ev.type === "status") {
-            setStreamLog((l) => [...l, { kind: "status", text: `${ev.code ?? "OK"} · ${formatMs(ev.duration ?? 0)}` }]);
-          } else if (ev.type === "error") {
-            setStreamLog((l) => [...l, { kind: "error", text: ev.message ?? "error" }]);
-          }
-        },
-        streamAbort.current.signal,
+    const proto = location.protocol === "https:" ? "wss:" : "ws:";
+    const sock = new WebSocket(`${proto}//${location.host}/api/ws`);
+    wsRef.current = sock;
+    const md: Record<string, string> = {};
+    for (const kv of parseMetadata(metadata)) if (kv.key) md[kv.key] = kv.value;
+    sock.onopen = () => {
+      sock.send(
+        JSON.stringify({
+          type: "connect",
+          protocol: "grpc",
+          descriptorId: selectedId,
+          target,
+          service,
+          method,
+          plaintext,
+          metadata: md,
+        }),
       );
-    } catch (err) {
-      if (!(err instanceof Error && err.message.includes("abort"))) fail(err);
-    } finally {
+    };
+    sock.onmessage = (e) => {
+      let f: { type: string; data?: string; code?: string; reason?: string; error?: string };
+      try {
+        f = JSON.parse(String(e.data));
+      } catch {
+        return;
+      }
+      if (f.type === "open") {
+        setStreaming(true);
+        setStreamLog((l) => [...l, { kind: "meta", text: t("grpcStreamOpen") }]);
+        // Send the request body, then half-close for server-streaming methods.
+        if (body.trim()) {
+          sock.send(JSON.stringify({ type: "send", data: body }));
+          setStreamLog((l) => [...l, { kind: "sent", text: body }]);
+        }
+        if (!selectedMethod?.clientStreaming) sock.send(JSON.stringify({ type: "end" }));
+      } else if (f.type === "message") {
+        setStreamLog((l) => [...l, { kind: "message", text: f.data ?? "" }]);
+      } else if (f.type === "status") {
+        setStreamLog((l) => [...l, { kind: "status", text: `${f.code ?? "OK"}${f.reason ? ": " + f.reason : ""}` }]);
+        setStreaming(false);
+      } else if (f.type === "info") {
+        setStreamLog((l) => [...l, { kind: "meta", text: f.reason ?? "" }]);
+      } else if (f.type === "error") {
+        setStreamLog((l) => [...l, { kind: "error", text: f.error ?? "error" }]);
+      }
+    };
+    sock.onclose = () => {
       setStreaming(false);
-      streamAbort.current = null;
-    }
+      wsRef.current = null;
+    };
+    sock.onerror = () => setStreamLog((l) => [...l, { kind: "error", text: "socket error" }]);
+  };
+
+  const sendStreamMessage = () => {
+    const sock = wsRef.current;
+    if (!sock || sock.readyState !== WebSocket.OPEN || !streamDraft.trim()) return;
+    sock.send(JSON.stringify({ type: "send", data: streamDraft }));
+    setStreamLog((l) => [...l, { kind: "sent", text: streamDraft }]);
+    setStreamDraft("");
+  };
+
+  const endSend = () => wsRef.current?.send(JSON.stringify({ type: "end" }));
+
+  const stopStream = () => {
+    const sock = wsRef.current;
+    if (sock && sock.readyState === WebSocket.OPEN) sock.send(JSON.stringify({ type: "close" }));
+    sock?.close();
+    wsRef.current = null;
+    setStreaming(false);
   };
 
   // Save the current call into the collection tree (protocol: grpc) so it can
@@ -440,7 +490,7 @@ export function GrpcPanel() {
                   variant={streaming ? "destructive" : "secondary"}
                   className="h-6 gap-1 text-[10px]"
                   disabled={!selectedId || !service || !method}
-                  onClick={() => (streaming ? streamAbort.current?.abort() : void streamCall())}
+                  onClick={() => (streaming ? stopStream() : streamCall())}
                 >
                   {streaming ? <Square className="h-3 w-3" /> : <Radio className="h-3 w-3" />}
                   {streaming ? t("stop") : t("grpcStream")}
@@ -448,6 +498,32 @@ export function GrpcPanel() {
               )}
             </div>
             <CodeEditor value={body} onChange={setBody} language="json" className="min-h-[110px]" />
+            {streaming && (
+              <div className="mt-1 flex gap-1">
+                <Input
+                  className="h-7 flex-1 font-mono text-[10px]"
+                  value={streamDraft}
+                  onChange={(e) => setStreamDraft(e.target.value)}
+                  onKeyDown={(e) => {
+                    if (e.key === "Enter") sendStreamMessage();
+                  }}
+                  placeholder={t("wsMessage")}
+                />
+                <Button
+                  size="xs"
+                  className="h-7 gap-1 text-[10px]"
+                  onClick={sendStreamMessage}
+                  disabled={!streamDraft.trim()}
+                >
+                  <Send className="h-3 w-3" /> {t("wsSend")}
+                </Button>
+                {selectedMethod?.clientStreaming && (
+                  <Button size="xs" variant="secondary" className="h-7 text-[10px]" onClick={endSend}>
+                    {t("grpcEndSend")}
+                  </Button>
+                )}
+              </div>
+            )}
           </div>
 
           {result && (
@@ -483,10 +559,12 @@ export function GrpcPanel() {
                     "max-h-40 overflow-auto whitespace-pre-wrap break-words rounded-md border bg-background p-2 font-mono text-[10px]",
                     e.kind === "error" && "text-red-400",
                     e.kind === "meta" && "text-muted-foreground",
+                    e.kind === "sent" && "text-blue-400",
                     e.kind === "status" && "text-emerald-400",
                   )}
                 >
-                  {e.kind === "message" ? prettyJSON(e.text) || e.text : e.text}
+                  {e.kind === "sent" ? "↑ " : e.kind === "message" ? "↓ " : ""}
+                  {e.kind === "message" || e.kind === "sent" ? prettyJSON(e.text) || e.text : e.text}
                 </pre>
               ))}
             </div>

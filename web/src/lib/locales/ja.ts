@@ -147,6 +147,7 @@ export const ja: Record<MessageKey, string> = {
   varsCount: "{n} 個の変数",
 
   renameRequest: "リクエスト名を変更",
+  grpcEndSend: "送信終了",
   grpcStream: "ストリーム RPC",
   grpcStreamOpen: "ストリーム開始",
   stream: "ストリーム (SSE / チャンク)",

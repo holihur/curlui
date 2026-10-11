@@ -154,6 +154,7 @@ export const en = {
   renameRequest: "Rename request",
 
   // editor / url bar
+  grpcEndSend: "End send",
   grpcStream: "Stream RPC",
   grpcStreamOpen: "stream open",
   stream: "Stream (live SSE / chunked)",
