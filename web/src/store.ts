@@ -126,6 +126,10 @@ type State = {
 
   // executing
   send: (opts?: { mock?: boolean }) => Promise<void>;
+  sendStream: () => Promise<void>;
+  streamMode: boolean;
+  setStreamMode: (v: boolean) => void;
+  stopStream: () => void;
 
   // collections
   createFolder: (name: string, parentId?: string) => Promise<void>;
@@ -293,6 +297,8 @@ export function buildChain(
 }
 
 // computeStatus derives the green/red indicator from assertions and hook tests.
+let streamController: AbortController | null = null;
+
 function computeStatus(res: ApiResponse): TestStatus | undefined {
   const assertions = res.assertions ?? [];
   const hookTests = (res.hooks ?? []).flatMap((h) => h.tests ?? []);
@@ -611,6 +617,15 @@ export const useStore = create<State>((set, get) => ({
     set({ feedbackOpen: v });
   },
   feedbackHidden: localStorage.getItem("curlui.feedbackHidden") === "1",
+  streamMode: localStorage.getItem("curlui.streamMode") === "1",
+  setStreamMode(v) {
+    localStorage.setItem("curlui.streamMode", v ? "1" : "0");
+    set({ streamMode: v });
+  },
+  stopStream() {
+    streamController?.abort();
+    streamController = null;
+  },
   setFeedbackHidden(v) {
     localStorage.setItem("curlui.feedbackHidden", v ? "1" : "0");
     set({ feedbackHidden: v, feedbackOpen: false });
@@ -659,6 +674,14 @@ export const useStore = create<State>((set, get) => ({
     if (tab.request.protocol !== "grpc" && !tab.request.url.trim()) {
       get().toast({ title: translate("urlRequiredToast"), variant: "error" });
       return;
+    }
+    if (
+      get().streamMode &&
+      tab.request.protocol !== "grpc" &&
+      !opts?.mock &&
+      tab.request.options.sendVia !== "browser"
+    ) {
+      return get().sendStream();
     }
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: true, error: undefined } : t)),
@@ -721,6 +744,81 @@ export const useStore = create<State>((set, get) => ({
         tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: false, error: message } : t)),
       }));
       get().toast({ title: translate("requestFailed"), description: message, variant: "error" });
+    }
+  },
+
+  // sendStream runs the request server-side and renders the body as it arrives.
+  async sendStream() {
+    const { tabs, activeTabId, activeEnvId } = get();
+    const tab = tabs.find((t) => t.id === activeTabId);
+    if (!tab) return;
+    if (!tab.request.url.trim()) {
+      get().toast({ title: translate("urlRequiredToast"), variant: "error" });
+      return;
+    }
+    const chain = buildChain(get().collections, tab.sourceId ?? "", tab.request);
+    const variables = { ...chain.folderVars, ...get().runtimeVars };
+    const partial: ApiResponse = {
+      status: 0,
+      statusText: "",
+      headers: {},
+      cookies: [],
+      body: "",
+      contentType: "",
+      isBinary: false,
+      size: 0,
+      duration: 0,
+      timing: { dns: 0, connect: 0, tls: 0, firstByte: 0, total: 0 },
+      request: { method: tab.request.method, url: tab.request.url, headers: {}, body: "" },
+    };
+    const push = () =>
+      set((s) => ({
+        tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, response: { ...partial } } : t)),
+      }));
+    set((s) => ({
+      tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: true, error: undefined, response: { ...partial } } : t)),
+    }));
+    streamController = new AbortController();
+    try {
+      await api.stream(
+        tab.request,
+        activeEnvId,
+        variables,
+        chain.parents,
+        (ev) => {
+          if (ev.type === "meta") {
+            partial.status = ev.data.status ?? 0;
+            partial.statusText = ev.data.statusText ?? "";
+            partial.headers = ev.data.headers ?? {};
+            partial.contentType = ev.data.contentType ?? "";
+            partial.request = ev.data.request ?? partial.request;
+            partial.timing = ev.data.timing ?? partial.timing;
+            partial.duration = ev.data.timing?.total ?? 0;
+          } else if (ev.type === "chunk") {
+            partial.body += ev.data.text ?? "";
+            partial.size = ev.data.size ?? partial.body.length;
+          } else if (ev.type === "done") {
+            if (typeof ev.data?.duration === "number") partial.duration = ev.data.duration;
+          } else if (ev.type === "error") {
+            partial.error = ev.data?.error ?? "stream error";
+          }
+          push();
+        },
+        streamController.signal,
+      );
+    } catch (err) {
+      const message = err instanceof Error ? err.message : String(err);
+      if (message.includes("abort")) {
+        partial.statusText = partial.statusText || "cancelled";
+      } else {
+        partial.error = message;
+      }
+    } finally {
+      streamController = null;
+      set((s) => ({
+        tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: false, error: partial.error } : t)),
+      }));
+      get().refreshHistory();
     }
   },
 

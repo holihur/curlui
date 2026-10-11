@@ -144,6 +144,8 @@ export const en = {
   renameRequest: "Rename request",
 
   // editor / url bar
+  stream: "Stream (live SSE / chunked)",
+  stop: "Stop",
   send: "Send",
   sendNow: "Send now",
   saveTooltip: "Save (Ctrl+S)",

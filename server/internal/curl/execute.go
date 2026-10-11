@@ -643,3 +643,78 @@ func friendlyError(err error) string {
 	}
 	return msg
 }
+
+// ExecuteStream runs the request and returns the live response so the caller
+// can consume the body incrementally (SSE, chunked transfer, long polling).
+// The returned cancel must be called when the caller is done.
+func (e *Executor) ExecuteStream(ctx context.Context, def models.RequestDef, vars variables.Set) (*http.Response, models.SentRequest, models.Timing, context.CancelFunc, error) {
+	def.WithDefaults()
+	if vars == nil {
+		vars = variables.Set{}
+	}
+	def = vars.ResolveRequest(def)
+
+	finalURL, err := buildURL(def)
+	if err != nil {
+		return nil, models.SentRequest{}, models.Timing{}, func() {}, err
+	}
+	header := http.Header{}
+	for _, h := range def.Headers {
+		if !h.Enabled || h.Key == "" {
+			continue
+		}
+		header.Add(h.Key, h.Value)
+	}
+	bodyReader, contentType, err := buildBody(def)
+	if err != nil {
+		return nil, models.SentRequest{}, models.Timing{}, func() {}, err
+	}
+	if contentType != "" && header.Get("Content-Type") == "" {
+		header.Set("Content-Type", contentType)
+	}
+	client := e.newClient(def)
+	if err := e.applyRequestAuth(ctx, client, &def, strings.ToUpper(def.Method), header, &finalURL, []byte(def.Body.Raw)); err != nil {
+		return nil, models.SentRequest{}, models.Timing{}, func() {}, err
+	}
+	if header.Get("User-Agent") == "" {
+		ua := "curlui/1.0"
+		if e.UserAgent != nil {
+			if v := strings.TrimSpace(e.UserAgent()); v != "" {
+				ua = v
+			}
+		}
+		header.Set("User-Agent", ua)
+	}
+	if header.Get("Accept") == "" {
+		header.Set("Accept", "*/*")
+	}
+
+	// Streams are long-lived: no fixed timeout, only the caller's context
+	// (which is cancelled when the browser disconnects).
+	ctx, cancel := context.WithCancel(ctx)
+
+	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(def.Method), finalURL, bodyReader)
+	if err != nil {
+		cancel()
+		return nil, models.SentRequest{}, models.Timing{}, func() {}, err
+	}
+	req.Header = header
+
+	sent := models.SentRequest{Method: req.Method, URL: finalURL, Headers: cloneHeader(header)}
+	if def.Body.Type != "none" {
+		sent.Body = def.Body.Raw
+	}
+
+	start := time.Now()
+	var firstByte time.Duration
+	trace := &httptrace.ClientTrace{GotFirstResponseByte: func() { firstByte = time.Since(start) }}
+	req = req.WithContext(httptrace.WithClientTrace(req.Context(), trace))
+
+	httpResp, err := client.Do(req)
+	timing := models.Timing{Total: time.Since(start).Milliseconds(), FirstByte: firstByte.Milliseconds()}
+	if err != nil {
+		cancel()
+		return nil, sent, timing, func() {}, errors.New(friendlyError(err))
+	}
+	return httpResp, sent, timing, cancel, nil
+}

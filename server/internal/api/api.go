@@ -1,12 +1,14 @@
 package api
 
 import (
+	"bufio"
 	"bytes"
 	"context"
 	"encoding/json"
 	"fmt"
 	"io"
 	"log"
+	"net"
 	"net/http"
 	"runtime"
 	"strconv"
@@ -179,6 +181,7 @@ func (s *Server) Handler() http.Handler {
 
 	mux.HandleFunc("GET /api/health", s.health)
 	mux.HandleFunc("POST /api/send", s.send)
+	mux.HandleFunc("POST /api/stream", s.streamRequest)
 
 	mux.HandleFunc("GET /api/collections", s.listCollections)
 	mux.HandleFunc("POST /api/collections", s.createNode)
@@ -271,6 +274,25 @@ func (w *statusWriter) WriteHeader(code int) {
 	w.status = code
 	w.ResponseWriter.WriteHeader(code)
 }
+
+// Flush forwards to the underlying writer so SSE/streaming works through the
+// logging middleware.
+func (w *statusWriter) Flush() {
+	if f, ok := w.ResponseWriter.(http.Flusher); ok {
+		f.Flush()
+	}
+}
+
+// Hijack forwards to the underlying writer (used by the WebSocket bridge).
+func (w *statusWriter) Hijack() (net.Conn, *bufio.ReadWriter, error) {
+	if h, ok := w.ResponseWriter.(http.Hijacker); ok {
+		return h.Hijack()
+	}
+	return nil, nil, http.ErrNotSupported
+}
+
+// Unwrap exposes the wrapped writer to http.ResponseController.
+func (w *statusWriter) Unwrap() http.ResponseWriter { return w.ResponseWriter }
 
 func withLogging(next http.Handler) http.Handler {
 	return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
@@ -865,14 +887,29 @@ func (s *Server) applyUpdate(w http.ResponseWriter, r *http.Request) {
 		writeJSON(w, http.StatusOK, map[string]any{"ok": true, "updated": false, "version": s.version})
 		return
 	}
-	url := update.AssetURL(rel)
-	if url == "" {
+	urls := update.AssetURLs(rel)
+	if len(urls) == 0 {
 		writeErr(w, http.StatusNotFound, "no build for this platform in "+rel.Tag)
 		return
 	}
-	data, err := update.Download(url)
-	if err != nil {
-		writeErr(w, http.StatusBadGateway, err.Error())
+	var data []byte
+	var lastErr error
+	for _, url := range urls {
+		raw, err := update.Download(url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		bin, err := update.Extract(raw, url)
+		if err != nil {
+			lastErr = err
+			continue
+		}
+		data = bin
+		break
+	}
+	if data == nil {
+		writeErr(w, http.StatusBadGateway, "no downloadable build: "+lastErr.Error())
 		return
 	}
 	if err := update.Apply(data); err != nil {

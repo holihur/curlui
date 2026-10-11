@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, lazy, Suspense, type ReactNode } from "react";
-import { AlertCircle, Bug, CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, Database, FlaskConical, Loader2, Play, Save, Send, Wand2, XCircle } from "lucide-react";
+import { AlertCircle, Bug, CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, Database, FlaskConical, Loader2, Play, Radio, Save, Send, Square, Wand2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -58,6 +58,9 @@ export function RequestEditor() {
   const tab = useActiveTab();
   const updateActiveRequest = useStore((s) => s.updateActiveRequest);
   const send = useStore((s) => s.send);
+  const streamMode = useStore((s) => s.streamMode);
+  const setStreamMode = useStore((s) => s.setStreamMode);
+  const stopStream = useStore((s) => s.stopStream);
   const saveActiveTab = useStore((s) => s.saveActiveTab);
   const status = useStore((s) => (tab?.sourceId ? s.testStatus[tab.sourceId] : undefined));
   const features = useStore((s) => s.features);
@@ -204,14 +207,37 @@ export function RequestEditor() {
         )}
 
         <div className="flex">
+          {tab.request.protocol !== "grpc" && (
+            <button
+              type="button"
+              onClick={() => setStreamMode(!streamMode)}
+              title={t("stream")}
+              className={cn(
+                "flex h-9 items-center gap-1 rounded-l-md border px-2 text-xs font-medium transition-colors",
+                streamMode
+                  ? "border-primary bg-primary/10 text-primary"
+                  : "border-input bg-background text-muted-foreground hover:text-foreground",
+              )}
+            >
+              <Radio className="h-4 w-4" />
+            </button>
+          )}
           <Button
-            className="h-9 w-9 gap-1.5 rounded-r-none px-0 sm:w-[96px] sm:px-4"
-            onClick={() => void send()}
-            disabled={tab.sending}
-            title={t("send")}
+            className={cn(
+              "h-9 w-9 gap-1.5 rounded-r-none px-0 sm:w-[96px] sm:px-4",
+              tab.request.protocol !== "grpc" && "rounded-l-none",
+            )}
+            onClick={() => (tab.sending && streamMode ? stopStream() : void send())}
+            disabled={tab.sending && !streamMode}
+            title={tab.sending && streamMode ? t("stop") : t("send")}
+            variant={tab.sending && streamMode ? "destructive" : "default"}
           >
-            {tab.sending ? <Loader2 className="h-4 w-4 animate-spin" /> : <Send className="h-4 w-4" />}
-            <span className="hidden sm:inline">{t("send")}</span>
+            {tab.sending ? (
+              streamMode ? <Square className="h-4 w-4" /> : <Loader2 className="h-4 w-4 animate-spin" />
+            ) : (
+              <Send className="h-4 w-4" />
+            )}
+            <span className="hidden sm:inline">{tab.sending && streamMode ? t("stop") : t("send")}</span>
           </Button>
           <DropdownMenu>
             <DropdownMenuTrigger asChild>

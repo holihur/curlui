@@ -110,6 +110,55 @@ export const api = {
     });
   },
 
+  // Streaming (SSE): runs the request server-side and forwards the response
+  // incrementally. onEvent receives {type, data} for meta/chunk/done/error.
+  async stream(
+    req: RequestDef,
+    envId: string | null,
+    variables: Record<string, string> | undefined,
+    parents: RequestDef[] | undefined,
+    onEvent: (ev: { type: string; data: any }) => void,
+    signal?: AbortSignal,
+  ) {
+    const res = await fetch("/api/stream", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({
+        request: req,
+        envId: envId ?? "",
+        variables: variables ?? {},
+        parents: parents ?? [],
+      }),
+      signal,
+    });
+    if (!res.ok || !res.body) throw new Error(`stream failed: HTTP ${res.status}`);
+    const reader = res.body.getReader();
+    const decoder = new TextDecoder();
+    let buf = "";
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      buf += decoder.decode(value, { stream: true });
+      let idx: number;
+      while ((idx = buf.indexOf("\n\n")) >= 0) {
+        const raw = buf.slice(0, idx);
+        buf = buf.slice(idx + 2);
+        let type = "message";
+        let data = "";
+        for (const line of raw.split("\n")) {
+          if (line.startsWith("event: ")) type = line.slice(7);
+          else if (line.startsWith("data: ")) data += line.slice(6);
+        }
+        if (!data) continue;
+        try {
+          onEvent({ type, data: JSON.parse(data) });
+        } catch {
+          /* ignore malformed frame */
+        }
+      }
+    }
+  },
+
   // Collections
   listCollections() {
     return request<{ collections: CollectionNode[] }>("/collections");

@@ -2,6 +2,10 @@
 package update
 
 import (
+	"archive/tar"
+	"archive/zip"
+	"bytes"
+	"compress/gzip"
 	"encoding/json"
 	"fmt"
 	"io"
@@ -76,6 +80,110 @@ func AssetURL(rel *Release) string {
 		}
 	}
 	return ""
+}
+
+// AssetURLs returns candidate download URLs for the current platform, best
+// first: the raw binary, then an archive that contains it. Releases may ship
+// either form (Windows ships a .zip), so the updater tries each in turn.
+func AssetURLs(rel *Release) []string {
+	want := AssetName(rel.Tag, runtime.GOOS, runtime.GOARCH)
+	var out []string
+	add := func(name string) {
+		for _, a := range rel.Assets {
+			if a.Name == name {
+				out = append(out, a.URL)
+				return
+			}
+		}
+	}
+	add(want)
+	add(want + ".zip")
+	add(want + ".tar.gz")
+	add(want + ".tgz")
+	return out
+}
+
+// IsArchive reports whether a filename looks like a compressed archive.
+func IsArchive(name string) bool {
+	lower := strings.ToLower(name)
+	for _, suf := range []string{".zip", ".tar.gz", ".tgz", ".tar"} {
+		if strings.HasSuffix(lower, suf) {
+			return true
+		}
+	}
+	return false
+}
+
+// Extract pulls the executable out of an archive (zip, tar.gz, tgz or tar).
+// Non-archive input is returned unchanged.
+func Extract(data []byte, name string) ([]byte, error) {
+	lower := strings.ToLower(name)
+	switch {
+	case strings.HasSuffix(lower, ".zip"):
+		return extractZip(data)
+	case strings.HasSuffix(lower, ".tar.gz"), strings.HasSuffix(lower, ".tgz"):
+		return extractTar(data, true)
+	case strings.HasSuffix(lower, ".tar"):
+		return extractTar(data, false)
+	}
+	return data, nil
+}
+
+func pickBinary(name string, isDir bool, size int64) bool {
+	if isDir || size == 0 {
+		return false
+	}
+	base := strings.ToLower(filepath.Base(name))
+	if strings.HasPrefix(base, ".") || strings.Contains(base, "sha256") {
+		return false
+	}
+	return true
+}
+
+func extractZip(data []byte) ([]byte, error) {
+	zr, err := zip.NewReader(bytes.NewReader(data), int64(len(data)))
+	if err != nil {
+		return nil, err
+	}
+	for _, f := range zr.File {
+		if !pickBinary(f.Name, f.FileInfo().IsDir(), int64(f.UncompressedSize64)) {
+			continue
+		}
+		rc, err := f.Open()
+		if err != nil {
+			return nil, err
+		}
+		defer rc.Close()
+		return io.ReadAll(io.LimitReader(rc, 64<<20))
+	}
+	return nil, fmt.Errorf("no executable inside %s", filepath.Base("archive"))
+}
+
+func extractTar(data []byte, gzipped bool) ([]byte, error) {
+	var r io.Reader = bytes.NewReader(data)
+	if gzipped {
+		gz, err := gzip.NewReader(r)
+		if err != nil {
+			return nil, err
+		}
+		defer gz.Close()
+		r = gz
+	}
+	tr := tar.NewReader(r)
+	for {
+		hdr, err := tr.Next()
+		if err == io.EOF {
+			break
+		}
+		if err != nil {
+			return nil, err
+		}
+		if !pickBinary(hdr.Name, hdr.FileInfo().IsDir(), hdr.Size) {
+			continue
+		}
+		return io.ReadAll(io.LimitReader(tr, 64<<20))
+	}
+	return nil, fmt.Errorf("no executable inside archive")
 }
 
 // Download fetches a URL into memory.

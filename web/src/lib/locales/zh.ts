@@ -138,6 +138,8 @@ export const zh: Record<MessageKey, string> = {
 
   renameRequest: "重命名请求",
 
+  stream: "流式（SSE / 分块）",
+  stop: "停止",
   send: "发送",
   sendNow: "立即发送",
   saveTooltip: "保存 (Ctrl+S)",

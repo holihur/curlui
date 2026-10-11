@@ -137,6 +137,8 @@ export const ja: Record<MessageKey, string> = {
   varsCount: "{n} 個の変数",
 
   renameRequest: "リクエスト名を変更",
+  stream: "ストリーム (SSE / チャンク)",
+  stop: "停止",
   send: "送信",
   sendNow: "今すぐ送信",
   saveTooltip: "保存 (Ctrl+S)",
