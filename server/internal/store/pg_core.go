@@ -27,6 +27,7 @@ func (s *Store) pgCreateUser(u *User) error                                  { r
 func (s *Store) pgUpdateUser(u *User) error                                  { return nil }
 func (s *Store) pgDeleteUser(id string) error                                { return nil }
 func (s *Store) pgCreateSession(se *Session) error                           { return nil }
+func (s *Store) pgSaveUserAI(userID string, cfg UserAI) error                { return nil }
 func (s *Store) pgCreatePAT(p *PAT) error                                    { return nil }
 func (s *Store) pgDeletePAT(id string) error                                 { return nil }
 func (s *Store) pgTouchPAT(id string, at time.Time) error                    { return nil }

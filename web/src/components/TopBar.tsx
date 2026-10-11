@@ -45,9 +45,6 @@ const SettingsDialog = lazy(() =>
 const DocExportDialog = lazy(() =>
   import("@/components/DocExportDialog").then((m) => ({ default: m.DocExportDialog })),
 );
-const AIChatDialog = lazy(() =>
-  import("@/components/AIChatDialog").then((m) => ({ default: m.AIChatDialog })),
-);
 const WebSocketDialog = lazy(() =>
   import("@/components/WebSocketDialog").then((m) => ({ default: m.WebSocketDialog })),
 );
@@ -83,7 +80,7 @@ export function TopBar() {
   const [settingsOpen, setSettingsOpen] = useState(false);
   const [docOpen, setDocOpen] = useState(false);
   const [wsOpen, setWsOpen] = useState(false);
-  const [aiOpen, setAiOpen] = useState(false);
+  const setAiOpen = useStore((s) => s.setAiOpen);
   const [teamOpen, setTeamOpen] = useState(false);
   const [newProjectOpen, setNewProjectOpen] = useState(false);
   const collectionFileRef = useRef<HTMLInputElement>(null);
@@ -315,11 +312,6 @@ export function TopBar() {
       {wsOpen && (
         <Suspense fallback={null}>
           <WebSocketDialog open onOpenChange={setWsOpen} />
-        </Suspense>
-      )}
-      {aiOpen && (
-        <Suspense fallback={null}>
-          <AIChatDialog open onOpenChange={setAiOpen} />
         </Suspense>
       )}
       {teamOpen && (

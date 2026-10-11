@@ -71,6 +71,10 @@ type State = {
   setFeedbackHidden: (v: boolean) => void;
   feedbackPos: { x: number; y: number } | null;
   setFeedbackPos: (p: { x: number; y: number } | null) => void;
+  aiOpen: boolean;
+  setAiOpen: (v: boolean) => void;
+  aiPos: { x: number; y: number } | null;
+  setAiPos: (p: { x: number; y: number } | null) => void;
 
   // team / auth / projects
   authEnabled: boolean;
@@ -648,6 +652,23 @@ export const useStore = create<State>((set, get) => ({
   setFeedbackHidden(v) {
     localStorage.setItem("curlui.feedbackHidden", v ? "1" : "0");
     set({ feedbackHidden: v, feedbackOpen: false });
+  },
+  aiOpen: false,
+  setAiOpen(v) {
+    set({ aiOpen: v });
+  },
+  aiPos: (() => {
+    try {
+      const raw = localStorage.getItem("curlui.aiPos");
+      return raw ? (JSON.parse(raw) as { x: number; y: number }) : null;
+    } catch {
+      return null;
+    }
+  })(),
+  setAiPos(p) {
+    if (p) localStorage.setItem("curlui.aiPos", JSON.stringify(p));
+    else localStorage.removeItem("curlui.aiPos");
+    set({ aiPos: p });
   },
   feedbackPos: (() => {
     try {

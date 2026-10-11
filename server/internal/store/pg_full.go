@@ -19,6 +19,7 @@ type userRow struct {
 	Password  string
 	Role      string
 	CreatedAt time.Time
+	AIConfig  string `gorm:"type:jsonb"`
 }
 
 func (userRow) TableName() string { return "users" }
@@ -122,7 +123,14 @@ func (s *Store) loadPG() error {
 		return err
 	}
 	for _, u := range urs {
-		s.root.Users[u.ID] = &User{ID: u.ID, Username: u.Username, Name: u.Name, PasswordHash: u.Password, Role: u.Role, CreatedAt: u.CreatedAt}
+		usr := &User{ID: u.ID, Username: u.Username, Name: u.Name, PasswordHash: u.Password, Role: u.Role, CreatedAt: u.CreatedAt}
+		if u.AIConfig != "" {
+			var cfg UserAI
+			if err := json.Unmarshal([]byte(u.AIConfig), &cfg); err == nil {
+				usr.AI = &cfg
+			}
+		}
+		s.root.Users[u.ID] = usr
 	}
 	var sessions []sessionRow
 	if err := db.Where("expires_at > ?", time.Now()).Find(&sessions).Error; err != nil {
@@ -260,6 +268,15 @@ func (s *Store) pgDeleteSession(token string) error {
 
 func (s *Store) pgPurgeSessions(before time.Time) error {
 	return s.db.(*gorm.DB).Delete(&sessionRow{}, "expires_at < ?", before).Error
+}
+
+func (s *Store) pgSaveUserAI(userID string, cfg UserAI) error {
+	raw, err := json.Marshal(cfg)
+	if err != nil {
+		return err
+	}
+	return s.db.(*gorm.DB).Model(&userRow{}).Where("id = ?", userID).
+		Update("ai_config", string(raw)).Error
 }
 
 func (s *Store) pgCreatePAT(p *PAT) error {

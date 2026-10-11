@@ -67,6 +67,20 @@ type User struct {
 	PasswordHash string    `json:"passwordHash,omitempty"`
 	Role         string    `json:"role"` // admin | member | viewer
 	CreatedAt    time.Time `json:"createdAt"`
+	AI           *UserAI   `json:"ai,omitempty"`
+}
+
+// UserAI is a user's own BYOK configuration for the assistant.
+type UserAI struct {
+	Provider string `json:"provider,omitempty"`
+	APIKey   string `json:"apiKey,omitempty"`
+	BaseURL  string `json:"baseUrl,omitempty"`
+	Model    string `json:"model,omitempty"`
+}
+
+// Configured reports whether the user has a usable key.
+func (c UserAI) Configured() bool {
+	return strings.TrimSpace(c.APIKey) != "" && strings.TrimSpace(c.Model) != ""
 }
 
 // Session is a logged-in session.
@@ -887,6 +901,42 @@ func (s *Store) DeletePAT(id string) error {
 	delete(s.root.PATs, id)
 	if s.db != nil {
 		return s.pgDeletePAT(id)
+	}
+	return s.persistFile()
+}
+
+// --- per-user AI (BYOK) settings -------------------------------------------
+
+// AIConfigFor returns a user's own BYOK configuration.
+func (s *Store) AIConfigFor(userID string) UserAI {
+	s.mu.RLock()
+	defer s.mu.RUnlock()
+	if u, ok := s.root.Users[userID]; ok && u.AI != nil {
+		return *u.AI
+	}
+	return UserAI{}
+}
+
+// SetAIConfig stores a user's BYOK configuration. An empty key keeps the
+// existing one so the browser never has to round-trip the secret.
+func (s *Store) SetAIConfig(userID string, cfg UserAI) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.root.Users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	if u.AI == nil {
+		u.AI = &UserAI{}
+	}
+	if strings.TrimSpace(cfg.APIKey) != "" {
+		u.AI.APIKey = strings.TrimSpace(cfg.APIKey)
+	}
+	u.AI.Provider = cfg.Provider
+	u.AI.BaseURL = cfg.BaseURL
+	u.AI.Model = cfg.Model
+	if s.db != nil {
+		return s.pgSaveUserAI(userID, *u.AI)
 	}
 	return s.persistFile()
 }

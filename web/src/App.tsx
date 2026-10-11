@@ -5,6 +5,7 @@ import { Sidebar } from "@/components/Sidebar";
 import { RightSidebar } from "@/components/RightSidebar";
 import { BottomPanel } from "@/components/BottomPanel";
 import { FeedbackWidget } from "@/components/FeedbackWidget";
+import { AIFab } from "@/components/AIFab";
 import { RequestTabs } from "@/components/RequestTabs";
 import { RequestEditor } from "@/components/RequestEditor";
 import { Toaster } from "@/components/Toaster";
@@ -12,6 +13,9 @@ import { AuthScreen } from "@/components/LoginDialog";
 
 const InterceptDialog = lazy(() =>
   import("@/components/InterceptDialog").then((m) => ({ default: m.InterceptDialog })),
+);
+const AIChatDialog = lazy(() =>
+  import("@/components/AIChatDialog").then((m) => ({ default: m.AIChatDialog })),
 );
 import { cn } from "@/lib/utils";
 import { useStore } from "@/store";
@@ -25,6 +29,8 @@ export default function App() {
   const rightOpen = useStore((s) => s.rightOpen);
   const setRightOpen = useStore((s) => s.setRightOpen);
   const features = useStore((s) => s.features);
+  const aiOpen = useStore((s) => s.aiOpen);
+  const setAiOpen = useStore((s) => s.setAiOpen);
   const authEnabled = useStore((s) => s.authEnabled);
   const authenticated = useStore((s) => s.authenticated);
   const syncProject = useStore((s) => s.syncProject);
@@ -59,6 +65,7 @@ export default function App() {
         <AuthScreen />
         <Toaster />
         <FeedbackWidget />
+        {features.ai !== false && <AIFab />}
       </TooltipProvider>
     );
   }
@@ -93,9 +100,15 @@ export default function App() {
         </div>
         <Toaster />
         <FeedbackWidget />
+        {features.ai !== false && <AIFab />}
         {features.proxy !== false && (
           <Suspense fallback={null}>
             <InterceptDialog />
+          </Suspense>
+        )}
+        {features.ai !== false && aiOpen && (
+          <Suspense fallback={null}>
+            <AIChatDialog open onOpenChange={setAiOpen} />
           </Suspense>
         )}
       </div>

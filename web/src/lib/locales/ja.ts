@@ -70,6 +70,7 @@ export const ja: Record<MessageKey, string> = {
   more: "その他",
   settings: "設定",
   ai: "AI アシスタント",
+  aiPerUser: "このキーはあなたのアカウント専用です。",
   aiProvider: "プロバイダ",
   aiApiKey: "API キー",
   aiBaseUrl: "ベース URL",

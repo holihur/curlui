@@ -10,19 +10,63 @@ import (
 
 	"curlui/server/internal/ai"
 	"curlui/server/internal/models"
+	"curlui/server/internal/store"
 )
 
-// aiConfig reads the BYOK settings. The API key is used server-side only and
-// is never returned to the browser.
+// aiConfig reads the *calling user's* BYOK settings. Keys are per-user and are
+// only ever used server-side; they are never returned to the browser.
 func (s *Server) aiConfig(r *http.Request) ai.Config {
-	// BYOK credentials are server-wide, stored in the global settings.
-	st := s.store.Settings()
+	user := userFrom(r)
+	cfg := s.store.AIConfigFor(user.ID)
 	return ai.Config{
-		Provider: st["aiProvider"],
-		APIKey:   st["aiApiKey"],
-		BaseURL:  st["aiBaseUrl"],
-		Model:    st["aiModel"],
+		Provider: cfg.Provider,
+		APIKey:   cfg.APIKey,
+		BaseURL:  cfg.BaseURL,
+		Model:    cfg.Model,
 	}
+}
+
+// getAISettings returns the caller's BYOK configuration without the secret.
+func (s *Server) getAISettings(w http.ResponseWriter, r *http.Request) {
+	cfg := s.store.AIConfigFor(userFrom(r).ID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"configured": cfg.Configured(),
+		"provider":   cfg.Provider,
+		"model":      cfg.Model,
+		"baseUrl":    cfg.BaseURL,
+	})
+}
+
+// saveAISettings stores the caller's BYOK configuration. An empty key keeps the
+// existing secret so it never has to travel back to the browser.
+func (s *Server) saveAISettings(w http.ResponseWriter, r *http.Request) {
+	var in struct {
+		Provider string `json:"provider"`
+		APIKey   string `json:"apiKey"`
+		BaseURL  string `json:"baseUrl"`
+		Model    string `json:"model"`
+	}
+	if err := decode(r, &in); err != nil {
+		writeErr(w, http.StatusBadRequest, "invalid JSON: "+err.Error())
+		return
+	}
+	user := userFrom(r)
+	if err := s.store.SetAIConfig(user.ID, store.UserAI{
+		Provider: in.Provider,
+		APIKey:   in.APIKey,
+		BaseURL:  strings.TrimRight(in.BaseURL, "/"),
+		Model:    in.Model,
+	}); err != nil {
+		writeErr(w, http.StatusInternalServerError, err.Error())
+		return
+	}
+	cfg := s.store.AIConfigFor(user.ID)
+	writeJSON(w, http.StatusOK, map[string]any{
+		"configured": cfg.Configured(),
+		"provider":   cfg.Provider,
+		"model":      cfg.Model,
+		"baseUrl":    cfg.BaseURL,
+	})
 }
 
 // aiStatus reports whether BYOK is configured (without leaking the key).
@@ -35,6 +79,8 @@ func (s *Server) aiStatus(w http.ResponseWriter, r *http.Request) {
 		"baseUrl":    cfg.BaseURL,
 	})
 }
+
+// aiScope gates the assistant behind the token scope when a PAT is used.
 
 // aiChat runs one assistant turn and streams the steps as Server-Sent Events.
 // The agent is built from the caller's scopes, so it can never do more than the
@@ -94,5 +140,7 @@ func (s *Server) aiChat(w http.ResponseWriter, r *http.Request) {
 
 func (s *Server) registerAIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/ai/status", s.aiStatus)
+	mux.HandleFunc("GET /api/ai/settings", s.getAISettings)
+	mux.HandleFunc("PUT /api/ai/settings", s.saveAISettings)
 	mux.HandleFunc("POST /api/ai/chat", s.aiChat)
 }

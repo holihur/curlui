@@ -162,6 +162,17 @@ export const api = {
   },
 
   // AI assistant (BYOK)
+  aiSettings() {
+    return request<{ configured: boolean; provider: string; model: string; baseUrl: string }>(
+      "/ai/settings",
+    );
+  },
+  saveAiSettings(payload: { provider: string; apiKey?: string; baseUrl: string; model: string }) {
+    return request<{ configured: boolean; provider: string; model: string; baseUrl: string }>(
+      "/ai/settings",
+      { method: "PUT", body: JSON.stringify(payload) },
+    );
+  },
   aiStatus() {
     return request<{ configured: boolean; provider: string; model: string; baseUrl: string }>(
       "/ai/status",

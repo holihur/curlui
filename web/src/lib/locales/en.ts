@@ -69,6 +69,7 @@ export const en = {
   more: "More",
   settings: "Settings",
   ai: "AI assistant",
+  aiPerUser: "This key belongs to your account only.",
   aiProvider: "Provider",
   aiApiKey: "API key",
   aiBaseUrl: "Base URL",

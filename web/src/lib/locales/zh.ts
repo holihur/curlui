@@ -70,6 +70,7 @@ export const zh: Record<MessageKey, string> = {
   more: "更多",
   settings: "设置",
   ai: "AI 助手",
+  aiPerUser: "此密钥仅属于你的账号。",
   aiProvider: "服务商",
   aiApiKey: "API Key",
   aiBaseUrl: "Base URL",

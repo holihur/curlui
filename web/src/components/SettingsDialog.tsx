@@ -148,13 +148,18 @@ export function SettingsDialog({
         setOidcLabel(s.oidcButtonLabel ?? "");
         setOidcAutoCreate(s.oidcAutoCreate !== "0");
         setOidcRole(s.oidcDefaultRole || "member");
-        setAiProvider(s.aiProvider || "anthropic");
-        setAiBaseUrl(s.aiBaseUrl ?? "");
-        setAiModel(s.aiModel ?? "");
+      })
+      .catch(() => {});
+    api
+      .aiSettings()
+      .then((st) => {
+        setAiConfigured(st.configured);
+        setAiProvider(st.provider || "anthropic");
+        setAiBaseUrl(st.baseUrl ?? "");
+        setAiModel(st.model ?? "");
         setAiKey("");
       })
       .catch(() => {});
-    api.aiStatus().then((st) => setAiConfigured(st.configured)).catch(() => {});
     api.listScopes().then((r) => setScopes(r.scopes)).catch(() => {});
     void loadTokens();
   }, [open]);
@@ -198,11 +203,15 @@ export function SettingsDialog({
         oidcButtonLabel: oidcLabel.trim(),
         oidcAutoCreate: oidcAutoCreate ? "1" : "0",
         oidcDefaultRole: oidcRole,
-        aiProvider,
-        aiBaseUrl: aiBaseUrl.trim(),
-        aiModel: aiModel.trim(),
-        ...(aiKey.trim() ? { aiApiKey: aiKey.trim() } : {}),
       });
+      const ai = await api.saveAiSettings({
+        provider: aiProvider,
+        baseUrl: aiBaseUrl.trim(),
+        model: aiModel.trim(),
+        ...(aiKey.trim() ? { apiKey: aiKey.trim() } : {}),
+      });
+      setAiConfigured(ai.configured);
+      setAiKey("");
       await useStore.getState().loadAuth();
       toast({ title: t("settingsSaved"), variant: "success" });
       onOpenChange(false);
@@ -488,6 +497,7 @@ export function SettingsDialog({
             {features.ai !== false && (
               <TabsContent value="ai" className="m-0 space-y-3">
                 <p className="text-[11px] text-muted-foreground">{t("aiHint")}</p>
+                <p className="text-[11px] text-muted-foreground">{t("aiPerUser")}</p>
                 <div className="flex items-center justify-between gap-3 text-sm">
                   <span>{t("aiProvider")}</span>
                   <Select value={aiProvider} onValueChange={setAiProvider}>
