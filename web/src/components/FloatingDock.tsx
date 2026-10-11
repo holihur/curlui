@@ -15,7 +15,6 @@ export function FloatingDock() {
   const rightOpen = useStore((s) => s.rightOpen);
   const rightWidth = useStore((s) => s.rightWidth);
   const setPos = useStore((s) => s.setFeedbackPos);
-  const setAiOpen = useStore((s) => s.setAiOpen);
   const setRightTab = useStore((s) => s.setRightTab);
   const setFeedbackOpen = useStore((s) => s.setFeedbackOpen);
   const ref = useRef<HTMLDivElement>(null);

@@ -73,8 +73,6 @@ type State = {
   setFeedbackHidden: (v: boolean) => void;
   feedbackPos: { x: number; y: number } | null;
   setFeedbackPos: (p: { x: number; y: number } | null) => void;
-  aiOpen: boolean;
-  setAiOpen: (v: boolean) => void;
   aiConversations: AIConversation[];
   aiActiveId: string;
   aiPatchActive: (fn: (c: AIConversation) => AIConversation) => void;
@@ -724,10 +722,6 @@ export const useStore = create<State>((set, get) => ({
   setFeedbackHidden(v) {
     localStorage.setItem("curlui.feedbackHidden", v ? "1" : "0");
     set({ feedbackHidden: v, feedbackOpen: false });
-  },
-  aiOpen: false,
-  setAiOpen(v) {
-    set({ aiOpen: v });
   },
   // Conversations live in the store so closing the panel (which unmounts it)
   // does not throw them away, and in localStorage so they survive a reload.
