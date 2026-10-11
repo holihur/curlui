@@ -44,6 +44,12 @@ timing, path/header/cookie/body injection), delayed & periodic jobs.
 request/response **breakpoints**, replay, save-to-collection, HAR/cURL export.
 The proxy is **started/stopped from the UI** and remembered across restarts.
 
+**Streaming** · **live SSE / chunked** responses render as they arrive (a
+*Stream* toggle next to Send; the button becomes *Stop* to abort); a
+**WebSocket console** connects through the server bridge to any `ws://` /
+`wss://` target — custom headers, self-signed TLS and a live frame log; **gRPC
+streaming** (server / client / bidi) prints every message as it lands.
+
 **Interop** · import OpenAPI/Swagger (URL or file) and Postman v2.1 collections;
 export as JSON, cURL, Postman, or rendered docs (**Markdown / HTML / Word /
 PDF**); gRPC via `.pb` descriptors or server reflection — **calls save into
@@ -64,8 +70,8 @@ Every release ships two single-file binaries:
 
 | | **full** | **core** |
 | --- | --- | --- |
-| Everything (gRPC, PostgreSQL, capture proxy, MCP, jobs, PDF) | ✅ | — |
-| HTTP client, collections, environments, history, cURL/OpenAPI/Postman, GraphQL, mocks, assertions, docs (MD/HTML/Word) | ✅ | ✅ |
+| Everything (gRPC + gRPC streaming, PostgreSQL, capture proxy, MCP, jobs, PDF) | ✅ | — |
+| HTTP client, collections, environments, history, cURL/OpenAPI/Postman, GraphQL, mocks, assertions, live streaming (SSE + WebSocket), docs (MD/HTML/Word) | ✅ | ✅ |
 | Size (linux/amd64, stripped) | ~22 MB | **~9 MB** |
 
 ```sh
