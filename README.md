@@ -4,9 +4,9 @@
 mixed-content blocks — call `localhost` and internal APIs, see real per-phase
 network timings, and keep everything on your own machine.
 
-Ships as **one ~8 MB binary** (UI embedded): Postman-style editing, a capture
-proxy, mocks, fuzzing, gRPC, GraphQL, MCP for AI agents — and optional teams.
-No account, no cloud.
+Ships as **one self-contained binary** (UI embedded): Postman-style editing, a
+capture proxy, mocks, fuzzing, gRPC, GraphQL, MCP for AI agents — and optional
+teams. No account, no cloud.
 
 ![curlui](docs/screenshots/hero.png)
 
@@ -42,6 +42,7 @@ timing, path/header/cookie/body injection), delayed & periodic jobs.
 
 **Observe** · capture proxy with HTTPS decryption (CA), per-host filtering,
 request/response **breakpoints**, replay, save-to-collection, HAR/cURL export.
+The proxy is **started/stopped from the UI** and remembered across restarts.
 
 **Interop** · import OpenAPI/Swagger (URL or file) and Postman v2.1 collections;
 export as JSON, cURL, Postman, or rendered docs (**Markdown / HTML / Word /
@@ -52,8 +53,10 @@ collections** (reopen, export, share); GraphQL schema introspection.
 roles (owner/admin/member/viewer), audit log, shared workspaces that refresh for
 everyone.
 
-**Extras** · dark/light themes, English / 简体中文 / 日本語, responsive (phone
-drawer), self-update, run as a system service, custom User-Agent.
+**Extras** · dark / light / **auto** themes, English / 简体中文 / 日本語 (or
+**auto** from the browser), resizable & collapsible panels (left, right, bottom
+with maximize), response search + **JSONPath filter** + save-to-file, responsive
+phone layout, self-update, run as a system service, custom User-Agent.
 
 ## Install
 
@@ -160,3 +163,5 @@ resolve_intercept, proxy_config, clear_captures), toggled in Settings.
 - `form-data` file fields and `binary` bodies reference paths on the machine
   running the server.
 - TLS verification can be disabled per request (the `-k` equivalent).
+- Profiling: `curlui -pprof :6060` (or `-pprof main` for `/debug/pprof` on the
+  main port).
