@@ -3,6 +3,7 @@ import { api, setApiContext } from "@/lib/api";
 import {
   blankRequest,
   type ApiResponse,
+  type ValidationIssue,
   type CollectionNode,
   type Environment,
   type ExtractRule,
@@ -59,6 +60,8 @@ type State = {
   setRightOpen: (v: boolean) => void;
   rightTab: string;
   setRightTab: (v: string) => void;
+  openapiIssues: ValidationIssue[];
+  setOpenapiIssues: (v: ValidationIssue[]) => void;
   rightWidth: number;
   setRightWidth: (v: number) => void;
   bottomOpen: boolean;
@@ -681,6 +684,10 @@ export const useStore = create<State>((set, get) => ({
     localStorage.setItem("curlui.rightOpen", v ? "1" : "0");
     set({ rightOpen: v });
   },
+  openapiIssues: [],
+  setOpenapiIssues(v) {
+    set({ openapiIssues: v });
+  },
   rightTab: "history",
   setRightTab(v) {
     // Selecting a tab also opens the sidebar.
@@ -836,6 +843,19 @@ export const useStore = create<State>((set, get) => ({
     ) {
       return get().sendStream();
     }
+    // A request imported from OpenAPI is checked against its operation first;
+    // the report is shown in the editor (it never blocks the send).
+    if (tab.request.openapi) {
+      try {
+        const report = await api.validateOpenAPI(tab.request);
+        get().setOpenapiIssues(report.issues ?? []);
+      } catch {
+        get().setOpenapiIssues([]);
+      }
+    } else {
+      get().setOpenapiIssues([]);
+    }
+
     set((s) => ({
       tabs: s.tabs.map((t) => (t.id === tab.id ? { ...t, sending: true, error: undefined } : t)),
     }));

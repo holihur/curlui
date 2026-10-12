@@ -313,8 +313,34 @@ export type GrpcCall = {
   metadata?: KeyValue[];
 };
 
+export type ValidationIssue = { level: "error" | "warning"; field: string; message: string };
+
+/** Where a request came from, when it was imported from an OpenAPI document. */
+export type OpenAPIField = {
+  name: string;
+  in: "query" | "header" | "path" | "body";
+  type?: string;
+  format?: string;
+  required?: boolean;
+  enum?: string[];
+  description?: string;
+  example?: string;
+};
+
+export type OpenAPIMeta = {
+  title?: string;
+  method: string;
+  path: string;
+  query?: string[];
+  header?: string[];
+  pathVars?: string[];
+  fields?: OpenAPIField[];
+};
+
 export type RequestDef = {
   id: string;
+  /** Set when the request was imported from an OpenAPI document. */
+  openapi?: OpenAPIMeta;
   name: string;
   method: string;
   url: string;

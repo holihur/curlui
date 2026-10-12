@@ -129,6 +129,39 @@ type MockResponse struct {
 }
 
 // RequestDef is a saved/edited HTTP request.
+// OpenAPIMeta records where a request came from, so it can be validated against
+// the operation it was generated from.
+type OpenAPIMeta struct {
+	Title    string   `json:"title,omitempty"`
+	Method   string   `json:"method"`
+	Path     string   `json:"path"`
+	Query    []string `json:"query,omitempty"`  // required query parameters
+	Header   []string `json:"header,omitempty"` // required headers
+	PathVars []string `json:"pathVars,omitempty"`
+	// Fields is everything the UI needs to build a submission form.
+	Fields []OpenAPIField `json:"fields,omitempty"`
+}
+
+// OpenAPIField describes one parameter of an imported operation, so the UI can
+// render a form for it.
+type OpenAPIField struct {
+	Name        string   `json:"name"`
+	In          string   `json:"in"` // query | header | path | body
+	Type        string   `json:"type,omitempty"`
+	Format      string   `json:"format,omitempty"`
+	Required    bool     `json:"required,omitempty"`
+	Enum        []string `json:"enum,omitempty"`
+	Description string   `json:"description,omitempty"`
+	Example     string   `json:"example,omitempty"`
+}
+
+// ValidationIssue is one way a request deviates from its specification.
+type ValidationIssue struct {
+	Level   string `json:"level"` // error | warning
+	Field   string `json:"field"`
+	Message string `json:"message"`
+}
+
 type RequestDef struct {
 	ID      string     `json:"id"`
 	Name    string     `json:"name"`
@@ -145,6 +178,8 @@ type RequestDef struct {
 	// described by Grpc and executed with the gRPC client.
 	Protocol string    `json:"protocol,omitempty"`
 	Grpc     *GrpcCall `json:"grpc,omitempty"`
+	// OpenAPI records the operation this request was imported from, if any.
+	OpenAPI *OpenAPIMeta `json:"openapi,omitempty"`
 	// DependsOn lists collection node IDs of parent requests that must run
 	// before this one. Their response values can be referenced via Extract.
 	DependsOn []string `json:"dependsOn,omitempty"`

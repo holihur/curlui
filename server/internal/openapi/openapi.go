@@ -287,7 +287,98 @@ func (p *parser) buildRequest(method, path string, op map[string]any, pathParams
 
 	p.applyBody(req, op, params)
 	p.applyAuth(req, op)
+
+	// Remember the operation so the request can be validated later.
+	meta := models.OpenAPIMeta{
+		Title:  stringOf(op["summary"]),
+		Method: strings.ToUpper(method),
+		Path:   path,
+	}
+	for _, param := range params {
+		name := stringOf(param["name"])
+		loc := stringOf(param["in"])
+		// Record every parameter (required or not) so the UI can render a form.
+		field := models.OpenAPIField{
+			Name:        name,
+			In:          loc,
+			Type:        stringOf(mapOf(param["schema"])["type"]),
+			Format:      stringOf(mapOf(param["schema"])["format"]),
+			Required:    boolOf(param["required"]),
+			Description: stringOf(param["description"]),
+			Example:     paramExample(param),
+		}
+		if raw, ok := mapOf(param["schema"])["enum"].([]any); ok {
+			for _, e := range raw {
+				field.Enum = append(field.Enum, fmt.Sprint(e))
+			}
+		}
+		meta.Fields = append(meta.Fields, field)
+
+		if !boolOf(param["required"]) {
+			continue
+		}
+		switch loc {
+		case "query":
+			meta.Query = append(meta.Query, name)
+		case "header":
+			meta.Header = append(meta.Header, name)
+		case "path":
+			meta.PathVars = append(meta.PathVars, name)
+		}
+	}
+	// Request body properties become form fields too (top level only).
+	if schema := bodySchema(p, op); schema != nil {
+		required := map[string]bool{}
+		if raw, ok := schema["required"].([]any); ok {
+			for _, r := range raw {
+				required[fmt.Sprint(r)] = true
+			}
+		}
+		if props, ok := schema["properties"].(map[string]any); ok {
+			for name, rawProp := range props {
+				prop := mapOf(rawProp)
+				field := models.OpenAPIField{
+					Name:        name,
+					In:          "body",
+					Type:        stringOf(prop["type"]),
+					Format:      stringOf(prop["format"]),
+					Required:    required[name],
+					Description: stringOf(prop["description"]),
+				}
+				if raw, ok := prop["enum"].([]any); ok {
+					for _, e := range raw {
+						field.Enum = append(field.Enum, fmt.Sprint(e))
+					}
+				}
+				meta.Fields = append(meta.Fields, field)
+			}
+		}
+	}
+
+	if len(meta.Fields) > 0 || meta.Path != "" {
+		req.OpenAPI = &meta
+	}
 	return req
+}
+
+// bodySchema returns the JSON schema of the request body, if the operation has
+// one (used to build the submission form).
+func bodySchema(p *parser, op map[string]any) map[string]any {
+	if !p.v3 {
+		for _, param := range parameters(op["parameters"]) {
+			if stringOf(param["in"]) == "body" {
+				return resolve(p, mapOf(param["schema"]))
+			}
+		}
+		return nil
+	}
+	body := mapOf(op["requestBody"])
+	content := mapOf(body["content"])
+	_, media := pickContent(content)
+	if media == nil {
+		return nil
+	}
+	return resolve(p, mapOf(media["schema"]))
 }
 
 func (p *parser) applyBody(req *models.RequestDef, op map[string]any, params []map[string]any) {

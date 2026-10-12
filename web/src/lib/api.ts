@@ -1,4 +1,4 @@
-import type {
+import type { ValidationIssue,
   ApiResponse,
   CollectionNode,
   Environment,
@@ -254,6 +254,13 @@ export const api = {
   },
   deleteToken(id: string) {
     return request<{ ok: boolean }>(`/tokens/${id}`, { method: "DELETE" });
+  },
+
+  validateOpenAPI(req: RequestDef) {
+    return request<{ issues: ValidationIssue[]; source: string; path?: string; note?: string }>(
+      "/openapi/validate",
+      { method: "POST", body: JSON.stringify({ request: req }) },
+    );
   },
 
   // Collections

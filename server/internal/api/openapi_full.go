@@ -47,4 +47,5 @@ func (s *Server) parseOpenAPI(w http.ResponseWriter, r *http.Request) {
 // registerOpenAPIRoutes mounts the OpenAPI import endpoint.
 func (s *Server) registerOpenAPIRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("POST /api/openapi/parse", s.parseOpenAPI)
+	mux.HandleFunc("POST /api/openapi/validate", s.validateOpenAPIRequest)
 }

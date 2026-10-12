@@ -21,6 +21,7 @@ import {
   DropdownMenuTrigger,
 } from "@/components/ui/dropdown-menu";
 import { KeyValueEditor } from "@/components/KeyValueEditor";
+import { OpenAPIForm } from "@/components/OpenAPIForm";
 import { CodeEditor } from "@/components/CodeEditor";
 import { AutomationEditor } from "@/components/AutomationEditor";
 import { ResponsePanel } from "@/components/ResponsePanel";
@@ -56,7 +57,9 @@ const BODY_TYPES: { value: BodyType; label: MessageKey }[] = [
 export function RequestEditor() {
   const { t } = useI18n();
   const tab = useActiveTab();
+  const hasOpenAPIForm = (tab?.request.openapi?.fields?.length ?? 0) > 0;
   const updateActiveRequest = useStore((s) => s.updateActiveRequest);
+  const openapiIssues = useStore((s) => s.openapiIssues);
   const send = useStore((s) => s.send);
   const streamMode = useStore((s) => s.streamMode);
   const setStreamMode = useStore((s) => s.setStreamMode);
@@ -319,6 +322,24 @@ export function RequestEditor() {
         </div>
       </div>
 
+      {openapiIssues.length > 0 && (
+        <div className="flex flex-col gap-0.5 border-b bg-amber-500/10 px-3 py-1.5">
+          {openapiIssues.map((issue, i) => (
+            <div
+              key={i}
+              className={cn(
+                "flex items-center gap-1.5 text-[11px]",
+                issue.level === "error" ? "text-destructive" : "text-amber-500",
+              )}
+            >
+              <AlertCircle className="h-3 w-3 shrink-0" />
+              <span className="font-mono">{issue.field}</span>
+              <span className="truncate">{issue.message}</span>
+            </div>
+          ))}
+        </div>
+      )}
+
       {tab.error && !tab.response && (
         <div className="flex items-center gap-2 border-b bg-destructive/10 px-3 py-1.5 text-xs text-destructive">
           <AlertCircle className="h-3.5 w-3.5" />
@@ -338,6 +359,7 @@ export function RequestEditor() {
         <Tabs defaultValue="params" className="flex min-h-0 flex-1 flex-col">
           <div className="shrink-0 overflow-x-auto border-b px-2 pt-1.5">
             <TabsList className="h-8 bg-transparent p-0">
+              {hasOpenAPIForm && <TabTrigger value="form">{t("formTab")}</TabTrigger>}
               <TabTrigger value="params">
                 {t("params")}
                 {activeParams > 0 && <Count n={activeParams} />}
@@ -368,6 +390,11 @@ export function RequestEditor() {
             </TabsList>
           </div>
           <div className="min-h-0 flex-1 overflow-y-auto">
+            {hasOpenAPIForm && (
+              <TabsContent value="form" className="m-0">
+                <OpenAPIForm req={req} onChange={updateActiveRequest} />
+              </TabsContent>
+            )}
             <TabsContent value="params" className="m-0">
               <KeyValueEditor items={req.params} showDescription onChange={(params) => updateActiveRequest({ params })} />
             </TabsContent>
