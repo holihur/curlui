@@ -16,6 +16,10 @@ drift=$(gofmt -l server || true)
 [ -z "$drift" ] || die "gofmt needed: $drift"
 ok "gofmt clean"
 
+# //go:embed all:dist needs at least one file, even before the frontend is built.
+mkdir -p server/internal/webui/dist server/internal/webui/dist_core
+touch server/internal/webui/dist/.gitkeep server/internal/webui/dist_core/.gitkeep
+
 step "go vet (full)"
 (cd server && GOFLAGS="$GOFLAGS_LOCAL" go vet ./...)
 ok "vet full"

@@ -20,6 +20,7 @@ node scripts/precompress.mjs web/dist
 rm -rf server/internal/webui/dist
 mkdir -p server/internal/webui/dist
 cp -r web/dist/. server/internal/webui/dist/
+touch server/internal/webui/dist/.gitkeep
 
 echo "==> Building frontend (core, no pdf.js)"
 cd web
@@ -29,6 +30,7 @@ node scripts/precompress.mjs web/dist-core
 rm -rf server/internal/webui/dist_core
 mkdir -p server/internal/webui/dist_core
 cp -r web/dist-core/. server/internal/webui/dist_core/
+touch server/internal/webui/dist_core/.gitkeep
 
 echo "==> Building servers ($VERSION)"
 cd server
