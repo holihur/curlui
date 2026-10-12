@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, Trash2, UserPlus, Users, History } from "lucide-react";
+import { Loader2, Trash2, UserPlus, Users, History, KeyRound } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -46,6 +46,7 @@ export function TeamDialog({
   const [memberId, setMemberId] = useState("");
 
   const isAdmin = user?.role === "admin";
+  const [resetLink, setResetLink] = useState("");
   const project = projects.find((p) => p.id === projectId);
   const members = project?.members ?? {};
   const canManage = isAdmin || ["owner", "admin"].includes(useStore.getState().projectRole);
@@ -88,6 +89,20 @@ export function TeamDialog({
       fail(err);
     } finally {
       setBusy(false);
+    }
+  };
+
+  const resetPassword = async (u: { id: string; username: string }) => {
+    try {
+      const r = await api.adminResetPassword(u.id);
+      setResetLink(r.token);
+      toast({ title: t("resetIssued"), description: u.username, variant: "success" });
+    } catch (err) {
+      toast({
+        title: t("resetPassword"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
     }
   };
 
@@ -258,6 +273,15 @@ export function TeamDialog({
                     </span>
                     <div className="flex items-center gap-1">
                       <span className="text-xs text-muted-foreground">{u.role}</span>
+                      {isAdmin && (
+                        <button
+                          onClick={() => void resetPassword(u)}
+                          title={t("resetPassword")}
+                          className="rounded p-0.5 text-muted-foreground hover:text-foreground"
+                        >
+                          <KeyRound className="h-3.5 w-3.5" />
+                        </button>
+                      )}
                       {u.id !== user?.id && (
                         <button
                           onClick={() => void removeUser(u.id)}
@@ -270,6 +294,27 @@ export function TeamDialog({
                   </div>
                 ))}
               </div>
+              {resetLink && (
+                <div className="mt-2 rounded-md border border-amber-500/40 bg-amber-500/10 p-2">
+                  <p className="text-[11px] text-amber-400">{t("resetHint")}</p>
+                  <div className="mt-1 flex items-center gap-2">
+                    <code className="min-w-0 flex-1 break-all rounded bg-background/60 p-1 font-mono text-[10px]">
+                      {resetLink}
+                    </code>
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 shrink-0 text-[10px]"
+                      onClick={() => {
+                        void navigator.clipboard?.writeText(resetLink);
+                        setResetLink("");
+                      }}
+                    >
+                      {t("copy")}
+                    </Button>
+                  </div>
+                </div>
+              )}
             </div>
           )}
         </div>
