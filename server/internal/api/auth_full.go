@@ -416,6 +416,7 @@ func (s *Server) authStatus(w http.ResponseWriter, r *http.Request) {
 		"project":       pid,
 		"role":          role,
 		"projects":      projects,
+		"totpEnabled":   user.TOTPEnabled,
 	}
 	writeJSON(w, http.StatusOK, out)
 }

@@ -100,7 +100,8 @@ type State = {
   loadBuild: () => Promise<void>;
   setLoginOpen: (v: boolean) => void;
   loadAuth: () => Promise<void>;
-  login: (username: string, password: string) => Promise<void>;
+  login: (username: string, password: string) => Promise<{ challenge?: string }>;
+  login2FA: (challenge: string, code: string) => Promise<void>;
   bootstrap: (username: string, password: string, name: string) => Promise<void>;
   logout: () => Promise<void>;
   setProject: (id: string) => Promise<void>;
@@ -451,6 +452,15 @@ export const useStore = create<State>((set, get) => ({
 
   async login(username, password) {
     const r = await api.login(username, password);
+    // With 2FA on, the password step returns a challenge to complete.
+    if (r.totpRequired && r.challenge) return { challenge: r.challenge };
+    setApiContext({ token: r.token });
+    await get().loadAuth();
+    await get().loadAll();
+    return {};
+  },
+  async login2FA(challenge, code) {
+    const r = await api.login2FA(challenge, code);
     setApiContext({ token: r.token });
     await get().loadAuth();
     await get().loadAll();

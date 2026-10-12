@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { Loader2, LogIn, ShieldPlus } from "lucide-react";
+import { KeyRound, Loader2, LogIn, ShieldPlus } from "lucide-react";
 import {
   Dialog,
   DialogContent,
@@ -18,20 +18,30 @@ function AuthForm({ onDone }: { onDone?: () => void }) {
   const { t } = useI18n();
   const userCount = useStore((s) => s.userCount);
   const login = useStore((s) => s.login);
+  const login2FA = useStore((s) => s.login2FA);
   const bootstrap = useStore((s) => s.bootstrap);
   const toast = useStore((s) => s.toast);
   const [username, setUsername] = useState("");
   const [password, setPassword] = useState("");
   const [name, setName] = useState("");
   const [busy, setBusy] = useState(false);
+  const [challenge, setChallenge] = useState("");
+  const [code, setCode] = useState("");
   const first = userCount === 0;
 
   const submit = async (e: React.FormEvent) => {
     e.preventDefault();
     setBusy(true);
     try {
-      if (first) await bootstrap(username, password, name || username);
-      else await login(username, password);
+      if (first) {
+        await bootstrap(username, password, name || username);
+      } else {
+        const r = await login(username, password);
+        if (r.challenge) {
+          setChallenge(r.challenge);
+          return; // show the second-factor step
+        }
+      }
       onDone?.();
     } catch (err) {
       toast({
@@ -43,6 +53,60 @@ function AuthForm({ onDone }: { onDone?: () => void }) {
       setBusy(false);
     }
   };
+
+  const verify = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setBusy(true);
+    try {
+      await login2FA(challenge, code);
+      onDone?.();
+    } catch (err) {
+      toast({
+        title: t("twoFactor"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  if (challenge) {
+    return (
+      <form onSubmit={verify} className="flex flex-col gap-3">
+        <p className="text-xs text-muted-foreground">{t("twoFactorHint")}</p>
+        <div className="flex flex-col gap-1.5">
+          <Label htmlFor="auth-code">{t("authCode")}</Label>
+          <Input
+            id="auth-code"
+            value={code}
+            onChange={(e) => setCode(e.target.value)}
+            inputMode="numeric"
+            autoComplete="one-time-code"
+            placeholder="000000"
+            autoFocus
+            className="font-mono tracking-widest"
+          />
+        </div>
+        <Button type="submit" disabled={busy || !code} className="mt-1 gap-1.5">
+          {busy ? <Loader2 className="h-4 w-4 animate-spin" /> : <KeyRound className="h-4 w-4" />}
+          {t("verify")}
+        </Button>
+        <Button
+          type="button"
+          variant="ghost"
+          className="text-xs"
+          onClick={() => {
+            setChallenge("");
+            setCode("");
+            setPassword("");
+          }}
+        >
+          {t("back")}
+        </Button>
+      </form>
+    );
+  }
 
   return (
     <form onSubmit={submit} className="flex flex-col gap-3">

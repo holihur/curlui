@@ -80,6 +80,11 @@ export function SettingsDialog({
   const [aiBaseUrl, setAiBaseUrl] = useState("");
   const [aiModel, setAiModel] = useState("");
   const [aiConfigured, setAiConfigured] = useState(false);
+  const [pwCurrent, setPwCurrent] = useState("");
+  const [pwNew, setPwNew] = useState("");
+  const [totp, setTotp] = useState<{ secret: string; otpauth: string; recoveryCodes: string[] } | null>(null);
+  const [totpCode, setTotpCode] = useState("");
+  const [totpOn, setTotpOn] = useState(false);
   const [providers, setProviders] = useState<
     { id: string; name: string; provider: string; model: string; baseUrl: string; configured: boolean }[]
   >([]);
@@ -159,9 +164,56 @@ export function SettingsDialog({
       })
       .catch(() => {});
     void loadProviders();
+    api
+      .authStatus()
+      .then((st) => setTotpOn(!!(st as any).totpEnabled))
+      .catch(() => {});
     api.listScopes().then((r) => setScopes(r.scopes)).catch(() => {});
     void loadTokens();
   }, [open]);
+
+  const doChangePassword = async () => {
+    try {
+      await api.changePassword(pwCurrent, pwNew);
+      setPwCurrent("");
+      setPwNew("");
+      toast({ title: t("passwordChanged"), variant: "success" });
+    } catch (err) {
+      toast({
+        title: t("saveFailed"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    }
+  };
+
+  const startTwoFA = async () => {
+    try {
+      setTotp(await api.twoFASetup());
+      setTotpCode("");
+    } catch (err) {
+      toast({
+        title: t("twoFactor"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    }
+  };
+
+  const confirmTwoFA = async () => {
+    try {
+      await api.twoFAEnable(totpCode);
+      setTotpOn(true);
+      setTotp(null);
+      toast({ title: t("twoFactorOn"), variant: "success" });
+    } catch (err) {
+      toast({
+        title: t("twoFactor"),
+        description: err instanceof Error ? err.message : String(err),
+        variant: "error",
+      });
+    }
+  };
 
   const loadProviders = async () => {
     try {
@@ -398,6 +450,108 @@ export function SettingsDialog({
                 <Row label={t("requireLogin")} hint={t("requireLoginHint")}>
                   <Switch checked={authOn} onCheckedChange={setAuthOn} />
                 </Row>
+
+                {/* Change password */}
+                <div className="rounded-md border p-2">
+                  <div className="mb-2 text-xs font-medium">{t("changePassword")}</div>
+                  <div className="flex flex-wrap gap-2">
+                    <Input
+                      type="password"
+                      className="h-8 min-w-0 flex-1 text-xs"
+                      placeholder={t("currentPassword")}
+                      value={pwCurrent}
+                      onChange={(e) => setPwCurrent(e.target.value)}
+                    />
+                    <Input
+                      type="password"
+                      className="h-8 min-w-0 flex-1 text-xs"
+                      placeholder={t("newPassword")}
+                      value={pwNew}
+                      onChange={(e) => setPwNew(e.target.value)}
+                    />
+                    <Button
+                      size="sm"
+                      className="h-8 shrink-0 text-xs"
+                      disabled={!pwCurrent || pwNew.length < 8}
+                      onClick={() => void doChangePassword()}
+                    >
+                      {t("save")}
+                    </Button>
+                  </div>
+                </div>
+
+                {/* Two-factor authentication */}
+                <div className="rounded-md border p-2">
+                  <div className="mb-2 flex items-center justify-between">
+                    <span className="text-xs font-medium">{t("twoFactor")}</span>
+                    {totpOn ? (
+                      <span className="rounded bg-emerald-500/15 px-1.5 py-0.5 text-[10px] text-emerald-400">
+                        {t("twoFactorOn")}
+                      </span>
+                    ) : (
+                      <Button size="sm" className="h-7 text-[10px]" onClick={() => void startTwoFA()}>
+                        {t("twoFactorEnable")}
+                      </Button>
+                    )}
+                  </div>
+                  {totpOn && (
+                    <Button
+                      size="sm"
+                      variant="outline"
+                      className="h-7 text-[10px]"
+                      onClick={async () => {
+                        try {
+                          await api.twoFADisable({ password: pwCurrent });
+                          setTotpOn(false);
+                          toast({ title: t("twoFactorOff"), variant: "success" });
+                        } catch (err) {
+                          toast({
+                            title: t("twoFactor"),
+                            description: err instanceof Error ? err.message : String(err),
+                            variant: "error",
+                          });
+                        }
+                      }}
+                    >
+                      {t("twoFactorDisable")}
+                    </Button>
+                  )}
+                  {totp && (
+                    <div className="space-y-2">
+                      <p className="text-[11px] text-muted-foreground">{t("twoFactorSetupHint")}</p>
+                      <code className="block break-all rounded bg-muted p-1.5 font-mono text-[10px]">
+                        {totp.secret}
+                      </code>
+                      <code className="block break-all rounded bg-muted p-1.5 font-mono text-[10px]">
+                        {totp.otpauth}
+                      </code>
+                      <details className="text-[11px]">
+                        <summary className="cursor-pointer text-muted-foreground">
+                          {t("recoveryCodes")} ({totp.recoveryCodes.length})
+                        </summary>
+                        <pre className="mt-1 grid grid-cols-2 gap-x-3 rounded bg-muted p-1.5 font-mono text-[10px]">
+                          {totp.recoveryCodes.join("\n")}
+                        </pre>
+                      </details>
+                      <div className="flex gap-2">
+                        <Input
+                          className="h-8 min-w-0 flex-1 font-mono text-xs tracking-widest"
+                          placeholder="000000"
+                          value={totpCode}
+                          onChange={(e) => setTotpCode(e.target.value)}
+                        />
+                        <Button
+                          size="sm"
+                          className="h-8 shrink-0 text-xs"
+                          disabled={!totpCode}
+                          onClick={() => void confirmTwoFA()}
+                        >
+                          {t("verify")}
+                        </Button>
+                      </div>
+                    </div>
+                  )}
+                </div>
 
                 <Row label={t("oidcEnable")}>
                   <Switch checked={oidcOn} onCheckedChange={setOidcOn} />

@@ -649,9 +649,48 @@ export const api = {
     });
   },
   login(username: string, password: string) {
-    return request<{ token: string; user: User }>("/auth/login", {
+    return request<{
+      token?: string;
+      user?: User;
+      totpRequired?: boolean;
+      challenge?: string;
+    }>("/auth/login", {
       method: "POST",
       body: JSON.stringify({ username, password }),
+    });
+  },
+  login2FA(challenge: string, code: string) {
+    return request<{ token: string; user: User }>("/auth/login/2fa", {
+      method: "POST",
+      body: JSON.stringify({ challenge, code }),
+    });
+  },
+  twoFASetup() {
+    return request<{ secret: string; otpauth: string; recoveryCodes: string[] }>("/auth/2fa/setup", {
+      method: "POST",
+    });
+  },
+  twoFAEnable(code: string) {
+    return request<{ enabled: boolean }>("/auth/2fa/enable", {
+      method: "POST",
+      body: JSON.stringify({ code }),
+    });
+  },
+  twoFADisable(payload: { code?: string; password?: string }) {
+    return request<{ enabled: boolean }>("/auth/2fa/disable", {
+      method: "POST",
+      body: JSON.stringify(payload),
+    });
+  },
+  changePassword(current: string, next: string) {
+    return request<{ ok: boolean }>("/auth/change-password", {
+      method: "POST",
+      body: JSON.stringify({ current, new: next }),
+    });
+  },
+  adminResetPassword(id: string) {
+    return request<{ token: string; link: string; expiresIn: number }>(`/users/${id}/reset`, {
+      method: "POST",
     });
   },
   bootstrap(username: string, password: string, name: string) {
