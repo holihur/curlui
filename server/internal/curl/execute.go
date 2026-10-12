@@ -397,6 +397,20 @@ func (e *Executor) newClient(def models.RequestDef) *http.Client {
 		ExpectContinueTimeout: 2 * time.Second,
 		ResponseHeaderTimeout: 0,
 	}
+	// Per-environment DNS overrides: dial the configured IP while keeping the
+	// original hostname for the Host header and TLS SNI.
+	if len(def.Options.DNS) > 0 {
+		base := transport.DialContext
+		transport.DialContext = func(ctx context.Context, network, addr string) (net.Conn, error) {
+			host, port, err := net.SplitHostPort(addr)
+			if err == nil {
+				if ip, ok := def.Options.DNS[host]; ok && strings.TrimSpace(ip) != "" {
+					addr = net.JoinHostPort(strings.TrimSpace(ip), port)
+				}
+			}
+			return base(ctx, network, addr)
+		}
+	}
 	if !def.Options.VerifyTLS {
 		transport.TLSClientConfig = &tls.Config{InsecureSkipVerify: true} //nolint:gosec
 	}

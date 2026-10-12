@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"io"
 	"net/http"
+	"strings"
 	"time"
 
 	"curlui/server/internal/models"
@@ -46,6 +47,15 @@ func (s *Server) streamRequest(w http.ResponseWriter, r *http.Request) {
 		for _, env := range st.Environments() {
 			if env.ID == payload.EnvID {
 				envSet = variables.FromEnvironment(&env)
+				dns := map[string]string{}
+				for _, kv := range env.DNS {
+					if kv.Enabled && strings.TrimSpace(kv.Key) != "" && strings.TrimSpace(kv.Value) != "" {
+						dns[strings.TrimSpace(kv.Key)] = strings.TrimSpace(kv.Value)
+					}
+				}
+				if len(dns) > 0 {
+					payload.Request.Options.DNS = dns
+				}
 				break
 			}
 		}

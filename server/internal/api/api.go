@@ -372,6 +372,16 @@ func (s *Server) runRequest(ctx context.Context, st *store.Store, payload sendPa
 		for _, env := range st.Environments() {
 			if env.ID == payload.EnvID {
 				envSet = variables.FromEnvironment(&env)
+				// The environment may pin hostnames to fixed IPs.
+				dns := map[string]string{}
+				for _, kv := range env.DNS {
+					if kv.Enabled && strings.TrimSpace(kv.Key) != "" && strings.TrimSpace(kv.Value) != "" {
+						dns[strings.TrimSpace(kv.Key)] = strings.TrimSpace(kv.Value)
+					}
+				}
+				if len(dns) > 0 {
+					payload.Request.Options.DNS = dns
+				}
 				break
 			}
 		}

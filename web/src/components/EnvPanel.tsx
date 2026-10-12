@@ -18,7 +18,8 @@ export function EnvPanel() {
 
   const [draft, setDraft] = useState<Environment | null>(null);
 
-  const startNew = () => setDraft({ id: "", name: t("newEnvironment"), variables: [] });
+  const startNew = () =>
+    setDraft({ id: "", name: t("newEnvironment"), variables: [], dns: [] });
   const startEdit = (env: Environment) => setDraft(JSON.parse(JSON.stringify(env)));
 
   const save = async () => {
@@ -104,6 +105,18 @@ export function EnvPanel() {
               items={draft.variables}
               onChange={(variables) => setDraft({ ...draft, variables })}
             />
+
+            {/* Per-environment DNS overrides */}
+            <div className="border-t px-2 pt-3">
+              <div className="mb-1 flex items-center gap-2">
+                <span className="text-xs font-medium text-muted-foreground">{t("dnsOverrides")}</span>
+                <span className="text-[10px] text-muted-foreground">{t("dnsHint")}</span>
+              </div>
+              <KeyValueEditor
+                items={draft.dns ?? []}
+                onChange={(dns) => setDraft({ ...draft, dns })}
+              />
+            </div>
           </div>
         </div>
       )}

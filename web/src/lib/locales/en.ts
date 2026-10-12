@@ -191,6 +191,8 @@ export const en = {
   historyEmpty: "Sent requests will appear here.",
 
   // environments
+  dnsOverrides: "DNS overrides",
+  dnsHint: "host → IP, used only by this environment",
   variables: "Variables",
   newEnvironment: "New",
   envEmpty: "No environments. Create one to use {{variables}}.",

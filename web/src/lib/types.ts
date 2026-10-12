@@ -363,6 +363,7 @@ export type Environment = {
   id: string;
   name: string;
   variables: KeyValue[];
+  dns?: KeyValue[];
 };
 
 export type CollectionNode = {

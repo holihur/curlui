@@ -187,6 +187,8 @@ export const ja: Record<MessageKey, string> = {
   clear: "クリア",
   historyEmpty: "送信したリクエストがここに表示されます。",
 
+  dnsOverrides: "DNS 上書き",
+  dnsHint: "ホスト名 → IP（この環境でのみ有効）",
   variables: "変数",
   newEnvironment: "新規",
   envEmpty: "環境がありません。作成すると {{variables}} が使えます。",

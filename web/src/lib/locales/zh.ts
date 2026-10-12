@@ -187,6 +187,8 @@ export const zh: Record<MessageKey, string> = {
   clear: "清空",
   historyEmpty: "发送过的请求会显示在这里。",
 
+  dnsOverrides: "DNS 解析记录",
+  dnsHint: "主机名 → IP，仅此环境生效",
   variables: "变量",
   newEnvironment: "新建",
   envEmpty: "暂无环境。新建一个即可使用 {{variables}}。",

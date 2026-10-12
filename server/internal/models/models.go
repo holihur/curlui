@@ -95,11 +95,14 @@ type GrpcCall struct {
 
 // Options controls how the request is executed.
 type Options struct {
-	Timeout         int    `json:"timeout"`         // milliseconds
-	FollowRedirects bool   `json:"followRedirects"` // default true
-	VerifyTLS       bool   `json:"verifyTLS"`       // default true
-	Proxy           string `json:"proxy,omitempty"`
-	MaxRedirects    int    `json:"maxRedirects,omitempty"`
+	// DNS is a transient host→IP map applied to this request only (filled from
+	// the active environment; never persisted).
+	DNS             map[string]string `json:"dns,omitempty"`
+	Timeout         int               `json:"timeout"`         // milliseconds
+	FollowRedirects bool              `json:"followRedirects"` // default true
+	VerifyTLS       bool              `json:"verifyTLS"`       // default true
+	Proxy           string            `json:"proxy,omitempty"`
+	MaxRedirects    int               `json:"maxRedirects,omitempty"`
 	// SendVia is "server" (Go, default) or "browser" (fetch from the UI).
 	SendVia string `json:"sendVia,omitempty"`
 	// UseCookieJar keeps cookies between requests (per executor).
@@ -253,6 +256,10 @@ type Environment struct {
 	ID        string     `json:"id"`
 	Name      string     `json:"name"`
 	Variables []KeyValue `json:"variables"`
+	// DNS overrides resolve a host to a fixed IP for this environment only
+	// (key = hostname, value = IP). Handy for pointing staging at a box that
+	// has no public DNS entry.
+	DNS []KeyValue `json:"dns,omitempty"`
 }
 
 // Node is an item in the collections tree. Folders may carry their own
