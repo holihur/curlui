@@ -59,8 +59,6 @@ export default function App() {
       <TooltipProvider delayDuration={250}>
         <AuthScreen />
         <Toaster />
-        <FeedbackWidget />
-        <FloatingDock />
       </TooltipProvider>
     );
   }

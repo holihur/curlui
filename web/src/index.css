@@ -227,3 +227,43 @@ textarea {
 .md th, .md td { border: 1px solid hsl(var(--border)); padding: 0.35em 0.6em; text-align: left; }
 .md blockquote { border-left: 3px solid hsl(var(--border)); padding-left: 0.8em; color: hsl(var(--muted-foreground)); margin: 0.6em 0; }
 .md hr { border: 0; border-top: 1px solid hsl(var(--border)); margin: 0.9em 0; }
+
+/* --- Artboard / guide-line styling (sign-in screen) ----------------------- */
+.blueprint {
+  background-color: hsl(var(--background));
+  background-image:
+    linear-gradient(to right, hsl(var(--border) / 0.9) 1px, transparent 1px),
+    linear-gradient(to bottom, hsl(var(--border) / 0.9) 1px, transparent 1px),
+    radial-gradient(circle, hsl(var(--muted-foreground) / 0.45) 1px, transparent 1px);
+  background-size: 96px 96px, 96px 96px, 12px 12px;
+  background-position: center center, center center, center center;
+}
+/* Ruler strips along the top and left edges. */
+.blueprint-ruler-x,
+.blueprint-ruler-y {
+  position: absolute;
+  color: hsl(var(--muted-foreground) / 0.7);
+  background-repeat: repeat;
+}
+.blueprint-ruler-x {
+  top: 0; left: 0; right: 0; height: 18px;
+  background-image: repeating-linear-gradient(
+    to right,
+    hsl(var(--border)) 0 1px,
+    transparent 1px 12px
+  );
+}
+.blueprint-ruler-y {
+  top: 0; bottom: 0; left: 0; width: 18px;
+  background-image: repeating-linear-gradient(
+    to bottom,
+    hsl(var(--border)) 0 1px,
+    transparent 1px 12px
+  );
+}
+/* Corner crop marks around the artboard. */
+.artboard-mark {
+  position: absolute;
+  width: 10px; height: 10px;
+  border-color: hsl(var(--primary) / 0.8);
+}

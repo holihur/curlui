@@ -68,6 +68,17 @@ type User struct {
 	Role         string    `json:"role"` // admin | member | viewer
 	CreatedAt    time.Time `json:"createdAt"`
 	AI           *UserAI   `json:"ai,omitempty"`
+	// Two-factor authentication (TOTP).
+	TOTPSecret    string   `json:"totpSecret,omitempty"`
+	TOTPEnabled   bool     `json:"totpEnabled,omitempty"`
+	RecoveryCodes []string `json:"recoveryCodes,omitempty"` // sha-256 hashes
+}
+
+// PasswordReset is a single-use, short-lived password reset token.
+type PasswordReset struct {
+	Hash      string    `json:"hash"`
+	UserID    string    `json:"userId"`
+	ExpiresAt time.Time `json:"expiresAt"`
 }
 
 // UserAI is a user's own BYOK configuration for the assistant.
@@ -218,6 +229,7 @@ type Root struct {
 	Users    map[string]*User
 	Sessions map[string]*Session
 	PATs     map[string]*PAT
+	Resets   map[string]*PasswordReset
 	Global   map[string]string
 	Audit    []AuditEntry
 	Version  int64
@@ -312,6 +324,7 @@ func newRoot() *Root {
 		Users:    map[string]*User{},
 		Sessions: map[string]*Session{},
 		PATs:     map[string]*PAT{},
+		Resets:   map[string]*PasswordReset{},
 		Global:   map[string]string{},
 	}
 }
@@ -847,6 +860,30 @@ func (s *Store) DeleteSession(token string) error {
 // PATPrefix marks curlui personal access tokens.
 const PATPrefix = "curlui_pat_"
 
+// NewToken returns a fresh opaque token (used for challenges and resets).
+func NewToken() string { return randomToken() }
+
+// HashToken returns the hex SHA-256 of a secret, for at-rest comparison.
+func HashToken(v string) string { return hashToken(v) }
+
+// DeleteUserSessions invalidates every session of a user (used after a password
+// change or reset).
+func (s *Store) DeleteUserSessions(userID string) {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	for t, se := range s.root.Sessions {
+		if se.UserID == userID {
+			delete(s.root.Sessions, t)
+			if s.db != nil {
+				_ = s.pgDeleteSession(t)
+			}
+		}
+	}
+	if s.db == nil {
+		_ = s.persistFile()
+	}
+}
+
 // hashToken returns the hex SHA-256 of a token (tokens are never stored raw).
 func hashToken(token string) string {
 	sum := sha256.Sum256([]byte(token))
@@ -1106,6 +1143,121 @@ func (s *Store) SetAIActive(userID, id string) error {
 	u.AI.Active = id
 	if s.db != nil {
 		return s.pgSaveUserAI(userID, *u.AI)
+	}
+	return s.persistFile()
+}
+
+// --- two-factor authentication & password reset ------------------------------
+
+// SetTOTP stores a user's TOTP secret and (optionally) enables it.
+func (s *Store) SetTOTP(userID, secret string, enabled bool, recovery []string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.root.Users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	u.TOTPSecret = secret
+	u.TOTPEnabled = enabled
+	if recovery != nil {
+		u.RecoveryCodes = recovery
+	}
+	// Passing an empty secret is what disables (and forgets) 2FA; a pending
+	// secret (enabled=false, secret set) must survive until it is confirmed.
+	if strings.TrimSpace(secret) == "" {
+		u.RecoveryCodes = nil
+	}
+	if s.db != nil {
+		return s.pgSaveUserTOTP(userID, u.TOTPSecret, u.TOTPEnabled, u.RecoveryCodes)
+	}
+	return s.persistFile()
+}
+
+// ConsumeRecoveryCode burns a recovery code if it matches.
+func (s *Store) ConsumeRecoveryCode(userID, code string) bool {
+	code = strings.TrimSpace(strings.ToLower(code))
+	if code == "" {
+		return false
+	}
+	h := hashToken(code)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.root.Users[userID]
+	if !ok {
+		return false
+	}
+	for i, c := range u.RecoveryCodes {
+		if subtle.ConstantTimeCompare([]byte(c), []byte(h)) == 1 {
+			u.RecoveryCodes = append(u.RecoveryCodes[:i], u.RecoveryCodes[i+1:]...)
+			if s.db != nil {
+				_ = s.pgSaveUserTOTP(userID, u.TOTPSecret, u.TOTPEnabled, u.RecoveryCodes)
+			} else {
+				_ = s.persistFile()
+			}
+			return true
+		}
+	}
+	return false
+}
+
+// CreatePasswordReset issues a single-use reset token for a user.
+func (s *Store) CreatePasswordReset(userID string, ttl time.Duration) (string, error) {
+	if ttl <= 0 {
+		ttl = time.Hour
+	}
+	token := randomToken()
+	rec := &PasswordReset{Hash: hashToken(token), UserID: userID, ExpiresAt: time.Now().Add(ttl)}
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if _, ok := s.root.Users[userID]; !ok {
+		return "", errors.New("user not found")
+	}
+	s.root.Resets[rec.Hash] = rec
+	if s.db != nil {
+		if err := s.pgSaveReset(rec); err != nil {
+			delete(s.root.Resets, rec.Hash)
+			return "", err
+		}
+	} else if err := s.persistFile(); err != nil {
+		return "", err
+	}
+	return token, nil
+}
+
+// ConsumePasswordReset redeems a reset token, returning the user id.
+func (s *Store) ConsumePasswordReset(token string) (string, bool) {
+	if token == "" {
+		return "", false
+	}
+	h := hashToken(token)
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	rec, ok := s.root.Resets[h]
+	if !ok || time.Now().After(rec.ExpiresAt) {
+		delete(s.root.Resets, h)
+		return "", false
+	}
+	delete(s.root.Resets, h)
+	if s.db != nil {
+		_ = s.pgDeleteReset(h)
+	} else {
+		_ = s.persistFile()
+	}
+	return rec.UserID, true
+}
+
+// SetPassword replaces a user's password (the caller must have verified
+// whatever was required first).
+func (s *Store) SetPassword(userID, password string) error {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	u, ok := s.root.Users[userID]
+	if !ok {
+		return errors.New("user not found")
+	}
+	u.PasswordHash = HashPassword(password)
+	if s.db != nil {
+		return s.pgUpdateUser(u)
 	}
 	return s.persistFile()
 }

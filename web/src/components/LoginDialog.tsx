@@ -122,26 +122,56 @@ export function AuthScreen() {
   }, []);
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-background p-4">
-      <div className="w-full max-w-sm rounded-xl border bg-card p-6 shadow-sm">
-        <div className="mb-4 flex items-center gap-2">
-          <span className="text-lg font-semibold">curlui</span>
-          <span className="text-xs text-muted-foreground">· {t("team")}</span>
-        </div>
-        <AuthForm />
-        {sso?.enabled && (
-          <div className="mt-4 border-t pt-4">
-            <Button
-              variant="outline"
-              className="w-full gap-1.5"
-              onClick={() => {
-                window.location.href = "/api/auth/oidc/start";
-              }}
-            >
-              <LogIn className="h-4 w-4" /> {t("signInWith")} {sso.label}
-            </Button>
+    <div className="blueprint relative flex min-h-screen items-center justify-center overflow-hidden p-4">
+      {/* rulers */}
+      <div className="blueprint-ruler-x" aria-hidden />
+      <div className="blueprint-ruler-y" aria-hidden />
+      <span className="absolute left-5 top-5 font-mono text-[10px] text-muted-foreground">
+        curlui · artboard 1440×900
+      </span>
+      <span className="absolute right-5 top-5 font-mono text-[10px] text-muted-foreground">
+        100%
+      </span>
+
+      {/* the artboard */}
+      <div className="relative w-full max-w-sm">
+        {/* crop marks */}
+        <span className="artboard-mark -left-2 -top-2 border-l-2 border-t-2" aria-hidden />
+        <span className="artboard-mark -right-2 -top-2 border-r-2 border-t-2" aria-hidden />
+        <span className="artboard-mark -bottom-2 -left-2 border-b-2 border-l-2" aria-hidden />
+        <span className="artboard-mark -bottom-2 -right-2 border-b-2 border-r-2" aria-hidden />
+        {/* selection outline */}
+        <span
+          className="pointer-events-none absolute -inset-3 rounded-lg border border-dashed border-primary/40"
+          aria-hidden
+        />
+        <span className="absolute -top-8 left-0 rounded bg-primary px-1.5 py-0.5 font-mono text-[10px] text-primary-foreground">
+          sign-in
+        </span>
+        <span className="absolute -bottom-8 left-0 font-mono text-[10px] text-muted-foreground">
+          w 384 · auto height
+        </span>
+
+        <div className="rounded-xl border bg-card p-6 shadow-lg">
+          <div className="mb-4 flex items-center gap-2">
+            <span className="text-lg font-semibold">curlui</span>
+            <span className="text-xs text-muted-foreground">· {t("team")}</span>
           </div>
-        )}
+          <AuthForm />
+          {sso?.enabled && (
+            <div className="mt-4 border-t pt-4">
+              <Button
+                variant="outline"
+                className="w-full gap-1.5"
+                onClick={() => {
+                  window.location.href = "/api/auth/oidc/start";
+                }}
+              >
+                <LogIn className="h-4 w-4" /> {t("signInWith")} {sso.label}
+              </Button>
+            </div>
+          )}
+        </div>
       </div>
     </div>
   );

@@ -441,14 +441,15 @@ func (s *Server) authLogin(w http.ResponseWriter, r *http.Request) {
 		writeErr(w, http.StatusUnauthorized, "invalid credentials")
 		return
 	}
-	se, err := s.store.CreateSession(u.ID, sessionTTL)
-	if err != nil {
-		writeErr(w, http.StatusInternalServerError, err.Error())
+	// With 2FA on, the password step only yields a challenge.
+	if u.TOTPEnabled {
+		writeJSON(w, http.StatusOK, map[string]any{
+			"totpRequired": true,
+			"challenge":    newChallenge(u.ID),
+		})
 		return
 	}
-	http.SetCookie(w, &http.Cookie{Name: sessionCookie, Value: se.Token, Path: "/", HttpOnly: true, SameSite: http.SameSiteLaxMode, MaxAge: int(sessionTTL.Seconds())})
-	s.store.AddAudit(store.AuditEntry{User: u.Username, Action: "login", Target: u.ID})
-	writeJSON(w, http.StatusOK, map[string]any{"token": se.Token, "user": publicUser(u)})
+	s.issueSession(w, u, "login")
 }
 
 func (s *Server) authLogout(w http.ResponseWriter, r *http.Request) {
@@ -680,6 +681,7 @@ func (s *Server) canManageProject(r *http.Request, id string) bool {
 func (s *Server) registerAuthRoutes(mux *http.ServeMux) {
 	mux.HandleFunc("GET /api/auth/status", s.authStatus)
 	mux.HandleFunc("POST /api/auth/login", s.authLogin)
+	s.registerTwoFARoutes(mux)
 	mux.HandleFunc("POST /api/auth/logout", s.authLogout)
 	mux.HandleFunc("POST /api/auth/bootstrap", s.authBootstrap)
 	mux.HandleFunc("GET /api/auth/oidc/config", s.oidcConfig)

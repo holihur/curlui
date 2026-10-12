@@ -13,14 +13,25 @@ import (
 )
 
 type userRow struct {
-	ID        string `gorm:"primaryKey"`
-	Username  string `gorm:"uniqueIndex"`
-	Name      string
-	Password  string
-	Role      string
-	CreatedAt time.Time
-	AIConfig  string `gorm:"type:jsonb"`
+	ID          string `gorm:"primaryKey"`
+	Username    string `gorm:"uniqueIndex"`
+	Name        string
+	Password    string
+	Role        string
+	CreatedAt   time.Time
+	AIConfig    string `gorm:"type:jsonb"`
+	TOTPSecret  string
+	TOTPEnabled bool
+	Recovery    string `gorm:"type:jsonb"`
 }
+
+type resetRow struct {
+	Hash      string `gorm:"primaryKey"`
+	UserID    string `gorm:"index"`
+	ExpiresAt time.Time
+}
+
+func (resetRow) TableName() string { return "password_resets" }
 
 func (userRow) TableName() string { return "users" }
 
@@ -123,7 +134,11 @@ func (s *Store) loadPG() error {
 		return err
 	}
 	for _, u := range urs {
-		usr := &User{ID: u.ID, Username: u.Username, Name: u.Name, PasswordHash: u.Password, Role: u.Role, CreatedAt: u.CreatedAt}
+		usr := &User{ID: u.ID, Username: u.Username, Name: u.Name, PasswordHash: u.Password, Role: u.Role, CreatedAt: u.CreatedAt,
+			TOTPSecret: u.TOTPSecret, TOTPEnabled: u.TOTPEnabled}
+		if u.Recovery != "" {
+			_ = json.Unmarshal([]byte(u.Recovery), &usr.RecoveryCodes)
+		}
 		if u.AIConfig != "" {
 			var cfg UserAI
 			if err := json.Unmarshal([]byte(u.AIConfig), &cfg); err == nil {
@@ -200,7 +215,7 @@ func (s *Store) pgOpen(dsn string) error {
 	if err != nil {
 		return err
 	}
-	if err := db.AutoMigrate(&userRow{}, &sessionRow{}, &patRow{}, &projectRow{}, &memberRow{}, &settingRow{}, &auditRow{}); err != nil {
+	if err := db.AutoMigrate(&userRow{}, &sessionRow{}, &patRow{}, &resetRow{}, &projectRow{}, &memberRow{}, &settingRow{}, &auditRow{}); err != nil {
 		return err
 	}
 	s.db = db
@@ -268,6 +283,21 @@ func (s *Store) pgDeleteSession(token string) error {
 
 func (s *Store) pgPurgeSessions(before time.Time) error {
 	return s.db.(*gorm.DB).Delete(&sessionRow{}, "expires_at < ?", before).Error
+}
+
+func (s *Store) pgSaveUserTOTP(userID, secret string, enabled bool, recovery []string) error {
+	raw, _ := json.Marshal(recovery)
+	return s.db.(*gorm.DB).Model(&userRow{}).Where("id = ?", userID).Updates(map[string]any{
+		"totp_secret": secret, "totp_enabled": enabled, "recovery": string(raw),
+	}).Error
+}
+
+func (s *Store) pgSaveReset(r *PasswordReset) error {
+	return s.db.(*gorm.DB).Create(&resetRow{Hash: r.Hash, UserID: r.UserID, ExpiresAt: r.ExpiresAt}).Error
+}
+
+func (s *Store) pgDeleteReset(hash string) error {
+	return s.db.(*gorm.DB).Delete(&resetRow{}, "hash = ?", hash).Error
 }
 
 func (s *Store) pgSaveUserAI(userID string, cfg UserAI) error {
