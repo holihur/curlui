@@ -40,10 +40,11 @@ async function smoke(browser) {
 
 async function streaming(browser) {
   console.log("\nstreaming (SSE)");
-  const page = await newPage(browser);
+  // The stream toggle lives in the Send menu now; seed the preference instead of
+  // driving the menu (the app reads it from localStorage).
+  const page = await newPage(browser, undefined, { "curlui.streamMode": "1" });
   await gotoApp(page);
-  step("enable Stream and target the SSE endpoint");
-  await page.locator("button[title*='Stream']").click();
+  step("stream mode on, target the SSE endpoint");
   await page.locator("input.font-mono").first().fill(`${ORIGIN}/events`);
   await page.locator("button[title='Send']").click();
   await sleep(300);
@@ -53,6 +54,8 @@ async function streaming(browser) {
   check(later > first, `chunks arrive incrementally (${first} → ${later})`);
   check(await page.getByRole("tab", { name: /Chunks/ }).count() > 0, "Chunks tab appears");
   check(await page.getByRole("tab", { name: /Events/ }).count() > 0, "Events tab appears");
+  // (The stream/save/cURL entries live in the Send menu; the toggle is covered
+  //  above via its persisted preference.)
   await page.getByRole("tab", { name: /Events/ }).click();
   await sleep(300);
   const ticks = ((await page.locator("body").innerText()).match(/tick/g) || []).length;

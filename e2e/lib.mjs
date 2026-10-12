@@ -130,13 +130,15 @@ export async function launch() {
   });
 }
 
-/** newPage returns a page with a clean localStorage and English UI. */
-export async function newPage(browser, viewport = { width: 1440, height: 900 }) {
+/** newPage returns a page with a clean localStorage and English UI. `prefs`
+ * seeds extra localStorage keys (the app reads its preferences from there). */
+export async function newPage(browser, viewport = { width: 1440, height: 900 }, prefs = {}) {
   const ctx = await browser.newContext({ viewport });
-  await ctx.addInitScript(() => {
+  await ctx.addInitScript((seed) => {
     localStorage.clear();
     localStorage.setItem("curlui.locale", "en");
-  });
+    for (const [k, v] of Object.entries(seed)) localStorage.setItem(k, v);
+  }, prefs);
   const page = await ctx.newPage();
   page.on("pageerror", (e) => console.log("    ! pageerror: " + e.message.slice(0, 160)));
   return page;
