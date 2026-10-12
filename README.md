@@ -110,12 +110,21 @@ Prefer manual? Grab a self-contained archive for your platform from
 
 ## Run from source
 
-Requires Go 1.25+ and Node 20+.
+The toolchain is pinned in [`mise.toml`](mise.toml) (Go 1.25, Node 22), so
+`mise install` gives you exactly what CI uses. Go 1.25+ and Node 20+ also work
+without mise.
 
 ```bash
-make build      # build UI + server → server/curlui-server
-make dev        # server on :8080 + Vite on :5173 (hot reload)
+mise install          # Go + Node at the pinned versions
+
+mise run build        # UI + both binaries → server/curlui-server[-core]
+mise run dev          # server on :8080 + Vite on :5173 (hot reload)
+mise run check        # every quality gate (vet, tests, tsc, i18n, build, size)
+mise run e2e          # end-to-end suite (mise run e2e:core for the core build)
 ```
+
+The same commands are available without mise: `make build`, `make dev`,
+`bash scripts/check.sh`, `cd e2e && node run.mjs`.
 
 ## Configuration
 

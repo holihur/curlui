@@ -14,13 +14,8 @@ jobs:
     steps:
       - uses: actions/checkout@v7
 
-      - uses: actions/setup-go@v7
-        with:
-          go-version-file: server/go.mod
-
-      - uses: actions/setup-node@v7
-        with:
-          node-version: "22"
+      # Installs the Go and Node versions declared in mise.toml.
+      - uses: jdx/mise-action@v5
 
       - name: Build frontend (full)
         working-directory: web
