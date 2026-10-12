@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState, lazy, Suspense, type ReactNode } from "react";
-import { AlertCircle, Bug, CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, Database, FlaskConical, Loader2, Play, Radio, RefreshCw, Save, Send, Square, Wand2, XCircle } from "lucide-react";
+import { AlertCircle, Bug, Check, CheckCircle2, ChevronDown, ChevronRight, Clock, Code2, Database, FlaskConical, Loader2, Play, Radio, RefreshCw, Save, Send, Square, Wand2, XCircle } from "lucide-react";
 import { Button } from "@/components/ui/button";
 import { Input } from "@/components/ui/input";
 import { Textarea } from "@/components/ui/textarea";
@@ -240,9 +240,35 @@ export function RequestEditor() {
                 <ChevronDown className="h-4 w-4" />
               </Button>
             </DropdownMenuTrigger>
-            <DropdownMenuContent align="end" className="w-48">
+            <DropdownMenuContent align="end" className="w-56">
               <DropdownMenuItem onClick={() => void send()}>
                 <Send /> {t("sendNow")}
+              </DropdownMenuItem>
+              {tab.request.protocol !== "grpc" && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setStreamMode(!streamMode);
+                  }}
+                >
+                  {streamMode ? <Check /> : <Radio />} {t("stream")}
+                </DropdownMenuItem>
+              )}
+              {tab.request.protocol !== "grpc" && streamMode && (
+                <DropdownMenuItem
+                  onClick={(e) => {
+                    e.preventDefault();
+                    setAutoReconnect(!autoReconnect);
+                  }}
+                >
+                  {autoReconnect ? <Check /> : <RefreshCw />} {t("autoReconnect")}
+                </DropdownMenuItem>
+              )}
+              <DropdownMenuItem onClick={() => void saveActiveTab()}>
+                <Save /> {t("saveTooltip")}
+              </DropdownMenuItem>
+              <DropdownMenuItem onClick={() => setCodeOpen(true)}>
+                <Code2 /> {t("codeTooltip")}
               </DropdownMenuItem>
               <DropdownMenuItem onClick={() => void send({ mock: true })}>
                 <FlaskConical /> {t("sendAsMock")}
@@ -264,62 +290,11 @@ export function RequestEditor() {
         </div>
         </div>
 
-        {/* Actions live under the Send button. */}
-        <div className="flex flex-wrap items-center gap-1.5">
-          {tab.request.protocol !== "grpc" && (
-            <button
-              type="button"
-              onClick={() => setStreamMode(!streamMode)}
-              title={t("stream")}
-              className={cn(
-                "flex h-8 items-center gap-1 rounded-md border px-2 text-xs font-medium transition-colors",
-                streamMode
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-input bg-background text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <Radio className="h-4 w-4" />
-            </button>
-          )}
-          {tab.request.protocol !== "grpc" && streamMode && (
-            <button
-              type="button"
-              onClick={() => setAutoReconnect(!autoReconnect)}
-              title={t("autoReconnect")}
-              className={cn(
-                "flex h-8 items-center rounded-md border px-2 text-xs font-medium transition-colors",
-                autoReconnect
-                  ? "border-primary bg-primary/10 text-primary"
-                  : "border-input bg-background text-muted-foreground hover:text-foreground",
-              )}
-            >
-              <RefreshCw className="h-4 w-4" />
-            </button>
-          )}
-          {req.options.sendVia === "browser" && (
-            <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-400">
-              {t("browserBadge")}
-            </span>
-          )}
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => void saveActiveTab()}>
-                <Save className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("saveTooltip")}</TooltipContent>
-          </Tooltip>
-
-          <Tooltip>
-            <TooltipTrigger asChild>
-              <Button variant="outline" size="icon" className="h-8 w-8" onClick={() => setCodeOpen(true)}>
-                <Code2 className="h-4 w-4" />
-              </Button>
-            </TooltipTrigger>
-            <TooltipContent>{t("codeTooltip")}</TooltipContent>
-          </Tooltip>
-        </div>
+        {req.options.sendVia === "browser" && (
+          <span className="rounded bg-sky-500/15 px-1.5 py-0.5 text-[10px] font-medium text-sky-400">
+            {t("browserBadge")}
+          </span>
+        )}
       </div>
 
       {openapiIssues.length > 0 && (
