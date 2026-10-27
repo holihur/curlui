@@ -1,0 +1,5 @@
+# pnpm settings (read automatically by pnpm from this directory).
+# esbuild ships a postinstall script that links its platform binary; pnpm
+# blocks dependency build scripts by default, so approve it explicitly.
+allowBuilds:
+  esbuild: true
