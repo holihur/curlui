@@ -20,12 +20,12 @@ jobs:
       - name: Build frontend (full)
         working-directory: web
         run: |
-          npm ci || npm install
-          CURLUI_DIST=dist npm run build
+          pnpm install --frozen-lockfile
+          CURLUI_DIST=dist pnpm run build
 
       - name: Build frontend (core, no pdf.js)
         working-directory: web
-        run: CURLUI_PDF=0 CURLUI_DIST=dist-core npm run build
+        run: CURLUI_PDF=0 CURLUI_DIST=dist-core pnpm run build
 
       - name: Embed frontends into the server
         run: |

@@ -24,7 +24,7 @@ function loadChromium() {
       /* try next */
     }
   }
-  throw new Error("Playwright is not installed. Run: npm i -D playwright && npx playwright install chromium");
+  throw new Error("Playwright is not installed. Run: pnpm add -D playwright && pnpm exec playwright install chromium");
 }
 
 const api = async (p, data, method) => {

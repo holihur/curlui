@@ -19,7 +19,7 @@ jobs:
 
       - name: Install frontend dependencies
         working-directory: web
-        run: npm ci || npm install
+        run: pnpm install --frozen-lockfile
 
       - name: Quality gates (vet, tests, tsc, i18n, features, build, size)
         env:
@@ -29,8 +29,8 @@ jobs:
       - name: Install Playwright chromium
         working-directory: e2e
         run: |
-          npm install --no-audit --no-fund
-          npx playwright install --with-deps chromium
+          pnpm install --frozen-lockfile
+          pnpm exec playwright install --with-deps chromium
 
       - name: E2E (full build)
         working-directory: e2e

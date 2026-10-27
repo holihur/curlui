@@ -1,8 +1,9 @@
 # Toolchain versions for curlui — the single source of truth for local dev and
 # CI (https://mise.jdx.dev). Run `mise install` once, then `mise run check`.
 [tools]
-go = "1.25"
-node = "22"
+go = "1.27.3"
+node = "26.12.1"
+"npm:pnpm" = "12.15.0"
 
 [tasks.build]
 description = "Build both frontends and both binaries"
@@ -14,11 +15,11 @@ run = "bash scripts/check.sh"
 
 [tasks.e2e]
 description = "Run the end-to-end suite against the full build"
-run = "cd e2e && npm install --no-audit --no-fund && node run.mjs"
+run = "cd e2e && pnpm install --frozen-lockfile && node run.mjs"
 
 [tasks."e2e:core"]
 description = "Run the end-to-end suite against the core build"
-run = "cd e2e && npm install --no-audit --no-fund && CURLUI_BIN=../server/curlui-server-core CURLUI_PORT=8092 node run.mjs"
+run = "cd e2e && pnpm install --frozen-lockfile && CURLUI_BIN=../server/curlui-server-core CURLUI_PORT=8092 node run.mjs"
 
 [tasks.dev]
 description = "Start the Vite dev server against a local curlui"

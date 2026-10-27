@@ -29,7 +29,7 @@ function chromePath() {
   for (const c of candidates) {
     if (c && existsSync(c)) return c;
   }
-  throw new Error("no chromium found — run `npx playwright install chromium`");
+  throw new Error("no chromium found — run `pnpm exec playwright install chromium`");
 }
 
 let failures = 0;

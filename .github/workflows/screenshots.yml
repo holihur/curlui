@@ -36,8 +36,7 @@ jobs:
 
       - name: Install Playwright
         run: |
-          npm i -D playwright@latest
-          npx playwright install --with-deps chromium
+          pnpm dlx playwright@latest install --with-deps chromium
 
       - name: Build and capture screenshots
         run: bash scripts/screenshots.sh

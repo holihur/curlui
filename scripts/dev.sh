@@ -17,4 +17,4 @@ echo "  Web  : http://localhost:5173  (Vite proxies /api -> :8080)"
 echo
 
 cd web
-npm run dev
+pnpm run dev

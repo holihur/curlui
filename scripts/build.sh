@@ -10,11 +10,11 @@ VERSION="${VERSION:-$(git describe --tags --always --dirty 2>/dev/null || echo d
 
 cd web
 if [ ! -d node_modules ]; then
-  npm install --no-audit --no-fund
+  pnpm install --frozen-lockfile
 fi
 
 echo "==> Building frontend (full)"
-CURLUI_DIST=dist npm run build
+CURLUI_DIST=dist pnpm run build
 cd ..
 node scripts/precompress.mjs web/dist
 rm -rf server/internal/webui/dist
@@ -24,7 +24,7 @@ touch server/internal/webui/dist/.gitkeep
 
 echo "==> Building frontend (core, no pdf.js)"
 cd web
-CURLUI_PDF=0 CURLUI_DIST=dist-core npm run build
+CURLUI_PDF=0 CURLUI_DIST=dist-core pnpm run build
 cd ..
 node scripts/precompress.mjs web/dist-core
 rm -rf server/internal/webui/dist_core

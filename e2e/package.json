@@ -1,6 +1,7 @@
 {
   "name": "curlui-e2e",
   "private": true,
+  "packageManager": "pnpm@12.15.0",
   "type": "module",
   "description": "End-to-end tests for curlui (self-contained: they spin up their own echo/SSE server and a throwaway curlui instance).",
   "scripts": {

@@ -16,10 +16,10 @@ server:
 	cd server && go build -o curlui-server .
 
 web:
-	cd web && npm run build
+	cd web && pnpm run build
 
 install:
-	cd web && npm install
+	cd web && pnpm install
 
 clean:
 	rm -rf web/dist server/curlui-server data

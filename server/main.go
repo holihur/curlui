@@ -219,7 +219,7 @@ func setCacheHeaders(w http.ResponseWriter, name string) {
 func spaHandler(dir string) http.Handler {
 	if _, err := os.Stat(filepath.Join(dir, "index.html")); err != nil {
 		return http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
-			http.Error(w, "frontend not built yet.\n\nRun:  cd web && npm install && npm run build\nOr start the dev server:  npm run dev", http.StatusNotFound)
+			http.Error(w, "frontend not built yet.\n\nRun:  cd web && pnpm install && pnpm run build\nOr start the dev server:  pnpm run dev", http.StatusNotFound)
 		})
 	}
 	return spaFS(os.DirFS(dir))

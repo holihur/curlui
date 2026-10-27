@@ -34,7 +34,7 @@ step "go test (full + core)"
 ok "tests pass"
 
 step "TypeScript"
-(cd web && npx tsc --noEmit)
+(cd web && pnpm exec tsc --noEmit)
 ok "tsc clean"
 
 step "i18n parity"

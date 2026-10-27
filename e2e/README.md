@@ -6,7 +6,7 @@ drives the real UI with Playwright.
 
 ```bash
 cd e2e
-npm install
+pnpm install
 node run.mjs                                   # full build
 
 CURLUI_BIN=../server/curlui-server-core \
