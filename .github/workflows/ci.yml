@@ -30,7 +30,7 @@ jobs:
         working-directory: e2e
         run: |
           pnpm install --frozen-lockfile
-          pnpm exec playwright install --with-deps chromium
+          pnpm dlx playwright@latest install --with-deps chromium
 
       - name: E2E (full build)
         working-directory: e2e
