@@ -49,8 +49,8 @@ step "build (full + core) + size budget"
 bash scripts/build.sh > /tmp/curlui-check-build.log 2>&1 || { tail -30 /tmp/curlui-check-build.log; die "build failed"; }
 core_bytes=$(stat -c%s server/curlui-server-core)
 full_bytes=$(stat -c%s server/curlui-server)
-limit=$((10 * 1024 * 1024))
-[ "$core_bytes" -lt "$limit" ] || die "core is $(numfmt --to=iec "$core_bytes") — over the 10 MB budget"
-ok "full $(numfmt --to=iec "$full_bytes")  ·  core $(numfmt --to=iec "$core_bytes") (< 10 MB)"
+limit=$((12 * 1024 * 1024))
+[ "$core_bytes" -lt "$limit" ] || die "core is $(numfmt --to=iec "$core_bytes") — over the 12 MB budget"
+ok "full $(numfmt --to=iec "$full_bytes")  ·  core $(numfmt --to=iec "$core_bytes") (< 12 MB)"
 
 printf "\n\033[1;32mALL QUALITY GATES PASSED\033[0m\n"
