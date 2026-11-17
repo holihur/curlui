@@ -1,7 +1,7 @@
 # Toolchain versions for curlui — the single source of truth for local dev and
 # CI (https://mise.jdx.dev). Run `mise install` once, then `mise run check`.
 [tools]
-go = "1.27.3"
+go = "1.27.4"
 node = "26.12.1"
 "npm:pnpm" = "12.15.0"
 
